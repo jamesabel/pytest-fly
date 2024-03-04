@@ -1,0 +1,29 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pytest-fly"
+version = "0.1.0"
+description = "A pytest plugin to record test execution details in a SQLite database"
+authors = [{name = "Your Name"}]
+dependencies = [
+    "pytest>=6.0",
+]
+dynamic = ["classifiers"]
+
+[project.urls]
+Homepage = "https://github.com/jamesabel/pytest-fly"
+Repository = "https://github.com/jamesabel/pytest-fly"
+
+[tool.hatch.metadata.hooks]
+version = {enable = false}
+
+[tool.pytest.ini_options]
+db_path = "pytest_fly.db"
+
+[tool.pytest11.entry_points]
+pytest11 = ["fly = pytest_fly.plugin"]
+
+[tool.black]
+line-length = 240

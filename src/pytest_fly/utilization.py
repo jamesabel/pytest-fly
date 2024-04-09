@@ -3,6 +3,7 @@ from collections import defaultdict
 
 from .db import RunInfo
 
+
 def merge_intervals(intervals: List[Tuple[float, float]]) -> List[Tuple[float, float]]:
     """Merge overlapping intervals."""
     if not intervals:
@@ -22,7 +23,13 @@ def merge_intervals(intervals: List[Tuple[float, float]]) -> List[Tuple[float, f
 
     return merged
 
+
 def calculate_utilization(data: Dict[str, Dict[str, RunInfo]]) -> Tuple[Dict[str, float], float]:
+    """
+    Calculate utilization for each worker and overall utilization.
+    :param data: Dictionary with test names as keys and dictionaries with phase names as keys and RunInfo objects as values.
+    :return: Tuple with a dictionary with worker IDs as keys and utilization as values and overall utilization.
+    """
     worker_intervals = defaultdict(list)
     all_times = []
 
@@ -49,4 +56,3 @@ def calculate_utilization(data: Dict[str, Dict[str, RunInfo]]) -> Tuple[Dict[str
     overall_utilization = total_busy_time_all_workers / (total_time_span * num_processors)
 
     return utilization, overall_utilization
-

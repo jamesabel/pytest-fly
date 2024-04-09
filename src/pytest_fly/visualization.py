@@ -10,13 +10,17 @@ from .utilization import calculate_utilization
 
 
 def visualize(plot_file_path: Path | None = None) -> None:
+    """
+    Visualize a timeline of test phases per worker.
+    :param plot_file_path: Path to save the plot to.
+    """
     run_info = get_most_recent_run_info()
 
     root = tk.Tk()
     root.title("Test Phases Timeline")
 
     fig, ax = plt.subplots(figsize=(20, 3 + len(run_info) * 0.5))  # Dynamic height based on the number of tests
-    plot_timeline(run_info, fig, ax, plot_file_path)
+    _plot_timeline(run_info, fig, ax, plot_file_path)
 
     canvas = FigureCanvasTkAgg(fig, master=root)  # A tk.DrawingArea
     canvas.draw()
@@ -25,7 +29,14 @@ def visualize(plot_file_path: Path | None = None) -> None:
     tk.mainloop()
 
 
-def plot_timeline(data: Dict[str, Dict[str, RunInfo]], fig, ax, plot_file_path: Path | None) -> None:
+def _plot_timeline(data: Dict[str, Dict[str, RunInfo]], fig, ax, plot_file_path: Path | None) -> None:
+    """
+    Plot a timeline of test phases per worker.
+    :param data: Dictionary with test names as keys and dictionaries with phase names as keys and RunInfo objects as values.
+    :param fig: Matplotlib figure object.
+    :param ax: Matplotlib axis object.
+    :param plot_file_path: Path to save the plot to.
+    """
     sorted_data = dict(sorted(data.items(), key=lambda x: x[0], reverse=True))
     worker_utilization, overall_utilization = calculate_utilization(sorted_data)
     earliest_start = min(phase.start for test in sorted_data.values() for phase in test.values())

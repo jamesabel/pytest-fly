@@ -1,6 +1,8 @@
 appdirs
 msqlite
 ismain
+numpy
+matplotlib
 # testing
 pytest
 pytest-xdist

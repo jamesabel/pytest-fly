@@ -6,7 +6,7 @@ from .visualization import visualize
 
 
 def main():
-    visualize(Path("temp", "fly.png"))  # todo: make output file a command line argument
+    visualize(Path("temp", "ptest-fly.png"))  # todo: make output file a command line argument
 
 
 if is_main():

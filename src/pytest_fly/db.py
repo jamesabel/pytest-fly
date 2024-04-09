@@ -105,36 +105,57 @@ def get_all_test_run_ids(table_name: str = get_table_name()) -> set[str]:
 
 
 meta_session_table_name = "_session"
-meta_session_schema = {"id PRIMARY KEY": int, "ts": float, "state": str}
+meta_session_schema = {"id PRIMARY KEY": int, "ts": float, "test_name": str, "state": str}
 
 
-def _get_most_recent_state_and_time(db) -> tuple[int | None, str | None, float | None]:
+def _get_most_recent_row_values(db) -> tuple[int | None, str | None, float | None]:
     statement = f"SELECT * FROM {meta_session_table_name} ORDER BY ts DESC LIMIT 1"
     rows = list(db.execute(statement))
     row = rows[0] if len(rows) > 0 else None
     if row is None:
-        state_ts = None, None, None
+        id_state_ts = None, None, None
     else:
-        state_ts = row[0], row[2], row[1]
-    return state_ts
+        id_state_ts = row[0], row[3], row[1]
+    return id_state_ts
+
 
 def write_start():
     db_path = get_db_path()
     with MSQLite(db_path, meta_session_table_name, meta_session_schema) as db:
         # get the most recent state
-        id_value, state, ts = _get_most_recent_state_and_time(db)
+        id_value, state, ts = _get_most_recent_row_values(db)
         if state != "start":
             statement = f"INSERT OR REPLACE INTO {meta_session_table_name} (ts, state) VALUES ({time.time()}, 'start')"
             db.execute(statement)
 
 
-def write_finish():
+def write_finish(test_name: str):
     db_path = get_db_path()
     with MSQLite(db_path, meta_session_table_name, meta_session_schema) as db:
-        id_value, state, ts = _get_most_recent_state_and_time(db)
+        id_value, state, ts = _get_most_recent_row_values(db)
         now = time.time()
         if state == "start":
-            statement = f"INSERT INTO {meta_session_table_name} (ts, state) VALUES ({now}, 'finish')"
+            statement = f"INSERT INTO {meta_session_table_name} (ts, test_name, state) VALUES ({now}, '{test_name}', 'finish')"
         else:
             statement = f"UPDATE {meta_session_table_name} SET ts = {now}, state = 'finish' WHERE id = {id_value}"
         db.execute(statement)
+
+
+def get_most_recent_start_and_finish() -> tuple[str | None, float | None, float | None]:
+    db_path = get_db_path()
+    with MSQLite(db_path, meta_session_table_name, meta_session_schema) as db:
+        statement = f"SELECT * FROM {meta_session_table_name} ORDER BY ts DESC LIMIT 2"
+        rows = list(db.execute(statement))
+        start_ts = rows[1][1]
+        finish_ts = rows[0][1]
+        test_name = rows[0][2]
+    return test_name, start_ts, finish_ts
+
+
+def get_most_recent_run_info() -> list:
+    test_name, start_ts, finish_ts = get_most_recent_start_and_finish()
+    db_path = get_db_path()
+    with MSQLite(db_path, test_name) as db:
+        statement = f"SELECT * FROM {test_name} WHERE ts >= {start_ts} and ts <= {finish_ts}"
+        rows = list(db.execute(statement))
+    return rows

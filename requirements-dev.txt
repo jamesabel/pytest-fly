@@ -1,5 +1,6 @@
 appdirs
 msqlite
+ismain
 # testing
 pytest
 pytest-xdist

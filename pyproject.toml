@@ -33,7 +33,8 @@ classifiers = [
 dependencies = [
     "pytest>=6.2.0",
     "msqlite",
-    "appdirs"
+    "appdirs",
+    "ismain"
 ]
 [project.urls]
 Repository = "https://github.com/jamesabel/pytest-fly"

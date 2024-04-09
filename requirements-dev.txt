@@ -3,6 +3,9 @@ msqlite
 ismain
 numpy
 matplotlib
+# linters
+black
+flake8
 # testing
 pytest
 pytest-xdist

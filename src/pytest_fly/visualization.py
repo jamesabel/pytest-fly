@@ -7,10 +7,15 @@ from datetime import datetime
 import numpy as np
 
 from .db import get_most_recent_run_info, RunInfo
+from .utilization import calculate_utilization
 
 
 def visualize():
     run_info = get_most_recent_run_info()
+
+    utilization, overall_utilization = calculate_utilization(run_info)
+    print(f"{utilization=}")
+    print(f"{overall_utilization=}")
 
     root = tk.Tk()
     root.title("Test Phases Timeline")

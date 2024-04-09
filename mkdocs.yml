@@ -1,0 +1,10 @@
+site_name: pytest-fly
+site_description: pytest observer
+site_author: James Abel
+
+theme: readthedocs
+
+repo_url: https://github.com/jamesabel/pytest-fly
+
+pages:
+- Home: index.md

@@ -1,0 +1,5 @@
+appdirs
+msqlite
+# testing
+pytest
+pytest-xdist

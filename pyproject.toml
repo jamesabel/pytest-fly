@@ -1,7 +1,7 @@
 [project]
 name = "pytest-fly"
 description = "pytest observer"
-version = "0.0.6"
+version = "0.0.7"
 readme = "README.md"
 requires-python = ">=3.12"
 authors = [

@@ -26,7 +26,9 @@ dependencies = [
     "pytest",
     "msqlite",
     "appdirs",
-    "ismain"
+    "ismain",
+    "matplotlib",
+    "numpy",
 ]
 [project.urls]
 Home = "https://github.com/jamesabel/pytest-fly"

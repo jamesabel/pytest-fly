@@ -1,6 +1,6 @@
 import pytest
 from _pytest.reports import BaseReport
-from src.pytest_fly.db import write_report, write_start, write_finish
+from .db import write_report, write_start, write_finish
 
 
 def pytest_addoption(parser):

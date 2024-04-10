@@ -13,7 +13,7 @@ from appdirs import user_data_dir
 
 from _pytest.reports import BaseReport
 
-from src.pytest_fly.report_converter import report_to_json
+from .report_converter import report_to_json
 
 from .__version__ import author, application_name
 

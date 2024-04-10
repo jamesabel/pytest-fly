@@ -1,14 +1,8 @@
-[build-system]
-requires = [
-  "setuptools>=61.0.0",
-]
-build-backend = "setuptools.build_meta"
-
 [project]
 name = "pytest-fly"
 description = "pytest observer"
-version = "0.1.0"
-readme = "README.rst"
+version = "0.0.1"
+readme = "README.md"
 requires-python = ">=3.12"
 authors = [
     { name = "James Abel", email = "j@abel.co" },
@@ -16,7 +10,7 @@ authors = [
 maintainers = [
     { name = "James Abel", email = "j@abel.co" },
 ]
-license = {file = "LICENSE"}
+license = { file = "LICENSE" }
 classifiers = [
     "Framework :: Pytest",
     "Development Status :: 4 - Beta",
@@ -26,17 +20,27 @@ classifiers = [
     "Programming Language :: Python",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3 :: Only",
-    "Programming Language :: Python :: Implementation :: CPython",
-    "Programming Language :: Python :: Implementation :: PyPy",
     "License :: OSI Approved :: MIT License",
 ]
 dependencies = [
-    "pytest>=6.2.0",
+    "pytest",
     "msqlite",
     "appdirs",
     "ismain"
 ]
 [project.urls]
+Home = "https://github.com/jamesabel/pytest-fly"
 Repository = "https://github.com/jamesabel/pytest-fly"
+
 [project.entry-points.pytest11]
 fly = "pytest_fly.plugin"
+
+[tool.black]
+line-length = 192
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+
+

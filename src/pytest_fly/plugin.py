@@ -5,7 +5,7 @@ from src.pytest_fly.db import write_report, write_start, write_finish
 
 def pytest_addoption(parser):
     write_start()
-    parser.addoption('--fly', action='store_true')
+    parser.addoption("--fly", action="store_true")
 
 
 @pytest.hookimpl(tryfirst=True)

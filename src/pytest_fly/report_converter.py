@@ -34,7 +34,7 @@ def _convert_report_to_dict(report: BaseReport) -> dict[str, Any]:
     report_dict = {}
     for attr in dir(report):
         # Exclude private attributes and methods, None, and zero-length lists
-        if not attr.startswith('__') and (value := getattr(report, attr)) is not None:
+        if not attr.startswith("__") and (value := getattr(report, attr)) is not None:
             has_size = isinstance(value, Sized)
             if not has_size or has_size and len(value) > 0:
                 # Check if the attribute is serializable

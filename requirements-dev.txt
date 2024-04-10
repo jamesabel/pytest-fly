@@ -6,6 +6,10 @@ matplotlib
 # linters
 black
 flake8
+mypy
 # testing
 pytest
 pytest-xdist
+# distribution
+flit
+hatch

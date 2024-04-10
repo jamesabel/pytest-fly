@@ -52,8 +52,7 @@ def _plot_timeline(data: Dict[str, Dict[str, RunInfo]], fig, ax, plot_file_path:
             relative_stop = phase_info.stop - earliest_start
             worker_id = phase_info.worker_id
 
-            ax.plot([relative_start, relative_stop], [i, i], color=worker_colors[worker_id], marker='o', markersize=4,
-                    label=worker_id if phase_name == 'setup' else "")
+            ax.plot([relative_start, relative_stop], [i, i], color=worker_colors[worker_id], marker="o", markersize=4, label=worker_id if phase_name == "setup" else "")
 
             if phase_name == list(phases.keys())[0]:
                 yticks.append(i)
@@ -61,20 +60,20 @@ def _plot_timeline(data: Dict[str, Dict[str, RunInfo]], fig, ax, plot_file_path:
 
     ax.set_yticks(yticks)
     ax.set_yticklabels(yticklabels)
-    ax.set_xlabel('Time (seconds)')
-    ax.set_ylabel('Test Names')
-    ax.set_title('Timeline of Test Phases per Worker')
+    ax.set_xlabel("Time (seconds)")
+    ax.set_ylabel("Test Names")
+    ax.set_title("Timeline of Test Phases per Worker")
     ax.grid(True)
 
-    ax.text(1.0, 1.02, f"Overall Utilization: {overall_utilization:.2%}", transform=ax.transAxes, horizontalalignment='right', fontsize=9)
+    ax.text(1.0, 1.02, f"Overall Utilization: {overall_utilization:.2%}", transform=ax.transAxes, horizontalalignment="right", fontsize=9)
     text_position = 1.05
     for worker, utilization in worker_utilization.items():
-        ax.text(1.0, text_position, f"{worker}: {utilization:.2%}", transform=ax.transAxes, horizontalalignment='right', fontsize=9)
+        ax.text(1.0, text_position, f"{worker}: {utilization:.2%}", transform=ax.transAxes, horizontalalignment="right", fontsize=9)
         text_position += 0.03
 
     handles, labels = ax.get_legend_handles_labels()
     by_label = dict(zip(labels, handles))
-    legend = ax.legend(by_label.values(), by_label.keys(), title="Workers", loc='upper left', bbox_to_anchor=(1.01, 1), fontsize=9)
+    legend = ax.legend(by_label.values(), by_label.keys(), title="Workers", loc="upper left", bbox_to_anchor=(1.01, 1), fontsize=9)
 
     plt.subplots_adjust(right=0.9)  # Make space for the legend
 

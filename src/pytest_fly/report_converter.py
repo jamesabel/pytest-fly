@@ -34,7 +34,7 @@ def _convert_report_to_dict(report: BaseReport) -> dict[str, Any]:
     report_dict = {}
     for attr in dir(report):
         # Exclude private attributes and methods, None, and zero-length lists
-        if not attr.startswith('__') and (value := getattr(report, attr)) is not None:
+        if not attr.startswith("__") and (value := getattr(report, attr)) is not None:
             has_size = isinstance(value, Sized)
             if not has_size or has_size and len(value) > 0:
                 # Check if the attribute is serializable
@@ -56,7 +56,7 @@ def report_to_json(report: BaseReport) -> str:
     """
     d = _convert_report_to_dict(report)
     # remove fields that we don't need that can have formatting issues with SQLite JSON
-    removes = ["sections", "capstdout", "capstderr"]
+    removes = ["sections", "capstdout", "capstderr", "caplog"]
     for remove in removes:
         if remove in d:
             del d[remove]

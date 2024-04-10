@@ -15,5 +15,6 @@ def pytest_runtest_logreport(report: BaseReport):
 
 @pytest.hookimpl(trylast=True)
 def pytest_sessionfinish(session, exitstatus):
-    table_name = session.startpath.name
-    write_finish(table_name)
+    item = session.items[0]
+    test_name = item.nodeid.split('/')[0]
+    write_finish(test_name)

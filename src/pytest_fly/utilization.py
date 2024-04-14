@@ -40,19 +40,24 @@ def calculate_utilization(data: Dict[str, Dict[str, RunInfo]]) -> Tuple[Dict[str
             all_times.extend([phase.start, phase.stop])
 
     # Calculate total time span
-    total_time_span = max(all_times) - min(all_times)
+    if len(all_times) > 0:
+        total_time_span = max(all_times) - min(all_times)
 
-    # Calculate utilization for each worker
-    utilization = {}
-    total_busy_time_all_workers = 0
-    for worker_id, intervals in worker_intervals.items():
-        merged = merge_intervals(intervals)
-        total_busy_time = sum(end - start for start, end in merged)
-        total_busy_time_all_workers += total_busy_time  # Sum busy times for overall utilization
-        utilization[worker_id] = total_busy_time / total_time_span
+        # Calculate utilization for each worker
+        utilization = {}
+        total_busy_time_all_workers = 0
+        for worker_id, intervals in worker_intervals.items():
+            merged = merge_intervals(intervals)
+            total_busy_time = sum(end - start for start, end in merged)
+            total_busy_time_all_workers += total_busy_time  # Sum busy times for overall utilization
+            utilization[worker_id] = total_busy_time / total_time_span
 
-    # Calculate overall utilization
-    num_processors = len(worker_intervals)
-    overall_utilization = total_busy_time_all_workers / (total_time_span * num_processors)
+        # Calculate overall utilization
+        num_processors = len(worker_intervals)
+        overall_utilization = total_busy_time_all_workers / (total_time_span * num_processors)
+
+    else:
+        utilization = {}
+        overall_utilization = 0
 
     return utilization, overall_utilization

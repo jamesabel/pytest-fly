@@ -56,7 +56,7 @@ def report_to_json(report: BaseReport) -> str:
     """
     d = _convert_report_to_dict(report)
     # remove fields that we don't need that can have formatting issues with SQLite JSON
-    removes = ["sections", "capstdout", "capstderr", "caplog", "longrepr"]
+    removes = ["sections", "capstdout", "capstderr", "caplog", "longrepr", "longreprtext"]
     for remove in removes:
         if remove in d:
             del d[remove]

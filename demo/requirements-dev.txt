@@ -1,0 +1,6 @@
+# app
+ismain
+# testing
+pytest
+pytest-xdist
+pytest-fly

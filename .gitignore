@@ -76,3 +76,5 @@ target/
 .idea/
 temp/
 ~$*.*
+.venv/
+venv/

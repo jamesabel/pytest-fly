@@ -19,7 +19,10 @@ class VizTk(tk.Tk):
 
         sorted_data = dict(sorted(self.run_info.items(), key=lambda x: x[0], reverse=True))
         worker_utilization, overall_utilization = calculate_utilization(sorted_data)
-        earliest_start = min(phase.start for test in sorted_data.values() for phase in test.values())
+        if len(starts := [phase.start for test in sorted_data.values() for phase in test.values()]) > 0:
+            earliest_start = min(starts)
+        else:
+            earliest_start = 0
 
         workers = set(info.worker_id for test in sorted_data.values() for info in test.values())
         colors = plt.cm.jet(np.linspace(0, 1, len(workers)))

@@ -78,3 +78,5 @@ temp/
 ~$*.*
 .venv/
 venv/
+# automatically generated
+test_demo/

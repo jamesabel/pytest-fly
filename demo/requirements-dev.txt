@@ -4,3 +4,4 @@ ismain
 pytest
 pytest-xdist
 pytest-fly
+pytest-pycharm

@@ -29,6 +29,7 @@ dependencies = [
     "ismain",
     "matplotlib",
     "numpy",
+    "watchdog",
 ]
 [project.urls]
 Home = "https://github.com/jamesabel/pytest-fly"

@@ -4,8 +4,21 @@ import matplotlib.pyplot as plt
 import numpy as np
 from pathlib import Path
 
-from .db import get_most_recent_run_info
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler
+
+from .db import get_most_recent_run_info, get_db_path, fly_db_file_name
 from .utilization import calculate_utilization
+
+
+class DatabaseChangeHandler(FileSystemEventHandler):
+    def __init__(self, update_callback):
+        self.update_callback = update_callback
+        super().__init__()
+
+    def on_modified(self, event):
+        if Path(event.src_path).name == fly_db_file_name:
+            self.update_callback()
 
 
 class VizTk(tk.Tk):
@@ -13,11 +26,26 @@ class VizTk(tk.Tk):
     def __init__(self, plot_file_path: Path | None = None):
         super().__init__()
         self.plot_file_path = plot_file_path
-        self.run_info = get_most_recent_run_info()
         self.title("Test Phases Timeline")
-        self.fig, self.ax = plt.subplots(figsize=(20, 3 + len(self.run_info) * 0.5))  # Dynamic height based on the number of tests
+        height = 10  # start out with a default height
+        self.fig, self.ax = plt.subplots(figsize=(20, 3 + height * 0.5))  # Dynamic height based on the number of tests
 
-        sorted_data = dict(sorted(self.run_info.items(), key=lambda x: x[0], reverse=True))
+        self.canvas = FigureCanvasTkAgg(self.fig, master=self)  # A tk.DrawingArea
+        self.canvas.draw()
+        self.canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=1)
+
+        # start file watcher
+        self.event_handler = DatabaseChangeHandler(self.update_plot)
+        self.observer = Observer()
+        db_path = get_db_path()
+        self.observer.schedule(self.event_handler, path=str(db_path.parent), recursive=False)  # watchdog watches a directory
+        self.observer.start()
+
+    def update_plot(self):
+
+        run_info = get_most_recent_run_info()
+
+        sorted_data = dict(sorted(run_info.items(), key=lambda x: x[0], reverse=True))
         worker_utilization, overall_utilization = calculate_utilization(sorted_data)
         if len(starts := [phase.start for test in sorted_data.values() for phase in test.values()]) > 0:
             earliest_start = min(starts)
@@ -27,6 +55,8 @@ class VizTk(tk.Tk):
         workers = set(info.worker_id for test in sorted_data.values() for info in test.values())
         colors = plt.cm.jet(np.linspace(0, 1, len(workers)))
         worker_colors = dict(zip(workers, colors))
+
+        self.ax.clear()
 
         yticks, yticklabels = [], []
         for i, (test_name, phases) in enumerate(sorted_data.items()):
@@ -60,16 +90,16 @@ class VizTk(tk.Tk):
 
         plt.subplots_adjust(right=0.9)  # Make space for the legend
 
+        self.canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=1)
+        self.canvas.draw()
+
         # Use bbox_extra_artists to include the legend in the tight layout calculation
         if self.plot_file_path is not None:
             self.plot_file_path.parent.mkdir(parents=True, exist_ok=True)
             self.fig.savefig(self.plot_file_path, bbox_extra_artists=[legend])
 
-        self.canvas = FigureCanvasTkAgg(self.fig, master=self)  # A tk.DrawingArea
-        self.canvas.draw()
-        self.canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=1)
-
     def destroy(self):
+        self.observer.stop()
         self.canvas.stop_event_loop()
         super().destroy()
 

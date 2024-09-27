@@ -50,11 +50,15 @@ def calculate_utilization(data: Dict[str, Dict[str, RunInfo]]) -> Tuple[Dict[str
             merged = merge_intervals(intervals)
             total_busy_time = sum(end - start for start, end in merged)
             total_busy_time_all_workers += total_busy_time  # Sum busy times for overall utilization
-            utilization[worker_id] = total_busy_time / total_time_span
+            if total_time_span > 0:
+                utilization[worker_id] = total_busy_time / total_time_span
 
         # Calculate overall utilization
         num_processors = len(worker_intervals)
-        overall_utilization = total_busy_time_all_workers / (total_time_span * num_processors)
+        if total_time_span > 0 and num_processors > 0:
+            overall_utilization = total_busy_time_all_workers / (total_time_span * num_processors)
+        else:
+            overall_utilization = 0.0
 
     else:
         utilization = {}

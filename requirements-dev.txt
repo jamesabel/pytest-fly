@@ -10,6 +10,7 @@ flake8
 mypy
 # testing
 pytest
+pytest-cov
 pytest-xdist
 pytest-pycharm
 # distribution

@@ -3,13 +3,16 @@ msqlite
 ismain
 numpy
 matplotlib
+watchdog
 # linters
 black
 flake8
 mypy
 # testing
 pytest
+pytest-cov
 pytest-xdist
+pytest-pycharm
 # distribution
 flit
 hatch

@@ -4,6 +4,9 @@ ismain
 numpy
 matplotlib
 watchdog
+PySide6
+pref
+attrs
 # linters
 black
 flake8

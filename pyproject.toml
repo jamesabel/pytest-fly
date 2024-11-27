@@ -1,7 +1,7 @@
 [project]
 name = "pytest-fly"
 description = "pytest observer"
-version = "0.0.12"
+version = "0.0.13"
 readme = "README.md"
 requires-python = ">=3.12"
 authors = [
@@ -30,6 +30,9 @@ dependencies = [
     "matplotlib",
     "numpy",
     "watchdog",
+    "PySide6",
+    "pref",
+    "attrs",
 ]
 [project.urls]
 Home = "https://github.com/jamesabel/pytest-fly"

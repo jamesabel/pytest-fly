@@ -13,7 +13,7 @@ class Preferences(Pref):
     window_height: int = attrib(default=-1)
 
     def __attrs_post_init__(self):
-        # pytest-fly.db is used to store the test run data. By default, pref would use this as the preferences DB file name, so we need to use a different name
+        # pytest-fly.db is used to store the test run data. By default, pref would have used pytest-fly.db as the preferences DB file name, so we need to use a different name.
         self.file_name = f"{application_name}_preferences.db"
         super().__attrs_post_init__()
 

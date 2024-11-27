@@ -30,7 +30,7 @@ def set_db_path(db_path: Path | str):
 
 def get_db_path() -> Path:
     fly_db_path.parent.mkdir(parents=True, exist_ok=True)
-    return Path(fly_db_path)
+    return fly_db_path
 
 
 @cache
@@ -117,6 +117,7 @@ def write_finish(test_name: str):
 
 
 def get_most_recent_start_and_finish() -> tuple[str | None, float | None, float | None]:
+    test_name = None
     start_ts = None
     finish_ts = None
     time_stamp_column = 1
@@ -151,42 +152,48 @@ class RunInfo:
 def get_most_recent_run_info() -> dict[str, dict[str, RunInfo]]:
     test_name, start_ts, finish_ts = get_most_recent_start_and_finish()
 
-    db_path = get_db_path()
-    with MSQLite(db_path, test_name) as db:
-        if finish_ts is None:
-            statement = f"SELECT * FROM {test_name} WHERE ts >= {start_ts} ORDER BY ts"
-        else:
-            statement = f"SELECT * FROM {test_name} WHERE ts >= {start_ts} and ts <= {finish_ts} ORDER BY ts"
-        rows = list(db.execute(statement))
-    run_infos = {}
-    for row in rows:
-        test_data = json.loads(row[-1])
-        test_id = test_data["nodeid"]
-        worker_id = test_data.get("worker_id")
-        when = test_data.get("when")
-        start = test_data.get("start")
-        stop = test_data.get("stop")
-        passed = test_data.get("passed")
-        if test_id in run_infos:
-            run_info = run_infos[test_id]
-            if start is not None:
-                if run_info[when].start is None:
-                    run_info[when].start = start
-                else:
-                    run_info[when].start = min(run_info[when].start, start)
-            if stop is not None:
-                if run_info[when].stop is None:
-                    run_info[when].stop = stop
-                else:
-                    run_info[when].stop = max(run_info[when].stop, stop)
-            if passed is not None:
-                run_info[when].passed = passed
-            if worker_id is not None:
-                run_info[when].worker_id = worker_id
-        else:
-            run_infos[test_id] = defaultdict(RunInfo)
-            run_infos[test_id][when] = RunInfo(worker_id, start, stop, passed)
-    # convert defaultdict to dict
-    run_infos = {test_id: dict(run_info) for test_id, run_info in run_infos.items()}
+    if test_name is None:
+        log.warning(f"{test_name=}")
+        run_infos = {}
+    else:
+        db_path = get_db_path()
+        with MSQLite(db_path, test_name) as db:
+            if start_ts is None:
+                statement = f"SELECT * FROM {test_name} ORDER BY ts"
+            elif finish_ts is None:
+                statement = f"SELECT * FROM {test_name} WHERE ts >= {start_ts} ORDER BY ts"
+            else:
+                statement = f"SELECT * FROM {test_name} WHERE ts >= {start_ts} and ts <= {finish_ts} ORDER BY ts"
+            rows = list(db.execute(statement))
+        run_infos = {}
+        for row in rows:
+            test_data = json.loads(row[-1])
+            test_id = test_data["nodeid"]
+            worker_id = test_data.get("worker_id")
+            when = test_data.get("when")
+            start = test_data.get("start")
+            stop = test_data.get("stop")
+            passed = test_data.get("passed")
+            if test_id in run_infos:
+                run_info = run_infos[test_id]
+                if start is not None:
+                    if run_info[when].start is None:
+                        run_info[when].start = start
+                    else:
+                        run_info[when].start = min(run_info[when].start, start)
+                if stop is not None:
+                    if run_info[when].stop is None:
+                        run_info[when].stop = stop
+                    else:
+                        run_info[when].stop = max(run_info[when].stop, stop)
+                if passed is not None:
+                    run_info[when].passed = passed
+                if worker_id is not None:
+                    run_info[when].worker_id = worker_id
+            else:
+                run_infos[test_id] = defaultdict(RunInfo)
+                run_infos[test_id][when] = RunInfo(worker_id, start, stop, passed)
+        # convert defaultdict to dict
+        run_infos = {test_id: dict(run_info) for test_id, run_info in run_infos.items()}
 
     return run_infos

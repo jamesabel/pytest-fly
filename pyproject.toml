@@ -1,7 +1,7 @@
 [project]
 name = "pytest-fly"
 description = "pytest observer"
-version = "0.0.13"
+version = "0.0.14"
 readme = "README.md"
 requires-python = ">=3.12"
 authors = [
@@ -33,6 +33,7 @@ dependencies = [
     "PySide6",
     "pref",
     "attrs",
+    "typeguard"
 ]
 [project.urls]
 Home = "https://github.com/jamesabel/pytest-fly"

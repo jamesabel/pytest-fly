@@ -7,6 +7,7 @@ watchdog
 PySide6
 pref
 attrs
+typeguard
 # linters
 black
 flake8
@@ -16,6 +17,8 @@ pytest
 pytest-cov
 pytest-xdist
 pytest-pycharm
+flask
+requests
 # distribution
 flit
 hatch

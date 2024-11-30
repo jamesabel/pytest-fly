@@ -1,6 +1,5 @@
 import sqlite3
 from pathlib import Path
-from msqlite import MSQLite
 import json
 import uuid
 from functools import cache
@@ -9,11 +8,14 @@ import time
 from dataclasses import dataclass
 from collections import defaultdict
 
+from msqlite import MSQLite
 from appdirs import user_data_dir
+from typeguard import typechecked
 
 from _pytest.reports import BaseReport
 
 from .report_converter import report_to_json
+from .os import rm_file
 
 from .__version__ import author, application_name
 
@@ -46,6 +48,20 @@ def _get_process_guid() -> str:
 fly_schema = {"id PRIMARY KEY": int, "ts": float, "uid": str, "pt_when": str, "nodeid": str, "report": json}
 
 
+class PytestFlyDB(MSQLite):
+    @typechecked
+    def __init__(self, table_name: str, schema: dict[str, type] | None = None, retry_limit: int | None = None):
+        db_path = get_db_path()
+        log.info(f"{db_path=}")
+        super().__init__(db_path, table_name, schema, retry_limit=retry_limit)
+
+    def delete(self):
+        """
+        Delete the database file. Generally not needed. Mainly for testing.
+        """
+        rm_file(self.db_path)
+
+
 def get_table_name_from_report(report: BaseReport) -> str:
     """
     Get the table name from the report file path
@@ -70,8 +86,7 @@ def write_report(report: BaseReport):
     pt_when = report.when
     node_id = report.nodeid
     setattr(report, "is_xdist", is_xdist)  # signify if we're running pytest-xdist or not
-    db_path = get_db_path()
-    with MSQLite(db_path, table_name, fly_schema) as db:
+    with PytestFlyDB(table_name, fly_schema) as db:
         report_json = report_to_json(report)
         statement = f"INSERT OR REPLACE INTO {table_name} (ts, uid, pt_when, nodeid, report) VALUES ({time.time()}, '{testrun_uid}', '{pt_when}', '{node_id}', '{report_json}')"
         try:
@@ -85,8 +100,7 @@ meta_session_schema = {"id PRIMARY KEY": int, "ts": float, "test_name": str, "st
 
 
 def _write_meta_session(test_name: str, state: str):
-    db_path = get_db_path()
-    with MSQLite(db_path, meta_session_table_name, meta_session_schema, retry_limit=10) as db:
+    with PytestFlyDB(meta_session_table_name, meta_session_schema, retry_limit=10) as db:
         now = time.time()
 
         # update meta_session table
@@ -123,8 +137,7 @@ def get_most_recent_start_and_finish() -> tuple[str | None, float | None, float 
     time_stamp_column = 1
     test_name_column = 2
     phase_column = 3
-    db_path = get_db_path()
-    with MSQLite(db_path, meta_session_table_name, meta_session_schema) as db:
+    with PytestFlyDB(meta_session_table_name, meta_session_schema) as db:
         statement = f"SELECT * FROM {meta_session_table_name} ORDER BY ts DESC LIMIT 2"
         result = db.execute(statement)
         rows = list(result)
@@ -156,8 +169,7 @@ def get_most_recent_run_info() -> dict[str, dict[str, RunInfo]]:
         log.warning(f"{test_name=}")
         run_infos = {}
     else:
-        db_path = get_db_path()
-        with MSQLite(db_path, test_name) as db:
+        with PytestFlyDB(test_name) as db:
             if start_ts is None:
                 statement = f"SELECT * FROM {test_name} ORDER BY ts"
             elif finish_ts is None:

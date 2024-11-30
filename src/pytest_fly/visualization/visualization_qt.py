@@ -1,5 +1,6 @@
 from pathlib import Path
 
+
 from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGroupBox
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
@@ -31,12 +32,14 @@ class PlotWindow(QGroupBox):
         layout = QVBoxLayout()
         self.setLayout(layout)
 
+
 class TestPlotCanvas(FigureCanvas):
     def __init__(self, parent=None, width=5, height=4, dpi=100):
         fig = Figure(figsize=(width, height), dpi=dpi)
         self.axes = fig.add_subplot(111)
         super().__init__(fig)
         self.setParent(parent)
+
 
 class RunningWindow(QGroupBox):
     def __init__(self):
@@ -45,6 +48,7 @@ class RunningWindow(QGroupBox):
         layout = QVBoxLayout()
         self.setLayout(layout)
         layout.addWidget(QLabel("Running"))
+
 
 class CentralWindow(QWidget):
     def __init__(self):
@@ -57,9 +61,12 @@ class CentralWindow(QWidget):
         layout.addWidget(self.running_window)
         self.setLayout(layout)
 
-class VizQt(QMainWindow):
+
+class VisualizationQt(QMainWindow):
     def __init__(self):
         super().__init__()
+
+        self.update_count = 0
 
         self.setWindowTitle(application_name)
 
@@ -85,8 +92,9 @@ class VizQt(QMainWindow):
         self.observer.schedule(self.event_handler, path=str(db_path.parent), recursive=False)  # watchdog watches a directory
         self.observer.start()
 
-
     def update_plot(self):
+
+        self.update_count += 1
 
         run_info = get_most_recent_run_info()
 
@@ -120,7 +128,7 @@ class VizQt(QMainWindow):
         self.canvas.axes.set_yticklabels(yticklabels)
         self.canvas.axes.set_xlabel("Time (seconds)")
         self.canvas.axes.set_ylabel("Test Names")
-        self.canvas.axes.set_title("Timeline of Test Phases per Worker")
+        self.canvas.axes.set_title(f"Timeline of Test Phases per Worker ({self.update_count})")
         self.canvas.axes.grid(True)
 
         self.canvas.axes.text(1.0, 1.02, f"Overall Utilization: {overall_utilization:.2%}", transform=self.canvas.axes.transAxes, horizontalalignment="right", fontsize=9)
@@ -129,11 +137,7 @@ class VizQt(QMainWindow):
             self.canvas.axes.text(1.0, text_position, f"{worker}: {utilization:.2%}", transform=self.canvas.axes.transAxes, horizontalalignment="right", fontsize=9)
             text_position += 0.03
 
-
-
-
-
-
+        self.canvas.draw()
 
     def closeEvent(self, event):
         pref = get_pref()
@@ -150,6 +154,6 @@ class VizQt(QMainWindow):
 
 def visualize(plot_file_path: Path | None = None):
     app = QApplication([])
-    viz_qt = VizQt()
+    viz_qt = VisualizationQt()
     viz_qt.show()
     app.exec()

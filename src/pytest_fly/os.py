@@ -1,6 +1,5 @@
 import os
 import stat
-import shutil
 import time
 from pathlib import Path
 from typing import Union
@@ -8,7 +7,7 @@ from logging import getLogger
 import getpass
 import platform
 import sys
-from functools import lru_cache, cache
+from functools import cache
 
 from typeguard import typechecked
 
@@ -79,24 +78,6 @@ def rm_file(p: Union[Path, str], log_function=log.error) -> bool:
     else:
         delete_ok = True
     return delete_ok
-
-
-def mkdirs(d, remove_first=False, log_function=log.error):
-    if remove_first:
-        rmdir(d, log_function)
-    # sometimes when os.makedirs exits the dir is not actually there
-    count = 600
-    while count > 0 and not os.path.exists(d):
-        try:
-            # for some reason we can get the FileNotFoundError exception
-            os.makedirs(d, exist_ok=True)
-        except FileNotFoundError:
-            pass
-        if not os.path.exists(d):
-            time.sleep(0.1)
-        count -= 1
-    if not os.path.exists(d):
-        log_function(f'could not mkdirs "{d}" ({os.path.abspath(d)})')
 
 
 def is_file_locked(file_path: Path) -> bool:

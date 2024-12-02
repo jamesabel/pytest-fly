@@ -1,50 +1,35 @@
 import time
-import json
-import random
+import shutil
+from pathlib import Path
 
-import requests
+from src.pytest_fly.db import get_most_recent_start_and_finish, get_db_path
 
-from src.pytest_fly.db import get_most_recent_start_and_finish
-
-from tests.orchestrator import completed_key, current_test_key, get_http_url
-
-
-def get_current_test() -> int:
-    response = requests.get(get_http_url())
-    response_dict = json.loads(response.text)
-    current_test = int(response_dict[current_test_key])
-    return current_test
-
-
-def wait_for_current_test(expected_current_test: int):
-    while (current_test := get_current_test()) != expected_current_test:
-        print(f"Waiting for {expected_current_test=}, {current_test=}")
-        time.sleep(random.random())
-    print(f"Done waiting for {expected_current_test=}, {current_test=}")
-
-
-def done(test_number: int):
-    requests.post(get_http_url(), json={completed_key: test_number})
+from tests.orchestrator import wait_for_current_test, done
 
 
 def test_simple_0():
-    time.sleep(5)
+
+    # db_file_path = get_db_path()
+    # snapshot_db_file_name = db_file_path.name.replace(".db", "_snapshot_0.db")
+    # shutil.copy2(db_file_path, Path("temp", snapshot_db_file_name))
+
     test_number = 0
-    test_name, start, finish = get_most_recent_start_and_finish()
-    print(f"{test_name=}, {start=}, {finish=}")
-    wait_for_current_test(test_number)
-    done(test_number)
+    time.sleep(5)
+    # wait_for_current_test(test_number)
+    # done(test_number)
 
 
 def test_simple_1():
     time.sleep(10)
     test_number = 1
-    wait_for_current_test(test_number)
-    done(test_number)
+    # wait_for_current_test(test_number)
+    # done(test_number)
 
 
 def test_simple_2():
     time.sleep(15)
     test_number = 2
-    wait_for_current_test(test_number)
-    done(test_number)
+    # wait_for_current_test(test_number)
+    # done(test_number)
+    # test_name, start, finish = get_most_recent_start_and_finish()
+    # assert test_name is not None and len(test_name) > 0

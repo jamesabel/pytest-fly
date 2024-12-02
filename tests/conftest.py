@@ -2,29 +2,25 @@ from multiprocessing import Process
 import time
 
 # required for local testing, even though these are "not used"
-from src.pytest_fly import pytest_addoption, pytest_runtest_logreport, pytest_sessionfinish
+from src.pytest_fly import pytest_addoption, pytest_runtest_logreport, pytest_sessionfinish, pytest_sessionstart
 
 import pytest
 from src.pytest_fly.visualization import visualize
 from src.pytest_fly.xdist_workers import is_main_worker
 from src.pytest_fly.db import PytestFlyDB
 
-from tests.orchestrator import Orchestrator, init_port, remove_port
+from tests.orchestrator import TstOrchestrator, init_port, remove_port
 
 pytest_plugins = "pytester"
 
 
-class RunVisualize(Process):
-    def __init__(self):
-        super().__init__()
-        self.daemon = True
-
+class VisualizeProcess(Process):
     def run(self):
         visualize()
 
 
 @pytest.fixture(scope="session", autouse=True)
-def run_visualize() -> bool:
+def run_visualize():
     """
     Run pytest-fly visualization.
     """
@@ -32,19 +28,17 @@ def run_visualize() -> bool:
 
         init_port()
 
-        db = PytestFlyDB("test")
-        db.delete()  # start from scratch
+        # pop up one app/window in a separate process
+        # visualize_process = VisualizeProcess()
+        # visualize_process.start()
 
-        orchestrator = Orchestrator()  # tells tests what to do (when running in parallel using xdist)
+        orchestrator = TstOrchestrator()  # tells tests what to do (when running in parallel using xdist)
         orchestrator.start()
 
-        # pop up one app/window in a separate process
-        run_visualize = RunVisualize()
-        run_visualize.start()
         yield True
-        time.sleep(10)
-        run_visualize.terminate()
+
+        # visualize_process.terminate()
         orchestrator.terminate()
         remove_port()
     else:
-        yield False
+        yield True

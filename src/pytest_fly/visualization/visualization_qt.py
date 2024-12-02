@@ -164,7 +164,7 @@ class RunningWindow(QGroupBox):
         lines = []
         for test in sorted(test_states):
             test_state, test_duration = test_states[test]
-            lines.append(f"{test},{test_state},{test_duration:.1f}")
+            lines.append(f"{test},{test_state},{test_duration:.2f}")
         lines.append(f"{time_delta_to_string(overall_duration)} ({len(run_infos)},{self.count})")
         self.running_text_label.setText("\n".join(lines))
         self.count += 1

@@ -16,16 +16,17 @@ class Visualize(Process):
 def generate_tests():
     # generate tests
 
-    test_dir = Path("test_demo")
+    test_file_prefix = "fly_case"
+    test_dir = Path("fly_demo")
     test_dir.mkdir(exist_ok=True, parents=True)
     print(f'writing demo tests to "{test_dir.resolve()}"')
     # delete any existing tests
-    for test_file in test_dir.glob("test_case_*.py"):
+    for test_file in test_dir.glob(f"{test_file_prefix}*.py"):
         test_file.unlink()
     groups = 3
     subgroups = 4
     for test_group in range(groups):
-        test_case_file = Path(test_dir, f"test_case_{chr(test_group + ord('a'))}.py")
+        test_case_file = Path(test_dir, f"{test_file_prefix}_{chr(test_group + ord('a'))}.py")
         with test_case_file.open("w") as f:
             f.write("import time\n")
             f.write("\n")

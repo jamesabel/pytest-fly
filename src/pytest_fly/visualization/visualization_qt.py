@@ -3,7 +3,6 @@ from datetime import datetime, timedelta
 from typing import Callable
 from threading import Event
 from logging import getLogger
-import time
 from copy import deepcopy
 
 from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGroupBox
@@ -43,7 +42,6 @@ class DatabaseChangeHandler(FileSystemEventHandler):
 
 class TestPlotCanvas(FigureCanvas):
     def __init__(self, parent=None, width=5, height=4, dpi=100):
-        self.count = 0
         fig = Figure(figsize=(width, height), dpi=dpi)
         self.axes = fig.add_subplot(111)
         super().__init__(fig)
@@ -69,7 +67,7 @@ class TestPlotCanvas(FigureCanvas):
 
             self.axes.clear()
 
-            yticks, yticklabels = [], []
+            y_ticks, y_tick_labels = [], []
             for i, (test_name, phases) in enumerate(sorted_data.items()):
                 for phase_name, phase_info in phases.items():
                     relative_start = phase_info.start - earliest_start
@@ -80,11 +78,11 @@ class TestPlotCanvas(FigureCanvas):
                     self.axes.plot([relative_start, relative_stop], [i, i], color=worker_colors[worker_id], marker="o", markersize=4, label=label)
 
                     if phase_name == list(phases.keys())[0]:
-                        yticks.append(i)
-                        yticklabels.append(test_name)
+                        y_ticks.append(i)
+                        y_tick_labels.append(test_name)
 
-            self.axes.set_yticks(yticks)
-            self.axes.set_yticklabels(yticklabels)
+            self.axes.set_yticks(y_ticks)
+            self.axes.set_yticklabels(y_tick_labels)
             self.axes.set_xlabel("Time (seconds)")
             self.axes.set_ylabel("Test Names")
             self.axes.grid(True)
@@ -95,9 +93,8 @@ class TestPlotCanvas(FigureCanvas):
                 self.axes.text(1.0, text_position, f"{worker}: {utilization:.2%}", transform=self.axes.transAxes, horizontalalignment="right", fontsize=9)
                 text_position += 0.03
 
-        self.axes.set_title(f"Timeline of Test Phases per Worker ({self.count})")
+        self.axes.set_title(f"Timeline of Test Phases per Worker")
         self.draw()
-        self.count += 1
 
 
 class PlotWindow(QGroupBox):
@@ -134,7 +131,6 @@ class RunningWindow(QGroupBox):
     def __init__(self):
         self.count = 0
         super().__init__()
-        self.start_timestamp = datetime.now()
         self.setTitle("Running")
         layout = QVBoxLayout()
         self.setLayout(layout)
@@ -148,24 +144,26 @@ class RunningWindow(QGroupBox):
         for test, test_data in run_infos.items():
             start = None
             stop = None
-            state = "not started"
             for phase, run_info in test_data.items():
                 if run_info.start is not None and (start is None or run_info.start < start):
                     start = run_info.start
                 if run_info.stop is not None and (stop is None or run_info.stop > stop):
                     stop = run_info.stop
             if start is not None and stop is not None and stop > start:
-                state = "finished"
-                test_states[test] = (state, stop - start)
+                test_states[test] = stop - start
             else:
-                test_states[test] = (state, None)
+                test_states[test] = None
 
-        overall_duration = datetime.now() - self.start_timestamp
         lines = []
         for test in sorted(test_states):
-            test_state, test_duration = test_states[test]
-            lines.append(f"{test},{test_state},{test_duration:.2f}")
-        lines.append(f"{time_delta_to_string(overall_duration)} ({len(run_infos)},{self.count})")
+            if (test_duration := test_states[test]) is None:
+                lines.append(f"{test},running")
+            else:
+                lines.append(f"{test},{test_duration:.2f}")
+
+        filled_block = "█"
+        blink = filled_block if self.count % 2 == 0 else " "
+        lines.append(f"{blink}")
         self.running_text_label.setText("\n".join(lines))
         self.count += 1
 

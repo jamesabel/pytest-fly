@@ -93,7 +93,7 @@ class TestPlotCanvas(FigureCanvas):
                 self.axes.text(1.0, text_position, f"{worker}: {utilization:.2%}", transform=self.axes.transAxes, horizontalalignment="right", fontsize=9)
                 text_position += 0.03
 
-        self.axes.set_title(f"Timeline of Test Phases per Worker")
+        self.axes.set_title("Timeline of Test Phases per Worker")
         self.draw()
 
 

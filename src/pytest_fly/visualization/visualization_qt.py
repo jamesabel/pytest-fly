@@ -46,6 +46,7 @@ class TestPlotCanvas(FigureCanvas):
         self.axes = fig.add_subplot(111)
         super().__init__(fig)
         self.setParent(parent)
+        fig.subplots_adjust(left=0.25)  # Adjust the left margin
 
     def update_plot(self, run_info: dict):
         """
@@ -74,12 +75,11 @@ class TestPlotCanvas(FigureCanvas):
                     relative_stop = phase_info.stop - earliest_start
                     worker_id = phase_info.worker_id
 
-                    label = worker_id if phase_name == "setup" else ""
-                    self.axes.plot([relative_start, relative_stop], [i, i], color=worker_colors[worker_id], marker="o", markersize=4, label=label)
+                    self.axes.plot([relative_start, relative_stop], [i, i], color=worker_colors[worker_id], marker="o", markersize=4)
 
-                    if phase_name == list(phases.keys())[0]:
-                        y_ticks.append(i)
-                        y_tick_labels.append(test_name)
+                    # if phase_name == list(phases.keys())[0]:
+                    y_ticks.append(i)
+                    y_tick_labels.append(f"{test_name} ({phase_name})")
 
             self.axes.set_yticks(y_ticks)
             self.axes.set_yticklabels(y_tick_labels)

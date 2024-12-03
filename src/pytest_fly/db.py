@@ -6,11 +6,9 @@ from functools import cache
 from logging import getLogger
 import time
 from dataclasses import dataclass
-from collections import defaultdict
 
 from msqlite import MSQLite
 from appdirs import user_data_dir
-from typeguard import typechecked
 
 from _pytest.reports import BaseReport
 
@@ -56,7 +54,7 @@ fly_schema = {"id PRIMARY KEY": int, "ts": float, "uid": str, "pt_when": str, "n
 
 
 class PytestFlyDB(MSQLite):
-    @typechecked
+
     def __init__(self, table_name: str, schema: dict[str, type] | None = None, retry_limit: int | None = None):
         db_path = get_db_path()
         log.info(f"{db_path=}")

@@ -134,36 +134,38 @@ def get_test_groupings() -> list[TestGrouping]:
     time_stamp_column = 1
     test_name_column = 2
     phase_column = 3
+    phase = None
+    test_name = None
+    test_grouping = None
     test_groupings = []
     with PytestFlyDB(meta_session_table_name, meta_session_schema) as db:
         statement = f"SELECT * FROM {meta_session_table_name} ORDER BY ts"
         result = db.execute(statement)
         rows = list(result)
-        finish_ts = None
-        test_name = None
         earliest_start = None
         for row in rows:
             phase = row[phase_column]
+            test_name = row[test_name_column]
             if phase == "start":
-                if earliest_start is not None and finish_ts is not None and test_name is not None:
-                    # if prior test hasn't been saved yet
-                    assert isinstance(earliest_start, float)
-                    test_grouping = TestGrouping(earliest_start, finish_ts, test_name)
+                if test_grouping is not None:
+                    # "pending" grouping
                     test_groupings.append(test_grouping)
-                    earliest_start = None
+                    test_grouping = None
                 time_stamp = row[time_stamp_column]
                 if earliest_start is None or time_stamp < earliest_start:
                     earliest_start = time_stamp
-                test_name = row[test_name_column]
-                finish_ts = None
             elif phase == "finish":
                 finish_ts = row[time_stamp_column]
-                test_name = row[test_name_column]
+                test_grouping = TestGrouping(earliest_start, finish_ts, test_name)
             else:
                 raise ValueError(f"Unknown phase: {row[phase_column]}")
 
-    if earliest_start is not None and finish_ts is not None and test_name is not None:
-        test_grouping = TestGrouping(earliest_start, finish_ts, test_name)
+    if test_grouping is None:
+        if phase == "start":
+            # Grouping without a finish. Use current time.
+            test_grouping = TestGrouping(earliest_start, time.time(), test_name)
+            test_groupings.append(test_grouping)
+    else:
         test_groupings.append(test_grouping)
 
     test_groupings.sort(key=lambda x: x.start)

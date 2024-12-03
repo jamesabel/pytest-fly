@@ -120,7 +120,7 @@ class PeriodicUpdater(QThread):
     def run(self):
         while not self._stop_event.is_set():
             self.update_callback()
-            self._stop_event.wait(1)
+            self._stop_event.wait(10)
 
     def request_stop(self):
         self._stop_event.set()

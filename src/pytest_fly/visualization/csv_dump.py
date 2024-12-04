@@ -12,4 +12,4 @@ def csv_dump(run_infos: dict, csv_file_path: Path):
         for test, test_info in run_infos.items():
             for phase, run_info in test_info.items():
                 row = {"test": test, "phase": phase, "worker_id": run_info.worker_id, "start": run_info.start, "stop": run_info.stop, "passed": run_info.passed}
-            csv_writer.writerow(row)
+                csv_writer.writerow(row)

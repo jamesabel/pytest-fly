@@ -1,5 +1,5 @@
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Callable
 from threading import Event
 from logging import getLogger
@@ -16,8 +16,8 @@ import matplotlib.pyplot as plt
 
 from ..__version__ import application_name
 from ..db import get_most_recent_run_info, get_db_path, fly_db_file_name
-from ..utilization import calculate_utilization
-from ..visualization.csv_dump import csv_dump
+from .utilization import calculate_utilization
+from .csv_dump import csv_dump
 from .preferences import get_pref
 
 log = getLogger(application_name)

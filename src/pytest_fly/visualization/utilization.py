@@ -1,7 +1,7 @@
 from typing import List, Tuple, Dict
 from collections import defaultdict
 
-from .db import RunInfo
+from ..db import RunInfo
 
 
 def merge_intervals(intervals: List[Tuple[float, float]]) -> List[Tuple[float, float]]:

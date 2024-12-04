@@ -5,7 +5,7 @@ from threading import Event
 from logging import getLogger
 from copy import deepcopy
 
-from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGroupBox
+from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGroupBox, QScrollArea
 from PySide6.QtCore import QThread, Signal
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
@@ -14,9 +14,10 @@ from watchdog.events import FileSystemEventHandler
 import numpy as np
 import matplotlib.pyplot as plt
 
+from ..__version__ import application_name
 from ..db import get_most_recent_run_info, get_db_path, fly_db_file_name
 from ..utilization import calculate_utilization
-from ..__version__ import application_name
+from ..visualization.csv_dump import csv_dump
 from .preferences import get_pref
 
 log = getLogger(application_name)
@@ -87,11 +88,15 @@ class TestPlotCanvas(FigureCanvas):
             self.axes.set_ylabel("Test Names")
             self.axes.grid(True)
 
-            self.axes.text(1.0, 1.02, f"Overall Utilization: {overall_utilization:.2%}", transform=self.axes.transAxes, horizontalalignment="right", fontsize=9)
+            self.axes.text(1.0, 1.02, f"Overall Utilization: {overall_utilization:.2%}", transform=self.axes.transAxes, horizontalalignment="right", fontsize=6)
             text_position = 1.05
             for worker, utilization in worker_utilization.items():
-                self.axes.text(1.0, text_position, f"{worker}: {utilization:.2%}", transform=self.axes.transAxes, horizontalalignment="right", fontsize=9)
+                self.axes.text(1.0, text_position, f"{worker}: {utilization:.2%}", transform=self.axes.transAxes, horizontalalignment="right", fontsize=6)
                 text_position += 0.03
+
+            # Adjust figure size based on the number of y-ticks
+            fig_height = max(4, int(len(y_ticks) / 10.0))
+            self.figure.set_size_inches(10, fig_height)
 
         self.axes.set_title("Timeline of Test Phases per Worker")
         self.draw()
@@ -109,6 +114,7 @@ class PlotWindow(QGroupBox):
     def update_plot(self, run_info: dict):
         run_info = deepcopy(run_info)
         self.canvas.update_plot(run_info)
+        self.canvas.setMinimumSize(self.canvas.sizeHint())
 
 
 class PeriodicUpdater(QThread):
@@ -120,7 +126,7 @@ class PeriodicUpdater(QThread):
     def run(self):
         while not self._stop_event.is_set():
             self.update_callback()
-            self._stop_event.wait(10)
+            self._stop_event.wait(100)
 
     def request_stop(self):
         self._stop_event.set()
@@ -175,8 +181,18 @@ class CentralWindow(QWidget):
         layout = QHBoxLayout()
         self.running_window = RunningWindow()
         self.plot_window = PlotWindow()
-        layout.addWidget(self.plot_window, stretch=1)  # expand to fill the available space
-        layout.addWidget(self.running_window)
+
+        # Create scroll areas for both windows
+        self.running_scroll_area = QScrollArea()
+        self.running_scroll_area.setWidgetResizable(True)
+        self.running_scroll_area.setWidget(self.running_window)
+
+        self.plot_scroll_area = QScrollArea()
+        self.plot_scroll_area.setWidgetResizable(True)
+        self.plot_scroll_area.setWidget(self.plot_window)
+
+        layout.addWidget(self.plot_scroll_area, stretch=1)
+        layout.addWidget(self.running_scroll_area)
         self.setLayout(layout)
 
 
@@ -190,9 +206,14 @@ class VisualizationQt(QMainWindow):
 
         # restore window position and size
         pref = get_pref()
-        x, y, width, height = pref.window_x, pref.window_y, pref.window_width, pref.window_height
+        screen = QApplication.primaryScreen()
+        available_geometry = screen.availableGeometry()
+        x = min(pref.window_x, available_geometry.width() - 1)
+        y = min(pref.window_y, available_geometry.height() - 1)
+        width = min(pref.window_width, available_geometry.width())
+        height = min(pref.window_height, available_geometry.height())
         if x > 0 and y > 0 and width > 0 and height > 0:
-            self.setGeometry(pref.window_x, pref.window_y, pref.window_width, pref.window_height)
+            self.setGeometry(x, y, width, height)
 
         self.central_window = CentralWindow()
         self.setCentralWidget(self.central_window)
@@ -214,9 +235,11 @@ class VisualizationQt(QMainWindow):
         self._update_signal.emit()
 
     def update_plot(self):
+        pref = get_pref()
         run_infos = get_most_recent_run_info()
         self.central_window.running_window.update_window(run_infos)
         self.central_window.plot_window.update_plot(run_infos)
+        csv_dump(run_infos, Path(pref.csv_dump_path))
 
     def closeEvent(self, event):
         pref = get_pref()

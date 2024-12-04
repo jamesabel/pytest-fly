@@ -13,6 +13,8 @@ class Preferences(Pref):
     window_y: int = attrib(default=-1)
     window_width: int = attrib(default=-1)
     window_height: int = attrib(default=-1)
+    splitter_left: int = attrib(default=400)
+    splitter_right: int = attrib(default=200)
     csv_dump_path: str = attrib(default=str(Path(user_data_dir(application_name, author), f"{application_name}.csv")))
 
     def __attrs_post_init__(self):

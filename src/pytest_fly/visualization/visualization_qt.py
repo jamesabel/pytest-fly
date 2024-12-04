@@ -5,7 +5,7 @@ from threading import Event
 from logging import getLogger
 from copy import deepcopy
 
-from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGroupBox, QScrollArea
+from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGroupBox, QScrollArea, QSplitter
 from PySide6.QtCore import QThread, Signal
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
@@ -179,6 +179,8 @@ class CentralWindow(QWidget):
         super().__init__()
 
         layout = QHBoxLayout()
+        self.splitter = QSplitter()
+
         self.running_window = RunningWindow()
         self.plot_window = PlotWindow()
 
@@ -191,9 +193,18 @@ class CentralWindow(QWidget):
         self.plot_scroll_area.setWidgetResizable(True)
         self.plot_scroll_area.setWidget(self.plot_window)
 
-        layout.addWidget(self.plot_scroll_area, stretch=1)
-        layout.addWidget(self.running_scroll_area)
+        self.splitter.addWidget(self.plot_scroll_area)
+        self.splitter.addWidget(self.running_scroll_area)
+
+        layout.addWidget(self.splitter)
+
         self.setLayout(layout)
+
+    def set_sizes(self, sizes: list[int]):
+        self.splitter.setSizes(sizes)
+
+    def get_sizes(self) -> list[int]:
+        return self.splitter.sizes()
 
 
 class VisualizationQt(QMainWindow):
@@ -204,6 +215,8 @@ class VisualizationQt(QMainWindow):
 
         self.setWindowTitle(application_name)
 
+        self.central_window = CentralWindow()
+
         # restore window position and size
         pref = get_pref()
         screen = QApplication.primaryScreen()
@@ -212,10 +225,12 @@ class VisualizationQt(QMainWindow):
         y = min(pref.window_y, available_geometry.height() - 1)
         width = min(pref.window_width, available_geometry.width())
         height = min(pref.window_height, available_geometry.height())
-        if x > 0 and y > 0 and width > 0 and height > 0:
+        splitter_left = pref.splitter_left
+        splitter_right = pref.splitter_right
+        if x > 0 and y > 0 and width > 0 and height > 0 and splitter_left > 0 and splitter_right > 0:
             self.setGeometry(x, y, width, height)
+            self.central_window.set_sizes([splitter_left, splitter_right])
 
-        self.central_window = CentralWindow()
         self.setCentralWidget(self.central_window)
 
         # start file watcher
@@ -249,6 +264,10 @@ class VisualizationQt(QMainWindow):
         pref.window_y = self.y() + frame_height
         pref.window_width = self.width()
         pref.window_height = self.height()
+
+        sizes = self.central_window.get_sizes()
+        pref.splitter_left = sizes[0]
+        pref.splitter_right = sizes[1]
 
         self.observer.stop()
         self.periodic_updater.request_stop()

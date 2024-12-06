@@ -4,7 +4,7 @@ from .visualization import visualize_qt, visualize_textual
 
 
 def main():
-    if False:
+    if True:
         visualize_qt()
     else:
         visualize_textual()

@@ -87,6 +87,9 @@ class PeriodicUpdater(QThread):
     def request_new_wait_time(self, new_wait_time: float):
         self._wait_time_signal.emit(new_wait_time)
 
+    def get_wait_time(self) -> float:
+        return self._wait_time
+
 
 class VisualizationQt(QMainWindow):
     _update_signal = Signal()
@@ -124,7 +127,6 @@ class VisualizationQt(QMainWindow):
 
         self.periodic_updater = PeriodicUpdater(self.request_update)
         self.periodic_updater.start()
-        self._update_time = 1  # seconds
         self.request_update()
 
     def request_update(self):
@@ -137,9 +139,11 @@ class VisualizationQt(QMainWindow):
         self.central_window.update_window(run_infos)
         csv_dump(run_infos, Path(pref.csv_dump_path))
         duration = time.time() - start
-        new_wait_time = max(1.0, duration * 2)
+        update_overhead = 0.1
+        new_wait_time = max(1.0, duration / update_overhead)
         self.periodic_updater.request_new_wait_time(new_wait_time)
-        self.setWindowTitle(f"{application_name} (update time: {self._update_time:.1f}s)")
+        wait_time = self.periodic_updater.get_wait_time()
+        self.setWindowTitle(f"{application_name} (update time: {wait_time:.1f}s)")
 
     def closeEvent(self, event):
         pref = get_pref()

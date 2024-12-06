@@ -6,7 +6,7 @@ from matplotlib import pyplot as plt
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 
-from .utilization import calculate_utilization
+from ..utilization import calculate_utilization
 
 
 class PlotWindow(QGroupBox):

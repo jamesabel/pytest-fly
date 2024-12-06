@@ -5,9 +5,12 @@ numpy
 matplotlib
 watchdog
 PySide6
+textual
 pref
 attrs
 typeguard
+# dev
+textual-dev
 # linters
 black
 flake8

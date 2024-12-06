@@ -1,16 +1,17 @@
 from pathlib import Path
 from threading import Event
 from typing import Callable
+import time
 
 from PySide6.QtCore import Signal, QThread
 from PySide6.QtWidgets import QMainWindow, QApplication, QWidget, QHBoxLayout, QSplitter, QScrollArea
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
-from ..__version__ import application_name
-from ..db import get_db_path, get_most_recent_run_info, fly_db_file_name
-from .csv_dump import csv_dump
-from .preferences import get_pref
+from ...__version__ import application_name
+from ...db import get_db_path, get_most_recent_run_info, fly_db_file_name
+from ..csv_dump import csv_dump
+from ..preferences import get_pref
 from .plot_window import PlotWindow
 from .status_window import StatusWindow
 
@@ -63,18 +64,28 @@ class CentralWindow(QWidget):
 
 
 class PeriodicUpdater(QThread):
+    _wait_time_signal = Signal(float)
+
     def __init__(self, update_callback: Callable):
         super().__init__()
+        self._wait_time = 1.0  # seconds
         self.update_callback = update_callback
         self._stop_event = Event()
+        self._wait_time_signal.connect(self._set_wait_time)
 
     def run(self):
         while not self._stop_event.is_set():
             self.update_callback()
-            self._stop_event.wait(1)
+            self._stop_event.wait(self._wait_time)
 
     def request_stop(self):
         self._stop_event.set()
+
+    def _set_wait_time(self, wait_time: float):
+        self._wait_time = wait_time
+
+    def request_new_wait_time(self, new_wait_time: float):
+        self._wait_time_signal.emit(new_wait_time)
 
 
 class VisualizationQt(QMainWindow):
@@ -113,17 +124,22 @@ class VisualizationQt(QMainWindow):
 
         self.periodic_updater = PeriodicUpdater(self.request_update)
         self.periodic_updater.start()
-
+        self._update_time = 1  # seconds
         self.request_update()
 
     def request_update(self):
         self._update_signal.emit()
 
     def update_plot(self):
+        start = time.time()
         pref = get_pref()
         run_infos = get_most_recent_run_info()
         self.central_window.update_window(run_infos)
         csv_dump(run_infos, Path(pref.csv_dump_path))
+        duration = time.time() - start
+        new_wait_time = max(1.0, duration * 2)
+        self.periodic_updater.request_new_wait_time(new_wait_time)
+        self.setWindowTitle(f"{application_name} (update time: {self._update_time:.1f}s)")
 
     def closeEvent(self, event):
         pref = get_pref()
@@ -146,7 +162,7 @@ class VisualizationQt(QMainWindow):
         event.accept()
 
 
-def visualize(plot_file_path: Path | None = None):
+def visualize_qt():
     app = QApplication([])
     viz_qt = VisualizationQt()
     viz_qt.show()

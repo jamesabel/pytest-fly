@@ -1,12 +1,13 @@
-from pathlib import Path
-
 from ismain import is_main
 
-from .visualization import visualize
+from .visualization import visualize_qt, visualize_textual
 
 
 def main():
-    visualize(Path("temp", "ptest-fly.png"))  # todo: make output file a command line argument
+    if False:
+        visualize_qt()
+    else:
+        visualize_textual()
 
 
 if is_main():

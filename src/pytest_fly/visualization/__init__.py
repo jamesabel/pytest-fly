@@ -1,1 +1,1 @@
-from .visualization_qt import visualize
+from .gui_main import visualize

@@ -2,7 +2,7 @@ from pathlib import Path
 
 from ismain import is_main
 
-from . import visualize
+from .visualization import visualize
 
 
 def main():

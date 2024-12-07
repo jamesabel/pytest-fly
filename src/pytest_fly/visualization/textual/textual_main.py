@@ -5,6 +5,8 @@ from textual.strip import Strip
 from textual.geometry import Size
 from rich.segment import Segment
 
+from .blocks import block_fraction_to_unicode, get_full_block
+
 
 def create_unicode_bar(value: float, length: int) -> str:
     """
@@ -21,22 +23,14 @@ def create_unicode_bar(value: float, length: int) -> str:
     value = max(0.0, min(value, 1.0))  # Ensure value is clamped between 0 and 1
 
     # determine the number of full blocks and the fraction of the partial block
-    blocks_real = value * length / 2
+    blocks_real = value * length / 8
     full_blocks = int(blocks_real)
     partial_block_fraction = blocks_real - full_blocks
 
-    # Select the correct character for the partial block
-    left_half_block = "\u258C"
-    full_block = "\u2588"
-    if partial_block_fraction >= 0.75:
-        partial_block = full_block
-    elif partial_block_fraction >= 0.25:
-        partial_block = left_half_block
-    else:
-        partial_block = ""
+    partial_block = block_fraction_to_unicode(partial_block_fraction, slices_per_block=8)
 
     # Create the bar
-    bar = full_block * full_blocks + partial_block
+    bar = get_full_block() * full_blocks + partial_block
     bar += " " * (length - len(bar))  # Pad with spaces to ensure fixed length
     return bar
 

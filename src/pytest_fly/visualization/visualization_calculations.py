@@ -65,3 +65,17 @@ def calculate_utilization(data: Dict[str, Dict[str, RunInfo]]) -> Tuple[Dict[str
         overall_utilization = 0
 
     return utilization, overall_utilization
+
+
+class VisualizationCalculations:
+    def __init__(self, run_info: dict):
+        self.run_info = run_info
+
+        self.sorted_data = dict(sorted(self.run_info.items(), key=lambda x: x[0], reverse=True))
+        self.worker_utilization, self.overall_utilization = calculate_utilization(self.sorted_data)
+        if len(starts := [phase.start for test in self.sorted_data.values() for phase in test.values()]) > 0:
+            self.earliest_start = min(starts)
+        else:
+            self.earliest_start = 0
+
+        self.workers = set(info.worker_id for test in self.sorted_data.values() for info in test.values())

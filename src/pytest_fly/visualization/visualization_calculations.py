@@ -71,11 +71,13 @@ class VisualizationCalculations:
     def __init__(self, run_info: dict):
         self.run_info = run_info
 
-        self.sorted_data = dict(sorted(self.run_info.items(), key=lambda x: x[0], reverse=True))
+        self.sorted_data = dict(sorted(self.run_info.items(), key=lambda x: x[0]))
         self.worker_utilization, self.overall_utilization = calculate_utilization(self.sorted_data)
         if len(starts := [phase.start for test in self.sorted_data.values() for phase in test.values()]) > 0:
             self.earliest_start = min(starts)
         else:
             self.earliest_start = 0
+        if len(stops := [phase.stop for test in self.sorted_data.values() for phase in test.values()]) > 0:
+            self.latest_stop = max(stops)
 
         self.workers = set(info.worker_id for test in self.sorted_data.values() for info in test.values())

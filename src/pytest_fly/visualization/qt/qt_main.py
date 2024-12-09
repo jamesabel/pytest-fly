@@ -12,7 +12,7 @@ from ...__version__ import application_name
 from ...db import get_db_path, get_most_recent_run_info, fly_db_file_name
 from ..csv_dump import csv_dump
 from ..preferences import get_pref
-from .plot_window import PlotWindow
+from .bar_chart_window import BarChartWindow
 from .status_window import StatusWindow
 
 
@@ -34,18 +34,18 @@ class CentralWindow(QWidget):
         self.splitter = QSplitter()
 
         self.status_window = StatusWindow()
-        self.plot_window = PlotWindow()
+        self.bar_chart_window = BarChartWindow()
 
         # Create scroll areas for both windows
         self.status_scroll_area = QScrollArea()
         self.status_scroll_area.setWidgetResizable(True)
         self.status_scroll_area.setWidget(self.status_window)
 
-        self.plot_scroll_area = QScrollArea()
-        self.plot_scroll_area.setWidgetResizable(True)
-        self.plot_scroll_area.setWidget(self.plot_window)
+        self.bar_chart_scroll_area = QScrollArea()
+        self.bar_chart_scroll_area.setWidgetResizable(True)
+        self.bar_chart_scroll_area.setWidget(self.bar_chart_window)
 
-        self.splitter.addWidget(self.plot_scroll_area)
+        self.splitter.addWidget(self.bar_chart_scroll_area)
         self.splitter.addWidget(self.status_scroll_area)
 
         layout.addWidget(self.splitter)
@@ -60,7 +60,7 @@ class CentralWindow(QWidget):
 
     def update_window(self, run_infos: dict):
         self.status_window.update_window(run_infos)
-        self.plot_window.update_plot(run_infos)
+        self.bar_chart_window.update_window(run_infos)
 
 
 class PeriodicUpdater(QThread):

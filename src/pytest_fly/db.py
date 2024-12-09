@@ -175,6 +175,7 @@ def get_test_groupings() -> list[TestGrouping]:
 
 @dataclass
 class RunInfo:
+    time_stamp: float
     worker_id: str | None = None
     start: float | None = None
     stop: float | None = None
@@ -218,6 +219,7 @@ def get_most_recent_run_info() -> dict[str, dict[str, RunInfo]]:
                 for row in rows:
                     test_data = json.loads(row[-1])
                     test_id = test_data.get("nodeid")
+                    time_stamp = row[1]
                     worker_id = test_data.get("worker_id")
                     when = test_data.get("when")
                     start = test_data.get("start")
@@ -227,6 +229,6 @@ def get_most_recent_run_info() -> dict[str, dict[str, RunInfo]]:
                         run_infos[test_id] = {}
                     if when not in run_infos[test_id]:
                         run_infos[test_id][when] = {}
-                    run_infos[test_id][when] = RunInfo(worker_id, start, stop, passed)
+                    run_infos[test_id][when] = RunInfo(time_stamp, worker_id, start, stop, passed)
 
     return run_infos

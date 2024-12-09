@@ -9,7 +9,7 @@ from matplotlib.figure import Figure
 from ..visualization_calculations import VisualizationCalculations
 
 
-class PlotWindow(QGroupBox):
+class BarChartWindow(QGroupBox):
     def __init__(self):
         super().__init__()
         self.setTitle("Plot")
@@ -18,9 +18,9 @@ class PlotWindow(QGroupBox):
         self.canvas = TestPlotCanvas(self)
         layout.addWidget(self.canvas)
 
-    def update_plot(self, run_info: dict):
+    def update_window(self, run_info: dict):
         run_info = deepcopy(run_info)
-        self.canvas.update_plot(run_info)
+        self.canvas.update_window(run_info)
         self.canvas.setMinimumSize(self.canvas.sizeHint())
 
 
@@ -37,7 +37,7 @@ class TestPlotCanvas(FigureCanvas):
         self.setParent(parent)
         fig.subplots_adjust(left=0.25)  # Adjust the left margin
 
-    def update_plot(self, run_info: dict):
+    def update_window(self, run_info: dict):
         """
         Update the plot with the most recent data from the database.
         """

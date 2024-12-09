@@ -50,7 +50,7 @@ class BarChart(ScrollView):
             full_bar_width = max(0, self.size.width - max_y_label_width - padding)
             y_label = y_labels[test_name]
             y_label_margin = " " * (max_y_label_width - len(y_label))
-            bar_string = create_text_bar(full_bar_width, relative_start / max_duration, duration / max_duration, True)
+            bar_string = create_text_bar(full_bar_width, relative_start / max_duration, duration / max_duration, True, True)
 
             graph += f"{y_label}{y_label_margin}: {bar_string} {duration:6.1f}\n"
         self.render_time = time.time() - start

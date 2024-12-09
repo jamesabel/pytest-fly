@@ -1,4 +1,12 @@
-def create_text_bar(length: int, start: float, bar: float, force_tick: bool) -> str:
+space_block = " "
+dot_block = chr(183)  # "·"
+# Unicode block characters
+right_half_block = chr(9616)  # "▐"
+left_half_block = chr(9612)  # "▌"
+full_block = chr(9608)  # "█"
+
+
+def create_text_bar(length: int, start: float, bar: float, force_tick: bool, use_tracer_dots: bool) -> str:
     """
     Create a contiguous horizontal bar that utilizes Unicode left and right half-block characters for twice the resolution of normal characters.
 
@@ -7,6 +15,7 @@ def create_text_bar(length: int, start: float, bar: float, force_tick: bool) -> 
         start: Position of the start of the bar, as a portion of the total length (0.0 to 1.0).
         bar: Length of the bar, as a portion of the total length (0.0 to 1.0).
         force_tick: Set to True to always make a "tick" using the start, even if the duration is so short that it would be invisible. If False, the bar will only be shown if the duration is long enough to be visible.
+        use_tracer_dots: Set to True to use tracer dots (·) for the padding blocks.
 
     Returns:
         str: The bar string.
@@ -15,12 +24,6 @@ def create_text_bar(length: int, start: float, bar: float, force_tick: bool) -> 
     assert 0.0 <= start <= 1.0
     assert 0.0 <= bar <= 1.0
     assert start + bar <= 1.0
-
-    space_block = " "
-    # Unicode block characters
-    right_half_block = chr(9616)  # "▐"
-    left_half_block = chr(9612)  # "▌"
-    full_block = chr(9608)  # "█"
 
     # create a list of booleans representing the "half blocks"
     transformed_length = 2 * length
@@ -42,7 +45,11 @@ def create_text_bar(length: int, start: float, bar: float, force_tick: bool) -> 
     bools_to_blocks = {(False, False): space_block, (True, False): left_half_block, (False, True): right_half_block, (True, True): full_block}
     blocks = []
     for i in range(0, transformed_length, 2):
-        blocks.append(bools_to_blocks[(transformed_blocks[i], transformed_blocks[i + 1])])
+        block = bools_to_blocks[(transformed_blocks[i], transformed_blocks[i + 1])]
+        if use_tracer_dots and block == space_block and i % 4 == 0:
+            # tracer dots
+            block = dot_block
+        blocks.append(block)
     bar = "".join(blocks)
 
     assert len(bar) == length

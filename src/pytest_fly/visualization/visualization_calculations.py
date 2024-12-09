@@ -79,5 +79,7 @@ class VisualizationCalculations:
             self.earliest_start = 0
         if len(stops := [phase.stop for test in self.sorted_data.values() for phase in test.values()]) > 0:
             self.latest_stop = max(stops)
+        else:
+            self.latest_stop = 1
 
         self.workers = set(info.worker_id for test in self.sorted_data.values() for info in test.values())

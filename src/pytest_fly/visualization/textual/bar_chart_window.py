@@ -23,7 +23,10 @@ class BarChart(ScrollView):
         for i, (test_name, phases) in enumerate(visualization_calculations.sorted_data.items()):
             for phase_name, phase_info in phases.items():
                 y_labels[test_name] = f"{test_name} ({phase_name})"
-        max_y_label_width = max(len(label) for label in y_labels.values())
+        if len(y_labels) > 0:
+            max_y_label_width = max(len(label) for label in y_labels.values())
+        else:
+            max_y_label_width = 1
         max_duration = visualization_calculations.latest_stop - visualization_calculations.earliest_start
 
         graph = ""

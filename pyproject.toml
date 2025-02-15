@@ -27,7 +27,6 @@ dependencies = [
     "msqlite",
     "appdirs",
     "ismain",
-    "matplotlib",
     "numpy",
     "watchdog",
     "PySide6",

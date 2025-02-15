@@ -2,7 +2,6 @@ appdirs
 msqlite
 ismain
 numpy
-matplotlib
 watchdog
 PySide6
 pref

@@ -34,9 +34,12 @@ dependencies = [
     "attrs",
     "typeguard"
 ]
+keywords = ["pytest", "observer", "testing"]
+
 [project.urls]
 Home = "https://github.com/jamesabel/pytest-fly"
 Repository = "https://github.com/jamesabel/pytest-fly"
+Documentation = "https://github.com/jamesabel/pytest-fly#readme"
 
 [project.entry-points.pytest11]
 fly = "pytest_fly.plugin"
@@ -47,6 +50,3 @@ line-length = 192
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
-
-
-

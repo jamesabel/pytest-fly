@@ -1,1 +1,1 @@
-from .gui_main import visualize
+from .main import main

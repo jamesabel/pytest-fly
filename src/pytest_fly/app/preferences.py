@@ -15,6 +15,7 @@ class FlyPreferences(Pref):
     window_y: int = attrib(default=-1)
     window_width: int = attrib(default=-1)
     window_height: int = attrib(default=-1)
+    verbose: bool = attrib(default=False)
     csv_dump_path: str = attrib(default=str(Path(user_data_dir(application_name, author), f"{application_name}.csv")))
 
 

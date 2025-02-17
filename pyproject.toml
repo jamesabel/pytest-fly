@@ -32,7 +32,8 @@ dependencies = [
     "PySide6",
     "pref",
     "attrs",
-    "typeguard"
+    "typeguard",
+    "balsa"
 ]
 keywords = ["pytest", "observer", "testing"]
 

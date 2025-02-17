@@ -1,14 +1,13 @@
-from pathlib import Path
-
 from PySide6.QtWidgets import QMainWindow, QApplication, QTabWidget
 
-from .gui import get_font
+from .gui_util import get_font
 from .home import Home
+from .tests import Tests
 from .history import History
 from .configuration import Configuration
 from .about import About
-from .preferences import get_pref
-from ..__version__ import application_name
+from ..preferences import get_pref
+from ...__version__ import application_name
 
 
 # class HomeTab(QWidget):
@@ -74,7 +73,7 @@ from ..__version__ import application_name
 #         event.accept()
 
 
-class Visualization(QMainWindow):
+class FlyApp(QMainWindow):
     def __init__(self):
         super().__init__()
 
@@ -87,10 +86,12 @@ class Visualization(QMainWindow):
 
         self.tab_widget = QTabWidget()
         self.home = Home()
+        self.tests = Tests()
         self.history = History()
         self.configuration = Configuration()
         self.about = About()
         self.tab_widget.addTab(self.home, "Home")
+        self.tab_widget.addTab(self.tests, "Tests")
         self.tab_widget.addTab(self.history, "History")
         self.tab_widget.addTab(self.configuration, "Configuration")
         self.tab_widget.addTab(self.about, "About")
@@ -114,8 +115,8 @@ class Visualization(QMainWindow):
         event.accept()
 
 
-def main():
+def view_main():
     app = QApplication([])
-    visualization = Visualization()
-    visualization.show()
+    fly_app = FlyApp()
+    fly_app.show()
     app.exec()

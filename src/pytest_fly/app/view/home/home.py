@@ -7,9 +7,9 @@ from PySide6.QtWidgets import QWidget, QHBoxLayout, QSplitter, QScrollArea
 from watchdog.events import FileSystemEventHandler
 
 from pytest_fly.db import fly_db_file_name
-from pytest_fly.visualization.control import ControlWindow
-from pytest_fly.visualization.progress_window import PlotWindow
-from pytest_fly.visualization.status_window import StatusWindow
+from .control import ControlWindow
+from .progress_window import ProgressWindow
+from .status_window import StatusWindow
 
 
 class Home(QWidget):
@@ -20,8 +20,8 @@ class Home(QWidget):
         self.splitter = QSplitter()
 
         self.status_window = StatusWindow()
-        self.plot_window = PlotWindow()
-        self.control_window = ControlWindow()
+        self.plot_window = ProgressWindow()
+        self.control_window = ControlWindow(self.status_window.update_status)
 
         # Create scroll areas for both windows
         self.status_scroll_area = QScrollArea()

@@ -1,8 +1,7 @@
 from PySide6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout
-from PySide6.QtCore import Qt
 
-from .gui import get_font, get_text_dimensions, PlainTextWidget
-from .project_info import get_project_info
+from .gui_util import PlainTextWidget
+from ..project_info import get_project_info
 
 
 class About(QWidget):

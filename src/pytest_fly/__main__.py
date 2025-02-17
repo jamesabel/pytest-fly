@@ -1,6 +1,6 @@
 from ismain import is_main
 
-from .visualization import main
+from .app import app_main
 
 if is_main():
-    main()
+    app_main()

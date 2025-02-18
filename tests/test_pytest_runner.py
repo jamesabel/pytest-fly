@@ -1,17 +1,33 @@
 from pprint import pprint
 from pathlib import Path
 
-from pytest_fly.app.controller import PytestRunner, PytestState
+from PySide6.QtCore import QThread
+from pytest import ExitCode
+from pytest_fly.app.controller import PytestRunnerWorker
 
 
-def test_pytest_runner():
+def test_pytest_runner(app):
 
-    tests = [Path("tests", "test_font.py")]  # an "easy" test
-    pytest_runner = PytestRunner(tests)  # append updates the results list
-    pytest_runner.start()
-    pytest_runner.wait(60 * 1000)
-    status_list = pytest_runner.get_statuses()
-    pprint(status_list)
-    assert len(status_list) == 2
-    assert status_list[0].state == PytestState.START
-    assert status_list[1].state == PytestState.PASS
+    # run twice to test the worker's ability to run multiple tests
+    for _ in range(2):
+        tests = [Path("tests", "test_sleep.py")]  # an "easy" test
+        worker = PytestRunnerWorker(tests)  # append updates the results list
+        thread = QThread()
+        worker.moveToThread(thread)
+
+        statuses = []
+
+        # connect worker and thread
+        thread.started.connect(worker.process)
+        worker.update.connect(lambda status: statuses.append(status))
+        worker.finished.connect(thread.quit)
+        thread.finished.connect(thread.deleteLater)
+
+        thread.start()
+
+        while thread.isRunning():
+            app.processEvents()  # allows the QThread to finish
+
+        assert len(statuses) == 2
+        assert statuses[0].exit_code is None
+        assert statuses[1].exit_code == ExitCode.OK

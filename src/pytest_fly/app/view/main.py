@@ -73,7 +73,7 @@ from ...__version__ import application_name
 #         event.accept()
 
 
-class FlyApp(QMainWindow):
+class FlyAppMainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
@@ -117,6 +117,6 @@ class FlyApp(QMainWindow):
 
 def view_main():
     app = QApplication([])
-    fly_app = FlyApp()
+    fly_app = FlyAppMainWindow()
     fly_app.show()
     app.exec()

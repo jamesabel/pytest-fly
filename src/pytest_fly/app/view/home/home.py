@@ -3,7 +3,7 @@ from threading import Event
 from typing import Callable
 
 from PySide6.QtCore import QThread
-from PySide6.QtWidgets import QWidget, QHBoxLayout, QSplitter, QScrollArea
+from PySide6.QtWidgets import QWidget, QHBoxLayout, QSplitter, QScrollArea, QApplication
 from watchdog.events import FileSystemEventHandler
 
 from pytest_fly.db import fly_db_file_name

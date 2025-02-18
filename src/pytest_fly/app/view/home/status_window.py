@@ -2,24 +2,22 @@ from PySide6.QtWidgets import QGroupBox, QVBoxLayout
 from PySide6.QtCore import Signal
 
 from ..gui_util import PlainTextWidget
+from ...controller.pytest_runner import PytestStatus
 
 
 class StatusWindow(QGroupBox):
 
-    _status_signal = Signal(str)
-
     def __init__(self):
         super().__init__()
+        self.statuses = []
         self.setTitle("Status")
         layout = QVBoxLayout()
         self.setLayout(layout)
         self.status_widget = PlainTextWidget()
         layout.addWidget(self.status_widget)
         layout.addStretch()
-        self._status_signal.connect(self._update_status)
 
-    def update_status(self, status: str):
-        self._status_signal.emit(status)
-
-    def _update_status(self, status: str):
-        self._status_signal.emit(status)
+    def update_status(self, status: PytestStatus):
+        self.statuses.append(status)
+        strings = [str((status.name, status.running, status.exit_code)) for status in self.statuses]
+        self.status_widget.set_text("\n".join(strings))

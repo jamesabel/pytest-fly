@@ -65,7 +65,7 @@ class PytestRunnerWorker(QObject):
         self.statuses = []
 
     @Slot()
-    def process(self):
+    def run(self):
         for test_path in self.test_paths:
             pytest_process = _PytestProcess(test_path.name, test_path)
             pytest_process.start()

@@ -18,7 +18,7 @@ def test_pytest_runner(app):
         statuses = []
 
         # connect worker and thread
-        thread.started.connect(worker.process)
+        thread.started.connect(worker.run)
         worker.update.connect(lambda status: statuses.append(status))
         worker.finished.connect(thread.quit)
         thread.finished.connect(thread.deleteLater)

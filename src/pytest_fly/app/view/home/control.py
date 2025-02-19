@@ -53,7 +53,7 @@ class ControlWindow(QGroupBox):
     def run_button_clicked(self):
         if self.run_button_thread is None or not self.run_button_thread.isRunning():
             self.run_button_thread = QThread()  # work will be done in this thread
-            self.run_button_worker = PytestRunnerWorker([Path("tests", "test_sleep.py")])
+            self.run_button_worker = PytestRunnerWorker()
             self.run_button_worker.moveToThread(self.run_button_thread)  # move worker to thread
             # connect the worker to the thread
             self.run_button_thread.started.connect(self.run_button_worker.run)  # calls worker run method when thread starts

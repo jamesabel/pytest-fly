@@ -7,6 +7,6 @@ from pytest_fly import pytest_addoption, pytest_runtest_logreport, pytest_sessio
 pytest_plugins = "pytester"
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def app():
     return QApplication([])

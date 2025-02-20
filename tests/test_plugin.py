@@ -11,3 +11,4 @@ def test_simple_1():
 
 def test_simple_2():
     time.sleep(15)
+    # todo: test that the DB has been written to

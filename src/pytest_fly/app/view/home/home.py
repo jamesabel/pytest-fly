@@ -13,15 +13,15 @@ from .status_window import StatusWindow
 
 
 class Home(QWidget):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, parent):
+        super().__init__(parent)
 
         layout = QHBoxLayout()
         self.splitter = QSplitter()
 
         self.status_window = StatusWindow()
         self.plot_window = ProgressWindow()
-        self.control_window = ControlWindow(self.status_window.update_status)
+        self.control_window = ControlWindow(self, self.status_window.update_status)
 
         # Create scroll areas for both windows
         self.status_scroll_area = QScrollArea()

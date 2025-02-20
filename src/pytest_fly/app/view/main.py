@@ -85,7 +85,7 @@ class FlyAppMainWindow(QMainWindow):
         self.setWindowTitle(application_name)
 
         self.tab_widget = QTabWidget()
-        self.home = Home()
+        self.home = Home(self)
         self.tests = Tests()
         self.history = History()
         self.configuration = Configuration()
@@ -107,10 +107,7 @@ class FlyAppMainWindow(QMainWindow):
         pref.window_width = self.width()
         pref.window_height = self.height()
 
-        # self.home_tab.observer.stop()
-        # self.home_tab.periodic_updater.request_stop()
-        # self.home_tab.observer.join()
-        # self.home_tab.periodic_updater.wait()
+        self.home.control_window.exit_request()
 
         event.accept()
 

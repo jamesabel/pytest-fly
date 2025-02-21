@@ -90,7 +90,7 @@ class PytestRunnerWorker(QObject):
     def __init__(self, tests: List[str | Path] | None = None) -> None:
         super().__init__()
         self.tests = tests
-        self.processes = None
+        self.processes = {}
 
         self._request_run_signal.connect(self._run)
         self._request_stop_signal.connect(self._stop)

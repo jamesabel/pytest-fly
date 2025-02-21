@@ -31,24 +31,23 @@ class ControlWindow(QGroupBox):
         self.update_timer = QTimer()
         self.statuses = {}
 
+        self.pytest_runner_thread = QThread(self)  # work will be done in this thread
+        # I'd like the thread to have some name, so use the name of the worker it'll be moved to
+        self.pytest_runner_thread.setObjectName(PytestRunnerWorker.__class__.__name__)
+        self.pytest_runner_worker = PytestRunnerWorker()
+        self.pytest_runner_worker.moveToThread(self.pytest_runner_thread)  # move worker to thread
+        self.pytest_runner_worker.request_exit_signal.connect(self.pytest_runner_thread.quit)  # required to stop the thread
+        self.pytest_runner_worker.update_signal.connect(self.pytest_update)
+        self.update_timer.timeout.connect(self.pytest_runner_worker.request_update)
+        self.pytest_runner_thread.start()
+        self.update_timer.start(1000)
+
     def run(self):
-        if self.pytest_runner_thread is None and self.pytest_runner_worker is None:
-            self.pytest_runner_thread = QThread(self)  # work will be done in this thread
-            # I'd like the thread to have some name, so use the name of the worker it'll be moved to
-            self.pytest_runner_thread.setObjectName(PytestRunnerWorker.__class__.__name__)
-            self.pytest_runner_worker = PytestRunnerWorker()
-            self.pytest_runner_worker.moveToThread(self.pytest_runner_thread)  # move worker to thread
-            self.pytest_runner_worker.request_exit_signal.connect(self.pytest_runner_thread.quit)
-            self.pytest_runner_worker.update_signal.connect(self.pytest_update)
-            self.update_timer.timeout.connect(self.pytest_runner_worker.request_update)
-            self.pytest_runner_thread.start()
-            self.update_timer.start(1000)
         self.pytest_runner_worker.request_run()
 
     def stop(self):
         log.info(f"{__class__.__name__}.stop() - entering")
-        if self.pytest_runner_worker is not None:
-            self.pytest_runner_worker.request_stop()
+        self.pytest_runner_worker.request_stop()
         self.run_button.setEnabled(True)
         self.stop_button.setEnabled(False)
         log.info(f"{__class__.__name__}.stop() - exiting")

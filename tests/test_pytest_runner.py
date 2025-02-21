@@ -19,15 +19,17 @@ def test_pytest_runner(app):
 
         # connect worker and thread
         worker.request_exit_signal.connect(thread.quit)
-        thread.started.connect(worker.run)
         worker.update_signal.connect(statuses.append)
         thread.start()
 
-        worker.request_run()
+        worker._request_run_signal.emit()
+        app.processEvents()
 
+        # the statuses list will be updated in the background in the worker thread
         count = 0
         while len(statuses) != 2 and count < 100:
-            app.processEvents()  # allows the pytest runner to finish
+            worker._request_update_signal.emit()
+            app.processEvents()
             time.sleep(1)
             count += 1
 
@@ -35,7 +37,13 @@ def test_pytest_runner(app):
         assert statuses[0].exit_code is None
         assert statuses[1].exit_code == ExitCode.OK
 
-        worker.request_exit_signal.emit()
+        # tell worker to stop and exit
+        worker.request_stop()
+        app.processEvents()
+        worker.request_exit_signal.emit()  # tell the thread to quit (in the app, this is done by connecting to the thread quit slot)
+        app.processEvents()
+
+        # ensure worker exits properly
         count = 0
         while thread.isRunning() and count < 10:
             app.processEvents()

@@ -6,11 +6,10 @@ from dataclasses import dataclass
 from pathlib import Path
 import time
 from queue import Empty
-from enum import StrEnum, auto
 
 import pytest
 from pytest import ExitCode
-from PySide6.QtCore import QObject, Signal, Slot, QCoreApplication, QEventLoop
+from PySide6.QtCore import QObject, Signal, Slot, QCoreApplication
 from typeguard import typechecked
 
 from ..logging import get_logger
@@ -29,7 +28,7 @@ class _PytestProcess(Process):
 
     @typechecked()
     def __init__(self, test: Path | str | None = None) -> None:
-        super().__init__(name=str(test))
+        super().__init__(name=str(test), daemon=True)  # daemon since we explicitly terminate the process
         self.test = test
         self.result_queue = Queue()
 
@@ -56,98 +55,96 @@ class _PytestProcess(Process):
 
 @dataclass(frozen=True)
 class PytestStatus:
-    name: str
-    running: bool
-    exit_code: ExitCode | None
-    output: str | None
-    time_stamp: float
-
-
-class RunnerWorkerState(StrEnum):
-    run_requested = auto()
-    running = auto()
-    stop_requested = auto()
-    stopped = auto()
-    exit_requested = auto()
+    name: str  # test name
+    running: bool  # True when running, False when finished
+    exit_code: ExitCode | None  # None if running, ExitCode if finished
+    output: str | None  # stdout/stderr output
+    time_stamp: float  # epoch timestamp of this status
 
 
 class PytestRunnerWorker(QObject):
 
-    request_run_signal = Signal()  # request run
-    request_stop_signal = Signal()  # request stop
-    request_exit_signal = Signal()  # request exit
+    # signals to request pytest actions
+    _request_run_signal = Signal()  # request run
+    _request_update_signal = Signal()  # request update
+    _request_stop_signal = Signal()  # request stop
+    request_exit_signal = Signal()  # request exit (not private since it's connected to the thread quit slot)
 
     update_signal = Signal(PytestStatus)  # caller connects to this signal to get updates
+
+    def request_run(self):
+        self._request_run_signal.emit()
+
+    def request_update(self):
+        self._request_update_signal.emit()
+
+    def request_stop(self):
+        self._request_stop_signal.emit()
+
+    def request_exit(self):
+        self.request_exit_signal.emit()
 
     @typechecked()
     def __init__(self, tests: List[str | Path] | None = None) -> None:
         super().__init__()
         self.tests = tests
-        self.processes = {}
-        self.runner_worker_state = RunnerWorkerState.stopped
+        self.processes = None
 
-        self.request_run_signal.connect(self.request_run)
-        self.request_stop_signal.connect(self.request_stop)
-        self.request_exit_signal.connect(self.request_exit)
-
-        self.run_requested_pending = False
-        self.stop_requested_pending = False
+        self._request_run_signal.connect(self._run)
+        self._request_stop_signal.connect(self._stop)
+        self._request_update_signal.connect(self._update)
 
     @Slot()
-    def request_run(self):
-        self.runner_worker_state = RunnerWorkerState.run_requested
-
-    @Slot()
-    def request_stop(self):
-        self.runner_worker_state = RunnerWorkerState.stop_requested
-
-    @Slot()
-    def run(self):
+    def _run(self):
         """
         Runs in the background to start and monitor pytest processes.
         """
-        log.info(f"starting {__class__.__name__}")
-        while self.runner_worker_state != RunnerWorkerState.exit_requested or any(process.is_alive() for process in self.processes.values()):
+        log.info(f"{__class__.__name__}.run()")
 
-            QCoreApplication.processEvents(QEventLoop.WaitForMoreEvents, 1000)  # loop every second, unless there is an event
+        if self.processes is None:
+            self.processes = {}
 
-            if self.runner_worker_state == RunnerWorkerState.run_requested:
-                if self.tests is None:
-                    self.tests = get_tests()
-                for test in self.tests:
+        self._stop()  # in case any tests are already running
 
-                    process = _PytestProcess(test)
-                    log.info(f"starting {test}")
-                    process.start()
-                    self.processes[test] = process
+        if self.tests is None:
+            tests = get_tests()
+        else:
+            tests = self.tests
+        for test in tests:
+            if test not in self.processes or not self.processes[test].is_alive():
+                process = _PytestProcess(test)
+                log.info(f"starting {test}")
+                process.start()
+                self.processes[test] = process
 
-                    starting_status = PytestStatus(name=test, running=True, exit_code=None, output=None, time_stamp=time.time())
-                    self.update_signal.emit(starting_status)
-
-                self.runner_worker_state = RunnerWorkerState.running
-            elif self.runner_worker_state == RunnerWorkerState.stop_requested:
-                for test, process in self.processes.items():
-                    log.debug(f"{process.name=},{process.is_alive()=},{process.pid=},{process.exitcode=}")
-                    while process.is_alive():
-                        log.info(f"terminating {test}")
-                        try:
-                            process.terminate()
-                        except PermissionError:
-                            ...
-                        process.join(1)
-                self.runner_worker_state = RunnerWorkerState.stopped
-
-            # status update (if any status updates are available)
-            for test, process in self.processes.items():
-                if (result := process.get_result()) is not None:
-                    status = PytestStatus(name=test, running=process.is_alive(), exit_code=result.exit_code, output=result.output, time_stamp=time.time())
-                    log.info(f"{status=}")
-                    self.update_signal.emit(status)
-
-        log.info(f"exiting {__class__.__name__} ({len(self.tests)} tests)")
+                starting_status = PytestStatus(name=test, running=True, exit_code=None, output=None, time_stamp=time.time())
+                self.update_signal.emit(starting_status)
 
     @Slot()
-    def request_exit(self):
-        log.info(f"requesting {__class__.__name__} exit")
-        self.runner_worker_state = RunnerWorkerState.exit_requested
+    def _stop(self):
+        log.info(f"{__class__.__name__}.stop() - entering")
+        for test, process in self.processes.items():
+            log.info(f"{process.name=},{process.is_alive()=},{process.pid=},{process.exitcode=}")
+            if process.is_alive():
+                log.info(f"terminating {test}")
+                try:
+                    process.terminate()
+                except PermissionError:
+                    log.warning(f"PermissionError terminating {test}")
+            log.info(f"joining {test}")
+            try:
+                process.join(10)
+            except PermissionError:
+                log.warning(f"PermissionError joining {test}")
+            QCoreApplication.processEvents()
         QCoreApplication.processEvents()
+        log.info(f"{__class__.__name__}.stop() - exiting")
+
+    @Slot()
+    def _update(self):
+        # status update (if any status updates are available)
+        for test, process in self.processes.items():
+            if (result := process.get_result()) is not None:
+                status = PytestStatus(name=test, running=process.is_alive(), exit_code=result.exit_code, output=result.output, time_stamp=time.time())
+                log.info(f"{status=}")
+                self.update_signal.emit(status)

@@ -9,7 +9,7 @@ from queue import Empty
 
 import pytest
 from pytest import ExitCode
-from PySide6.QtCore import QObject, Signal, Slot, QCoreApplication
+from PySide6.QtCore import QObject, Signal, Slot
 from typeguard import typechecked
 
 from ..logging import get_logger
@@ -28,11 +28,12 @@ class _PytestProcess(Process):
 
     @typechecked()
     def __init__(self, test: Path | str | None = None) -> None:
-        super().__init__(name=str(test), daemon=True)  # daemon since we explicitly terminate the process
+        super().__init__(name=str(test))
         self.test = test
         self.result_queue = Queue()
 
     def run(self) -> None:
+        log.info(f"{self.__class__.__name__}:{self.name=} starting")
         buf = io.StringIO()
         # Redirect stdout and stderr so nothing goes to the console
         with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
@@ -43,6 +44,7 @@ class _PytestProcess(Process):
         output: str = buf.getvalue()
         pytest_result = _PytestResult(exit_code=exit_code, output=output)
         self.result_queue.put(pytest_result)
+        log.info(f"{self.__class__.__name__}{self.name=},{exit_code=},{output=}")
 
     @typechecked()
     def get_result(self) -> _PytestResult | None:
@@ -136,8 +138,6 @@ class PytestRunnerWorker(QObject):
                 process.join(10)
             except PermissionError:
                 log.warning(f"PermissionError joining {test}")
-            QCoreApplication.processEvents()
-        QCoreApplication.processEvents()
         log.info(f"{__class__.__name__}.stop() - exiting")
 
     @Slot()

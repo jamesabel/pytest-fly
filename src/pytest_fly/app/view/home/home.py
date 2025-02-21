@@ -3,7 +3,7 @@ from threading import Event
 from typing import Callable
 
 from PySide6.QtCore import QThread
-from PySide6.QtWidgets import QWidget, QHBoxLayout, QSplitter, QScrollArea, QApplication
+from PySide6.QtWidgets import QWidget, QHBoxLayout, QSplitter, QScrollArea
 from watchdog.events import FileSystemEventHandler
 
 from pytest_fly.db import fly_db_file_name
@@ -43,16 +43,6 @@ class Home(QWidget):
         layout.addWidget(self.splitter)
 
         self.setLayout(layout)
-
-    def set_sizes(self, sizes: list[int]):
-        self.splitter.setSizes(sizes)
-
-    def get_sizes(self) -> list[int]:
-        return self.splitter.sizes()
-
-    def update_window(self, run_infos: dict):
-        self.status_window.update_window(run_infos)
-        self.plot_window.update_plot(run_infos)
 
 
 class DatabaseChangeHandler(FileSystemEventHandler):

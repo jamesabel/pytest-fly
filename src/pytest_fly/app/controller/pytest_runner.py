@@ -18,22 +18,25 @@ log = get_logger()
 
 
 class _PytestProcess(Process):
+    """
+    A process that performs a pytest run.
+    """
 
     @typechecked()
-    def __init__(self, test: Path | str | None = None) -> None:
+    def __init__(self, test: Path | str) -> None:
+        """
+        :param test: the test to run
+        """
         super().__init__(name=str(test))
         self.test = test
-        self.result_queue = Queue()
+        self.result_queue = Queue()  # results of the pytest run will be sent here
 
     def run(self) -> None:
         log.info(f"{self.__class__.__name__}:{self.name=} starting")
         buf = io.StringIO()
         # Redirect stdout and stderr so nothing goes to the console
         with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
-            if self.test is None:
-                exit_code = pytest.main()
-            else:
-                exit_code = pytest.main([self.test])
+            exit_code = pytest.main([self.test])
         output: str = buf.getvalue()
         pytest_result = PytestResult(exit_code=exit_code, output=output)
         self.result_queue.put(pytest_result)
@@ -41,6 +44,9 @@ class _PytestProcess(Process):
 
     @typechecked()
     def get_result(self) -> PytestResult | None:
+        """
+        Returns the result of the pytest run, if available.
+        """
         try:
             result = self.result_queue.get(False)
         except Empty:

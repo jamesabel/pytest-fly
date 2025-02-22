@@ -30,7 +30,7 @@ class ControlWindow(QGroupBox):
         self.pytest_runner_thread = None
         self.pytest_runner_worker = None
         self.update_timer = QTimer()
-        self.statuses = {}
+        self.most_recent_statuses = {}
 
         self.pytest_runner_thread = QThread(self)  # work will be done in this thread
         # I'd like the thread to have some name, so use the name of the worker it'll be moved to
@@ -55,11 +55,11 @@ class ControlWindow(QGroupBox):
 
     def pytest_update(self, status: PytestStatus):
         log.info(f"{__class__.__name__}.pytest_update() - {status.name=}, {status.state=}, {status.exit_code=}")
-        self.statuses[status.name] = status
+        self.most_recent_statuses[status.name] = status
         log.info(f"{__class__.__name__}.pytest_update() - calling self.update_callback()")
         self.update_callback(status)
         log.info(f"{__class__.__name__}.pytest_update() - self.update_callback() returned")
-        all_pytest_processes_finished = all([status.state == PytestProcessState.FINISHED for status in self.statuses.values()])
+        all_pytest_processes_finished = all([status.state == PytestProcessState.FINISHED for status in self.most_recent_statuses.values()])
         if all_pytest_processes_finished:
             self.run_button.setEnabled(True)
             self.stop_button.setEnabled(False)

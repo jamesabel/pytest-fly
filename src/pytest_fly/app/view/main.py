@@ -71,8 +71,8 @@ class FlyAppMainWindow(QMainWindow):
         log.info(f"{__class__.__name__}.closeEvent() - exiting")
 
 
-def view_main():
-    multiprocessing.set_start_method("spawn")
+def fly_main():
+    multiprocessing.set_start_method("spawn")  # may not be necessary
     app = QApplication([])
     fly_app = FlyAppMainWindow()
     fly_app.show()

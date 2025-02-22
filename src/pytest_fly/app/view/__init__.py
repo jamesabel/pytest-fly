@@ -1,1 +1,1 @@
-from .main import view_main
+from .main import fly_main

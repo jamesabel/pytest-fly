@@ -14,7 +14,7 @@ class Home(QWidget):
         self.splitter = QSplitter()
 
         self.status_window = StatusWindow()
-        self.plot_window = ProgressWindow()
+        self.progress_window = ProgressWindow()
         self.control_window = ControlWindow(self, self.update_status)
 
         # Create scroll areas for both windows
@@ -24,7 +24,7 @@ class Home(QWidget):
 
         self.plot_scroll_area = QScrollArea()
         self.plot_scroll_area.setWidgetResizable(True)
-        self.plot_scroll_area.setWidget(self.plot_window)
+        self.plot_scroll_area.setWidget(self.progress_window)
 
         self.control_scroll_area = QScrollArea()
         self.control_scroll_area.setWidgetResizable(True)
@@ -40,4 +40,4 @@ class Home(QWidget):
 
     def update_status(self, status: PytestStatus):
         self.status_window.update_status(status)
-        self.plot_window.update_status(status)
+        self.progress_window.update_status(status)

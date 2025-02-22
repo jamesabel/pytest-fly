@@ -7,7 +7,7 @@ import time
 from queue import Empty
 
 import pytest
-from PySide6.QtCore import QObject, Signal, Slot, QTimer
+from PySide6.QtCore import QObject, Signal, Slot, QTimer, QCoreApplication
 from typeguard import typechecked
 
 from ..logging import get_logger
@@ -117,6 +117,7 @@ class PytestRunnerWorker(QObject):
                 status = PytestStatus(name=test, state=PytestProcessState.QUEUED, exit_code=None, output=None, time_stamp=time.time())
                 self.statuses[test] = status
                 self.update_signal.emit(status)
+                QCoreApplication.processEvents()
 
     @Slot()
     def _stop(self):
@@ -148,8 +149,9 @@ class PytestRunnerWorker(QObject):
                 else:
                     state = PytestProcessState.FINISHED
                 status = PytestStatus(name=test, state=state, exit_code=result.exit_code, output=result.output, time_stamp=time.time())
-                log.info(f"{status=}")
+                log.info(f"{__class__.__name__}._update():{status=}")
                 self.update_signal.emit(status)
+                QCoreApplication.processEvents()
 
     @Slot()
     def _scheduler(self):
@@ -164,3 +166,4 @@ class PytestRunnerWorker(QObject):
                 log.info(f"{status=}")
                 self.statuses[test] = status
                 self.update_signal.emit(status)
+                QCoreApplication.processEvents()

@@ -1,26 +1,30 @@
-from copy import deepcopy
+from collections import defaultdict
 
-import numpy as np
 from PySide6.QtWidgets import QGroupBox, QVBoxLayout
+from PySide6.QtCore import Qt
 
-from .progress_bar import ProgressBars, Process
+
+from .progress_bar import PytestProgressBar
+from ...model import PytestStatus
 
 
 class ProgressWindow(QGroupBox):
     def __init__(self):
         super().__init__()
+        self.statuses = defaultdict(list)
+        self.progress_bars = {}
         self.setTitle("Progress")
-        self.progress_layout = QVBoxLayout()
-        self.setLayout(self.progress_layout)
-        self.progress_bars = ProgressBars()
-        self.progress_layout.addWidget(self.progress_bars)
-        self.progress_layout.addStretch()
-        self.update_progress()
+        layout = QVBoxLayout()
+        layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self.setLayout(layout)
 
-    def update_progress(self):
-        processes = [
-            Process("Process 1", self.progress_bars.timeline_start, self.progress_bars.timeline_start + np.timedelta64(2, "m")),
-            Process("Process 2", self.progress_bars.timeline_start + np.timedelta64(1, "m"), self.progress_bars.timeline_start + np.timedelta64(3, "m")),
-            Process("Process 3", self.progress_bars.timeline_start + np.timedelta64(2, "m"), self.progress_bars.timeline_start + np.timedelta64(4, "m")),
-        ]
-        self.progress_bars.update_processes(processes)
+    def update_status(self, status: PytestStatus):
+        layout = self.layout()
+        if status.name not in self.statuses:
+            progress_bar = PytestProgressBar(0, 2, 6, status.name, self)
+            self.progress_bars[status.name] = progress_bar
+            layout.addWidget(progress_bar)
+        status_list = self.statuses[status.name]
+        status_list.append(status)
+        status_list.sort(key=lambda s: s.time_stamp)  # keep sorted
+        self.statuses[status.name] = status_list

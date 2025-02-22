@@ -1,15 +1,9 @@
-from pathlib import Path
-from threading import Event
-from typing import Callable
-
-from PySide6.QtCore import QThread
 from PySide6.QtWidgets import QWidget, QHBoxLayout, QSplitter, QScrollArea
-from watchdog.events import FileSystemEventHandler
 
-from pytest_fly.db import fly_db_file_name
 from .control import ControlWindow
 from .progress_window import ProgressWindow
 from .status_window import StatusWindow
+from ...model import PytestStatus
 
 
 class Home(QWidget):
@@ -21,7 +15,7 @@ class Home(QWidget):
 
         self.status_window = StatusWindow()
         self.plot_window = ProgressWindow()
-        self.control_window = ControlWindow(self, self.status_window.update_status)
+        self.control_window = ControlWindow(self, self.update_status)
 
         # Create scroll areas for both windows
         self.status_scroll_area = QScrollArea()
@@ -44,27 +38,6 @@ class Home(QWidget):
 
         self.setLayout(layout)
 
-
-class DatabaseChangeHandler(FileSystemEventHandler):
-    def __init__(self, update_callback):
-        self.update_callback = update_callback
-        super().__init__()
-
-    def on_modified(self, event):
-        if Path(event.src_path).name == fly_db_file_name:
-            self.update_callback()
-
-
-class PeriodicUpdater(QThread):
-    def __init__(self, update_callback: Callable):
-        super().__init__()
-        self.update_callback = update_callback
-        self._stop_event = Event()
-
-    def run(self):
-        while not self._stop_event.is_set():
-            self.update_callback()
-            self._stop_event.wait(1)
-
-    def request_stop(self):
-        self._stop_event.set()
+    def update_status(self, status: PytestStatus):
+        self.status_window.update_status(status)
+        self.plot_window.update_status(status)

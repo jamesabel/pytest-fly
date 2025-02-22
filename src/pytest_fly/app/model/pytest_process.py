@@ -56,3 +56,7 @@ class PytestKey:
 
     name: str
     state: PytestProcessState
+
+
+def key_from_pytest_status(status: PytestStatus) -> PytestKey:
+    return PytestKey(name=status.name, state=status.state)

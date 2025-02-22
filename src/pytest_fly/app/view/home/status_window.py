@@ -1,8 +1,7 @@
 from PySide6.QtWidgets import QGroupBox, QVBoxLayout
-from PySide6.QtCore import Signal
 
 from ..gui_util import PlainTextWidget
-from ...controller.pytest_runner import PytestStatus
+from ...controller.pytest_runner import PytestStatus, exit_code_to_string
 
 
 class StatusWindow(QGroupBox):
@@ -19,5 +18,5 @@ class StatusWindow(QGroupBox):
 
     def update_status(self, status: PytestStatus):
         self.statuses.append(status)
-        strings = [str((status.name, status.running, status.exit_code)) for status in self.statuses]
+        strings = [str((status.name, str(status.state), exit_code_to_string(status.exit_code))) for status in self.statuses]
         self.status_widget.set_text("\n".join(strings))

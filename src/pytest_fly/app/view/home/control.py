@@ -4,7 +4,7 @@ from PySide6.QtWidgets import QGroupBox, QVBoxLayout, QPushButton
 from PySide6.QtCore import QThread, QTimer
 
 
-from ...controller.pytest_runner import PytestRunnerWorker, PytestStatus
+from ...controller.pytest_runner import PytestRunnerWorker, PytestStatus, PytestProcessState
 from ... import get_logger
 
 log = get_logger()
@@ -53,13 +53,13 @@ class ControlWindow(QGroupBox):
         log.info(f"{__class__.__name__}.stop() - exiting")
 
     def pytest_update(self, status: PytestStatus):
-        log.info(f"{__class__.__name__}.pytest_update() - {status.name=}, {status.running=}, {status.exit_code=}")
+        log.info(f"{__class__.__name__}.pytest_update() - {status.name=}, {status.state=}, {status.exit_code=}")
         self.statuses[status.name] = status
         log.info(f"{__class__.__name__}.pytest_update() - calling self.update_callback()")
         self.update_callback(status)
         log.info(f"{__class__.__name__}.pytest_update() - self.update_callback() returned")
-        all_pytest_processes_stopped = all([not status.running for status in self.statuses.values()])
-        if all_pytest_processes_stopped:
+        all_pytest_processes_finished = all([status.state == PytestProcessState.FINISHED for status in self.statuses.values()])
+        if all_pytest_processes_finished:
             self.run_button.setEnabled(True)
             self.stop_button.setEnabled(False)
         else:

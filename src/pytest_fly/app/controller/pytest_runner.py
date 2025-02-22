@@ -6,10 +6,11 @@ from dataclasses import dataclass
 from pathlib import Path
 import time
 from queue import Empty
+from enum import StrEnum, auto
 
 import pytest
 from pytest import ExitCode
-from PySide6.QtCore import QObject, Signal, Slot
+from PySide6.QtCore import QObject, Signal, Slot, QTimer
 from typeguard import typechecked
 
 from ..logging import get_logger
@@ -18,10 +19,27 @@ from ..test_list import get_tests
 log = get_logger()
 
 
+def exit_code_to_string(exit_code: ExitCode | None) -> str:
+    if exit_code is None:
+        exit_code_string = str(exit_code)
+    else:
+        exit_code_string = exit_code.name
+    return exit_code_string
+
+
 @dataclass(frozen=True)
 class _PytestResult:
     exit_code: ExitCode
     output: str
+
+
+class PytestProcessState(StrEnum):
+    QUEUED = auto()
+    RUNNING = auto()
+    FINISHED = auto()
+
+    def __str__(self):
+        return self.name
 
 
 class _PytestProcess(Process):
@@ -58,7 +76,7 @@ class _PytestProcess(Process):
 @dataclass(frozen=True)
 class PytestStatus:
     name: str  # test name
-    running: bool  # True when running, False when finished
+    state: PytestProcessState
     exit_code: ExitCode | None  # None if running, ExitCode if finished
     output: str | None  # stdout/stderr output
     time_stamp: float  # epoch timestamp of this status
@@ -84,6 +102,8 @@ class PytestRunnerWorker(QObject):
         self._request_stop_signal.emit()
 
     def request_exit(self):
+        self._scheduler_timer.stop()
+        self._scheduler_timer.deleteLater()
         self.request_exit_signal.emit()
 
     @typechecked()
@@ -91,10 +111,15 @@ class PytestRunnerWorker(QObject):
         super().__init__()
         self.tests = tests
         self.processes = {}
+        self.statuses = {}
 
         self._request_run_signal.connect(self._run)
         self._request_stop_signal.connect(self._stop)
         self._request_update_signal.connect(self._update)
+
+        self._scheduler_timer = QTimer()
+        self._scheduler_timer.timeout.connect(self._scheduler)
+        self._scheduler_timer.start(1000)
 
     @Slot()
     def _run(self):
@@ -112,18 +137,18 @@ class PytestRunnerWorker(QObject):
             tests = get_tests()
         else:
             tests = self.tests
+
         for test in tests:
             if test not in self.processes or not self.processes[test].is_alive():
                 process = _PytestProcess(test)
-                log.info(f"starting {test}")
-                process.start()
                 self.processes[test] = process
-
-                starting_status = PytestStatus(name=test, running=True, exit_code=None, output=None, time_stamp=time.time())
-                self.update_signal.emit(starting_status)
+                status = PytestStatus(name=test, state=PytestProcessState.QUEUED, exit_code=None, output=None, time_stamp=time.time())
+                self.statuses[test] = status
+                self.update_signal.emit(status)
 
     @Slot()
     def _stop(self):
+
         log.info(f"{__class__.__name__}.stop() - entering")
         for test, process in self.processes.items():
             log.info(f"{process.name=},{process.is_alive()=},{process.pid=},{process.exitcode=}")
@@ -133,11 +158,12 @@ class PytestRunnerWorker(QObject):
                     process.terminate()
                 except PermissionError:
                     log.warning(f"PermissionError terminating {test}")
-            log.info(f"joining {test}")
-            try:
-                process.join(10)
-            except PermissionError:
-                log.warning(f"PermissionError joining {test}")
+                log.info(f"joining {test}")
+                try:
+                    process.join(10)
+                except PermissionError:
+                    log.warning(f"PermissionError joining {test}")
+            self.statuses[test] = PytestStatus(name=test, state=PytestProcessState.FINISHED, exit_code=None, output=None, time_stamp=time.time())
         log.info(f"{__class__.__name__}.stop() - exiting")
 
     @Slot()
@@ -145,6 +171,24 @@ class PytestRunnerWorker(QObject):
         # status update (if any status updates are available)
         for test, process in self.processes.items():
             if (result := process.get_result()) is not None:
-                status = PytestStatus(name=test, running=process.is_alive(), exit_code=result.exit_code, output=result.output, time_stamp=time.time())
+                if result.exit_code is None:
+                    state = PytestProcessState.RUNNING
+                else:
+                    state = PytestProcessState.FINISHED
+                status = PytestStatus(name=test, state=state, exit_code=result.exit_code, output=result.output, time_stamp=time.time())
                 log.info(f"{status=}")
+                self.update_signal.emit(status)
+
+    @Slot()
+    def _scheduler(self):
+        for test, status in self.statuses.items():
+            if status.state == PytestProcessState.QUEUED:
+                log.info(f"{__class__.__name__}: {test} is queued - starting")
+                process = self.processes[test]
+                if not process.is_alive():
+                    log.info(f"{__class__.__name__}: starting {test}")
+                    process.start()
+                status = PytestStatus(name=test, state=PytestProcessState.RUNNING, exit_code=None, output=None, time_stamp=time.time())
+                log.info(f"{status=}")
+                self.statuses[test] = status
                 self.update_signal.emit(status)

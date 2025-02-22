@@ -3,7 +3,7 @@ import time
 
 from PySide6.QtCore import QThread
 from pytest import ExitCode
-from pytest_fly.app.controller import PytestRunnerWorker
+from pytest_fly.app.controller import PytestRunnerWorker, PytestProcessState
 
 
 def test_pytest_runner(app):
@@ -27,20 +27,24 @@ def test_pytest_runner(app):
 
         # the statuses list will be updated in the background in the worker thread
         count = 0
-        while len(statuses) != 2 and count < 100:
+        while len(statuses) != 3 and count < 100:
             worker._request_update_signal.emit()
             app.processEvents()
             time.sleep(1)
             count += 1
 
-        assert len(statuses) == 2
+        assert len(statuses) == 3  # QUEUED, RUNNING, FINISHED
         assert statuses[0].exit_code is None
-        assert statuses[1].exit_code == ExitCode.OK
+        assert statuses[0].state == PytestProcessState.QUEUED
+        assert statuses[1].exit_code is None
+        assert statuses[1].state == PytestProcessState.RUNNING
+        assert statuses[2].exit_code == ExitCode.OK
+        assert statuses[2].state == PytestProcessState.FINISHED
 
         # tell worker to stop and exit
         worker.request_stop()
         app.processEvents()
-        worker.request_exit_signal.emit()  # tell the thread to quit (in the app, this is done by connecting to the thread quit slot)
+        worker.request_exit()
         app.processEvents()
 
         # ensure worker exits properly

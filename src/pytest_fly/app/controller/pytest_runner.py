@@ -2,44 +2,19 @@ from multiprocessing import Process, Queue
 from typing import List
 import io
 import contextlib
-from dataclasses import dataclass
 from pathlib import Path
 import time
 from queue import Empty
-from enum import StrEnum, auto
 
 import pytest
-from pytest import ExitCode
 from PySide6.QtCore import QObject, Signal, Slot, QTimer
 from typeguard import typechecked
 
 from ..logging import get_logger
+from ..model import PytestResult, PytestProcessState, PytestStatus
 from ..test_list import get_tests
 
 log = get_logger()
-
-
-def exit_code_to_string(exit_code: ExitCode | None) -> str:
-    if exit_code is None:
-        exit_code_string = str(exit_code)
-    else:
-        exit_code_string = exit_code.name
-    return exit_code_string
-
-
-@dataclass(frozen=True)
-class _PytestResult:
-    exit_code: ExitCode
-    output: str
-
-
-class PytestProcessState(StrEnum):
-    QUEUED = auto()
-    RUNNING = auto()
-    FINISHED = auto()
-
-    def __str__(self):
-        return self.name
 
 
 class _PytestProcess(Process):
@@ -60,26 +35,17 @@ class _PytestProcess(Process):
             else:
                 exit_code = pytest.main([self.test])
         output: str = buf.getvalue()
-        pytest_result = _PytestResult(exit_code=exit_code, output=output)
+        pytest_result = PytestResult(exit_code=exit_code, output=output)
         self.result_queue.put(pytest_result)
         log.info(f"{self.__class__.__name__}{self.name=},{exit_code=},{output=}")
 
     @typechecked()
-    def get_result(self) -> _PytestResult | None:
+    def get_result(self) -> PytestResult | None:
         try:
             result = self.result_queue.get(False)
         except Empty:
             result = None
         return result
-
-
-@dataclass(frozen=True)
-class PytestStatus:
-    name: str  # test name
-    state: PytestProcessState
-    exit_code: ExitCode | None  # None if running, ExitCode if finished
-    output: str | None  # stdout/stderr output
-    time_stamp: float  # epoch timestamp of this status
 
 
 class PytestRunnerWorker(QObject):

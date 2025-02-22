@@ -4,7 +4,8 @@ from PySide6.QtWidgets import QGroupBox, QVBoxLayout, QPushButton
 from PySide6.QtCore import QThread, QTimer
 
 
-from ...controller.pytest_runner import PytestRunnerWorker, PytestStatus, PytestProcessState
+from ...controller.pytest_runner import PytestRunnerWorker
+from ...model import PytestProcessState, PytestStatus
 from ... import get_logger
 
 log = get_logger()

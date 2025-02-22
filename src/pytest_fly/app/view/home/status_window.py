@@ -1,7 +1,7 @@
 from PySide6.QtWidgets import QGroupBox, QVBoxLayout
 
 from ..gui_util import PlainTextWidget
-from ...controller.pytest_runner import PytestStatus, exit_code_to_string
+from ...model import exit_code_to_string, PytestStatus
 
 
 class StatusWindow(QGroupBox):

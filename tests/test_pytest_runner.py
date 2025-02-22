@@ -3,7 +3,8 @@ import time
 
 from PySide6.QtCore import QThread
 from pytest import ExitCode
-from pytest_fly.app.controller import PytestRunnerWorker, PytestProcessState
+from pytest_fly.app.controller import PytestRunnerWorker
+from pytest_fly.app.model import PytestProcessState
 
 
 def test_pytest_runner(app):

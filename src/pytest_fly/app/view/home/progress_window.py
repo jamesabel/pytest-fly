@@ -42,15 +42,13 @@ class ProgressWindow(QGroupBox):
         self.statuses[status.name].append(status)
         self.statuses[status.name].sort(key=lambda s: s.time_stamp)  # keep sorted by time (probably unnecessary)
 
+        status_list = self.statuses[status.name]
         min_time_stamp_for_all_tests, max_time_stamp_for_all_tests = get_overall_time_window(self.statuses)
 
-        start_time = min([s.time_stamp for s in self.statuses[status.name]])
-        end_time = max([s.time_stamp for s in self.statuses[status.name]])
-
         if status.name not in self.progress_bars:
-            progress_bar = PytestProgressBar(start_time, end_time, min_time_stamp_for_all_tests, max_time_stamp_for_all_tests, status.name, self)
+            progress_bar = PytestProgressBar(status_list, min_time_stamp_for_all_tests, max_time_stamp_for_all_tests, self)
             self.progress_bars[status.name] = progress_bar
             layout.addWidget(progress_bar)
         for progress_bar in self.progress_bars.values():
             progress_bar.update_time_window(min_time_stamp_for_all_tests, max_time_stamp_for_all_tests)
-        self.progress_bars[status.name].update_status(start_time, end_time, min_time_stamp_for_all_tests, max_time_stamp_for_all_tests)
+        self.progress_bars[status.name].update_status(status_list, min_time_stamp_for_all_tests, max_time_stamp_for_all_tests)

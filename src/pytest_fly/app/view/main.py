@@ -3,7 +3,7 @@ import multiprocessing
 from PySide6.QtWidgets import QMainWindow, QApplication, QTabWidget
 from PySide6.QtCore import QCoreApplication
 
-from .gui_util import get_font
+from .gui_util import get_font, get_text_dimensions
 from ..logging import get_logger
 from .home import Home
 from .tests import Tests
@@ -20,13 +20,23 @@ class FlyAppMainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
-        self.setFont(get_font())
+        # set monospace font
+        font = get_font()
+        self.setFont(font)
 
+        # ensure monospace font is used
+        space_dimension = get_text_dimensions(" ")
+        wide_character_dimension = get_text_dimensions("X")
+        if space_dimension.width() != wide_character_dimension.width():
+            log.warning(f"monospace font not used (font={font})")
+
+        # restore window size and position
         pref = get_pref()
         self.setGeometry(pref.window_x, pref.window_y, pref.window_width, pref.window_height)
 
         self.setWindowTitle(application_name)
 
+        # add tab windows
         self.tab_widget = QTabWidget()
         self.home = Home(self)
         self.tests = Tests()

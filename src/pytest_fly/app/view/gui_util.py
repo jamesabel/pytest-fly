@@ -18,7 +18,7 @@ def get_font() -> QFont:
 
 
 @lru_cache(maxsize=1000)
-def get_text_dimensions(text: str, pad: bool = True) -> QSize:
+def get_text_dimensions(text: str, pad: bool = False) -> QSize:
     """
     Determine the dimensions of the provided text
 
@@ -30,7 +30,7 @@ def get_text_dimensions(text: str, pad: bool = True) -> QSize:
     metrics = QFontMetrics(font)
     text_size = metrics.size(0, text)  # Get the size of the text (QSize)
     if pad:
-        single_character_size = metrics.size(0, 2 * "X")  # pad a few characters
+        single_character_size = metrics.size(0, "X")
         text_size.setWidth(text_size.width() + single_character_size.width())
         text_size.setHeight(text_size.height() + single_character_size.height())
     return text_size
@@ -48,6 +48,6 @@ class PlainTextWidget(QPlainTextEdit):
         self.setReadOnly(True)
 
     def set_text(self, text: str):
-        text_dimensions = get_text_dimensions(text)
+        text_dimensions = get_text_dimensions(text, True)
         self.setFixedSize(text_dimensions.width(), text_dimensions.height())
         self.setPlainText(text)

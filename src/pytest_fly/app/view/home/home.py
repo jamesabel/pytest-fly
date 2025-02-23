@@ -15,7 +15,7 @@ class Home(QWidget):
 
         self.status_window = StatusWindow()
         self.progress_window = ProgressWindow()
-        self.control_window = ControlWindow(self, self.update_status)
+        self.control_window = ControlWindow(self, self.progress_window.reset, self.update_status)
 
         # Create scroll areas for both windows
         self.status_scroll_area = QScrollArea()

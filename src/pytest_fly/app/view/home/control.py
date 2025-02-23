@@ -13,8 +13,9 @@ log = get_logger()
 
 class ControlWindow(QGroupBox):
 
-    def __init__(self, parent, update_callback: Callable[[PytestStatus], None]):
+    def __init__(self, parent, reset_callback: Callable, update_callback: Callable[[PytestStatus], None]):
         super().__init__(parent)
+        self.reset_callback = reset_callback
         self.update_callback = update_callback
         self.setTitle("Control")
         layout = QVBoxLayout()
@@ -44,6 +45,7 @@ class ControlWindow(QGroupBox):
         self.update_timer.start(1000)
 
     def run(self):
+        self.reset_callback()
         self.pytest_runner_worker.request_run()
 
     def stop(self):

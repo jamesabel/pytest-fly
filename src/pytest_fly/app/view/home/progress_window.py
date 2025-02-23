@@ -23,21 +23,23 @@ def get_overall_time_window(statuses: dict[str, list[PytestStatus]]) -> tuple[fl
 class ProgressWindow(QGroupBox):
     def __init__(self):
         super().__init__()
-        self.statuses = {}
+        self.statuses = defaultdict(list)
         self.progress_bars = {}
         self.setTitle("Progress")
         layout = QVBoxLayout()
         layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         self.setLayout(layout)
 
+    def reset(self):
+        self.statuses = defaultdict(list)
+        for progress_bar in self.progress_bars.values():
+            progress_bar.deleteLater()
+        self.progress_bars = {}
+
     def update_status(self, status: PytestStatus):
         layout = self.layout()
 
-        # update status list in-place
-        if status.name not in self.statuses:
-            self.statuses[status.name] = [status]
-        else:
-            self.statuses[status.name].append(status)
+        self.statuses[status.name].append(status)
         self.statuses[status.name].sort(key=lambda s: s.time_stamp)  # keep sorted by time (probably unnecessary)
 
         min_time_stamp_for_all_tests, max_time_stamp_for_all_tests = get_overall_time_window(self.statuses)

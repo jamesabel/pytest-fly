@@ -1,6 +1,6 @@
 from typing import Callable
 
-from PySide6.QtWidgets import QGroupBox, QVBoxLayout, QPushButton
+from PySide6.QtWidgets import QGroupBox, QVBoxLayout, QPushButton, QSizePolicy
 from PySide6.QtCore import QThread, QTimer
 
 
@@ -21,11 +21,20 @@ class ControlWindow(QGroupBox):
         layout = QVBoxLayout()
         self.setLayout(layout)
         self.run_button = QPushButton("Run")
+        self.run_button.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        self.run_button.adjustSize()
         layout.addWidget(self.run_button)
         self.stop_button = QPushButton("Stop")
+        self.stop_button.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        self.stop_button.adjustSize()
         self.stop_button.setEnabled(False)
         layout.addWidget(self.stop_button)
         layout.addStretch()
+        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        fixed_width = self.run_button.size().width() + 10
+        log.info(f"{fixed_width=}")
+        self.setFixedWidth(fixed_width)
+
         self.run_button.clicked.connect(self.run)
         self.stop_button.clicked.connect(self.stop)
         self.pytest_runner_thread = None

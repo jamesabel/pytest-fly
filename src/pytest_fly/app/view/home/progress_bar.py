@@ -50,14 +50,15 @@ class PytestProgressBar(QWidget):
 
     def update_time_window(self, min_time_stamp: float, max_time_stamp: float) -> None:
         """
-        Update the time window for the progress bar. Called when the overall time window changes, but not for this test.
+        Update the time window for the progress bar. Can be called when the overall time window changes, but not for this test.
 
         :param min_time_stamp: the minimum time stamp for all tests
         :param max_time_stamp: the maximum time stamp for all tests
         """
-        self.min_time_stamp = min_time_stamp
-        self.max_time_stamp = max_time_stamp
-        self.update()
+        if min_time_stamp != self.min_time_stamp or max_time_stamp != self.max_time_stamp:
+            self.min_time_stamp = min_time_stamp
+            self.max_time_stamp = max_time_stamp
+            self.update()
 
     def paintEvent(self, event: QPaintEvent) -> None:
 

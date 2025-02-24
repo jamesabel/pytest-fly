@@ -5,6 +5,7 @@ from pref import Pref, PrefOrderedSet
 from appdirs import user_data_dir
 
 from ..__version__ import application_name, author
+from .platform_info import get_performance_core_count
 
 preferences_file_name = f"{application_name}_preferences.db"
 
@@ -16,6 +17,7 @@ class FlyPreferences(Pref):
     window_width: int = attrib(default=-1)
     window_height: int = attrib(default=-1)
     verbose: bool = attrib(default=False)
+    processes: int = attrib(default=get_performance_core_count())  # number of processes to use
     csv_dump_path: str = attrib(default=str(Path(user_data_dir(application_name, author), f"{application_name}.csv")))
 
 

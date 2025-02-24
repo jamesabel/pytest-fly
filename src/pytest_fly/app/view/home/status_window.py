@@ -31,7 +31,7 @@ class StatusWindow(QGroupBox):
             if (exit_code := status.exit_code) is None:
                 lines.append(f"{name},{status.state.name}")
             else:
-                lines.append(f"{name},{status.state.name},{exit_code_to_string(status.exit_code)}")
+                lines.append(f"{name},{status.state.name},{exit_code_to_string(exit_code)}")
 
         text = "\n".join(lines)
 

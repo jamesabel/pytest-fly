@@ -1,14 +1,26 @@
 from typing import Callable
 
-from PySide6.QtWidgets import QGroupBox, QVBoxLayout, QPushButton, QSizePolicy
+from PySide6.QtWidgets import QGroupBox, QVBoxLayout, QPushButton, QSizePolicy, QLabel
 from PySide6.QtCore import QThread, QTimer
 
 
 from ...controller.pytest_runner import PytestRunnerWorker
 from ...model import PytestProcessState, PytestStatus
+from ...preferences import get_pref
+from ..gui_util import get_text_dimensions
 from ... import get_logger
 
 log = get_logger()
+
+
+class ControlButton(QPushButton):
+
+    def __init__(self, parent, text: str, enabled: bool):
+        super().__init__(parent)
+        self.setText(text)
+        self.setEnabled(enabled)
+        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        self.adjustSize()
 
 
 class ControlWindow(QGroupBox):
@@ -18,22 +30,19 @@ class ControlWindow(QGroupBox):
         self.reset_callback = reset_callback
         self.update_callback = update_callback
         self.setTitle("Control")
+
         layout = QVBoxLayout()
         self.setLayout(layout)
-        self.run_button = QPushButton("Run")
-        self.run_button.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        self.run_button.adjustSize()
+
+        self.run_button = ControlButton(self, "Run", True)
         layout.addWidget(self.run_button)
-        self.stop_button = QPushButton("Stop")
-        self.stop_button.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        self.stop_button.adjustSize()
-        self.stop_button.setEnabled(False)
+        self.stop_button = ControlButton(self, "Stop", False)
         layout.addWidget(self.stop_button)
         layout.addStretch()
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        fixed_width = self.run_button.size().width() + 10
-        log.info(f"{fixed_width=}")
-        self.setFixedWidth(fixed_width)
+        self.setFixedWidth(self.run_button.size().width() + 30)
+        self.processes_label = QLabel()
+        layout.addWidget(self.processes_label)
 
         self.run_button.clicked.connect(self.run)
         self.stop_button.clicked.connect(self.stop)
@@ -52,6 +61,8 @@ class ControlWindow(QGroupBox):
         self.update_timer.timeout.connect(self.pytest_runner_worker.request_update)
         self.pytest_runner_thread.start()
         self.update_timer.start(1000)
+
+        self.update_processes_label()
 
     def run(self):
         self.reset_callback()
@@ -77,4 +88,12 @@ class ControlWindow(QGroupBox):
         else:
             self.run_button.setEnabled(False)
             self.stop_button.setEnabled(True)
+        self.update_processes_label()
         log.info(f"{__class__.__name__}.pytest_update() - exiting")
+
+    def update_processes_label(self):
+        processes = get_pref().processes
+        text = f"{processes} processes"
+        text_dimensions = get_text_dimensions(text, True)
+        self.processes_label.setFixedWidth(text_dimensions.width())
+        self.processes_label.setText(text)

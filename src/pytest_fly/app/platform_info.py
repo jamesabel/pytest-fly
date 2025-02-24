@@ -33,6 +33,7 @@ def get_performance_core_count() -> int:
 
     return core_count
 
+@cache
 def get_efficiency_core_count() -> int:
     """
     Get the number of efficiency cores on the system. If there are a mix of performance and efficiency cores, return only the number of efficiency cores (HT must be enabled).
@@ -52,21 +53,23 @@ def get_platform_info(details: bool = False) -> dict:
     virtual_memory = psutil.virtual_memory()
 
     platform_info = {
+        "computer_name": get_computer_name(),
+        "user_name": get_user_name(),
+        "memory_total": virtual_memory.total,
         "cpu_count_logical": psutil.cpu_count(),  # includes hyperthreading
         "cpu_count_all_cores": psutil.cpu_count(False),  # includes efficiency cores
         "cpu_count_performance_cores": get_performance_core_count(),  # only performance cores if mix of performance and efficiency cores
         "cpu_count_efficiency_cores": get_efficiency_core_count(),
-        "cpu_freq_min": cpu_freq.min,
-        "cpu_freq_max": cpu_freq.max,
-        "memory_total": virtual_memory.total,
-        "computer_name": get_computer_name(),
-        "user_name": get_user_name(),
         "platform_string": platform.platform(),
         "processor": platform.processor(),
+        "cpu_freq_min": cpu_freq.min,
+        "cpu_freq_max": cpu_freq.max,
     }
 
     cpu_info = get_cpu_info()
     keys = [
+        "hz_actual_friendly",
+        "python_version",
         "vendor_id_raw",
         "hardware_raw",
         "brand_raw",

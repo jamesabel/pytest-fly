@@ -11,6 +11,7 @@ balsa
 psutil
 py-cpuinfo
 humanize
+tobool
 # linters
 black
 flake8

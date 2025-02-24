@@ -36,7 +36,8 @@ dependencies = [
     "balsa",
     "psutil",
     "py-cpuinfo",
-    "humanize"
+    "humanize",
+    "tobool"
 ]
 keywords = ["pytest", "observer", "testing"]
 

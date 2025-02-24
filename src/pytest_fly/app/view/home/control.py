@@ -62,7 +62,7 @@ class ControlWindow(QGroupBox):
         self.pytest_runner_thread.start()
         self.update_timer.start(1000)
 
-        self.update_processes_label()
+        self.update_processes_configuration()
 
     def run(self):
         self.reset_callback()
@@ -88,10 +88,10 @@ class ControlWindow(QGroupBox):
         else:
             self.run_button.setEnabled(False)
             self.stop_button.setEnabled(True)
-        self.update_processes_label()
+        self.update_processes_configuration()
         log.info(f"{__class__.__name__}.pytest_update() - exiting")
 
-    def update_processes_label(self):
+    def update_processes_configuration(self):
         processes = get_pref().processes
         text = f"{processes} processes"
         text_dimensions = get_text_dimensions(text, True)

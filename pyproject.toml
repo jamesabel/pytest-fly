@@ -33,7 +33,10 @@ dependencies = [
     "pref",
     "attrs",
     "typeguard",
-    "balsa"
+    "balsa",
+    "psutil",
+    "py-cpuinfo",
+    "humanize"
 ]
 keywords = ["pytest", "observer", "testing"]
 

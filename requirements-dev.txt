@@ -8,6 +8,9 @@ pref
 attrs
 typeguard
 balsa
+psutil
+py-cpuinfo
+humanize
 # linters
 black
 flake8

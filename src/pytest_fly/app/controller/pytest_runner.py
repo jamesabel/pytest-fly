@@ -13,6 +13,7 @@ from typeguard import typechecked
 from ..logging import get_logger
 from ..model import PytestResult, PytestProcessState, PytestStatus
 from ..test_list import get_tests
+from ..preferences import get_pref
 
 log = get_logger()
 
@@ -155,8 +156,22 @@ class PytestRunnerWorker(QObject):
 
     @Slot()
     def _scheduler(self):
-        for test, status in self.statuses.items():
-            if status.state == PytestProcessState.QUEUED:
+        if (pref_processes := get_pref().processes) > 0:
+
+            # determine tests to run
+            number_of_running_processes = len([process for process in self.processes.values() if process.is_alive()])
+            max_number_of_tests_to_run = pref_processes - number_of_running_processes
+            tests_to_run = []
+            for test, status in self.statuses.items():
+                if len(tests_to_run) >= max_number_of_tests_to_run:
+                    break
+                if status.state == PytestProcessState.QUEUED:
+                    tests_to_run.append(test)
+            if len(tests_to_run) > 0:
+                log.info(f"{tests_to_run=}")
+
+            # run tests
+            for test in tests_to_run:
                 log.info(f"{__class__.__name__}: {test} is queued - starting")
                 process = self.processes[test]
                 if not process.is_alive():

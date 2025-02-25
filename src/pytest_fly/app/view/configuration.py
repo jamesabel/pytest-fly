@@ -6,12 +6,15 @@ from PySide6.QtGui import QIntValidator, QDoubleValidator
 
 from tobool import to_bool_strict
 
-from ..preferences import get_pref
+from ..preferences import get_pref, scheduler_time_quantum_default, refresh_rate_default
 from .gui_util import get_text_dimensions
 from ..platform_info import get_performance_core_count
 from ..logging import get_logger
 
 log = get_logger()
+
+minimum_scheduler_time_quantum = 0.1
+minimum_refresh_rate = 1.0
 
 
 class Configuration(QWidget):
@@ -49,7 +52,7 @@ class Configuration(QWidget):
         layout.addWidget(QLabel(""))  # space
 
         # Scheduler Time Quantum option
-        self.scheduler_time_quantum_label = QLabel("Scheduler Time Quantum (seconds)")
+        self.scheduler_time_quantum_label = QLabel(f"Scheduler Time Quantum (seconds, {minimum_scheduler_time_quantum} minimum, {scheduler_time_quantum_default} default)")
         layout.addWidget(self.scheduler_time_quantum_label)
         self.scheduler_time_quantum_lineedit = QLineEdit()
         self.scheduler_time_quantum_lineedit.setText(str(pref.scheduler_time_quantum))
@@ -62,7 +65,7 @@ class Configuration(QWidget):
         layout.addWidget(QLabel(""))  # space
 
         # Refresh Rate option
-        self.refresh_rate_label = QLabel("Refresh Rate (seconds)")
+        self.refresh_rate_label = QLabel(f"Refresh Rate (seconds, {minimum_refresh_rate} minimum, {refresh_rate_default} default)")
         layout.addWidget(self.refresh_rate_label)
         self.refresh_rate_lineedit = QLineEdit()
         self.refresh_rate_lineedit.setText(str(pref.refresh_rate))
@@ -86,7 +89,7 @@ class Configuration(QWidget):
     def update_scheduler_time_quantum(self, value: str):
         pref = get_pref()
         try:
-            pref.scheduler_time_quantum = float(value)  # validator should ensure this is a float
+            pref.scheduler_time_quantum = max(float(value), minimum_scheduler_time_quantum)  # validator should ensure this is a float
         except ValueError:
             pass
         self.configuration_update_callback()
@@ -94,7 +97,7 @@ class Configuration(QWidget):
     def update_refresh_rate(self, value: str):
         pref = get_pref()
         try:
-            pref.refresh_rate = float(value)  # validator should ensure this is a float
+            pref.refresh_rate = max(float(value), minimum_refresh_rate)  # validator should ensure this is a float
         except ValueError:
             pass
         self.configuration_update_callback()

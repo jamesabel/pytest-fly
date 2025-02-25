@@ -76,7 +76,7 @@ class PytestProgressBar(QWidget):
                     start_running_time = status.time_stamp
                     break
             if self.status_list[-1].state == PytestProcessState.RUNNING:
-                end_time = time.time()
+                end_time = time.time()  # running, so use current time
             else:
                 end_time = self.status_list[-1].time_stamp
             if len(self.status_list) > 0:

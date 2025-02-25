@@ -6,6 +6,7 @@ from PySide6.QtCore import Qt, QTimer
 
 from .progress_bar import PytestProgressBar
 from ...model import PytestStatus, PytestProcessState
+from ...preferences import get_pref
 
 
 def get_overall_time_window(statuses: dict[str, list[PytestStatus]]) -> tuple[float, float]:
@@ -31,9 +32,10 @@ class ProgressWindow(QGroupBox):
         self.setLayout(layout)
 
         # Initialize and start the timer
+        refresh_rate = get_pref().refresh_rate
         self.update_timer = QTimer(self)
         self.update_timer.timeout.connect(lambda: self.update_status(None))
-        self.update_timer.start(1000)  # 1000 milliseconds = 1 second
+        self.update_timer.start(int(round(refresh_rate * 1000)))
 
     def reset(self):
         self.statuses = defaultdict(list)
@@ -72,4 +74,5 @@ class ProgressWindow(QGroupBox):
         if all(status_list[-1].state == PytestProcessState.FINISHED for status_list in self.statuses.values()):
             self.update_timer.stop()
         else:
-            self.update_timer.start(1000)
+            refresh_rate = get_pref().refresh_rate
+            self.update_timer.start(int(round(refresh_rate * 1000)))

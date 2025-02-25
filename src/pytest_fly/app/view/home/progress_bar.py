@@ -1,6 +1,7 @@
 from typing import List, Optional
 from datetime import datetime, timedelta
 import math
+import time
 
 from pytest import ExitCode
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QGroupBox, QSizePolicy, QStatusBar, QLabel
@@ -69,7 +70,11 @@ class PytestProgressBar(QWidget):
             name = self.status_list[0].name
 
             # extract status to display
-            start_time = min([s.time_stamp for s in self.status_list])
+            start_running_time = None
+            for status in self.status_list:
+                if status.state == PytestProcessState.RUNNING:
+                    start_running_time = status.time_stamp
+                    break
             end_time = max([s.time_stamp for s in self.status_list])
             if len(self.status_list) > 0:
                 most_recent_status = self.status_list[-1]
@@ -81,36 +86,41 @@ class PytestProgressBar(QWidget):
                 most_recent_exit_code = None
                 most_recent_exit_code_string = ""
 
-            if math.isclose(start_time, end_time):
+            if start_running_time is None or math.isclose(start_running_time, end_time):
                 bar_text = f"{name} - {most_recent_process_state.name}"
             else:
-                duration = end_time - start_time
+                duration = end_time - start_running_time
                 bar_text = f"{name} - {most_recent_process_state.name},{most_recent_exit_code_string} ({duration:.2f}s)"
 
             outer_rect = self.rect()
-            overall_time_window = max(self.max_time_stamp - self.min_time_stamp, 1)  # at least 1 second
+            overall_time_window = max(self.max_time_stamp - self.min_time_stamp, time.time() - self.min_time_stamp, 1)  # at least 1 second
             horizontal_pixels_per_second = outer_rect.width() / overall_time_window
 
             # determine the horizontal bar color
-            if most_recent_process_state == PytestProcessState.QUEUED:
-                bar_color = Qt.black
-            elif most_recent_process_state == PytestProcessState.RUNNING:
-                bar_color = Qt.lightGray
-            elif most_recent_process_state == PytestProcessState.FINISHED:
+            bar_color = Qt.lightGray
+            if most_recent_process_state == PytestProcessState.FINISHED:
                 if most_recent_exit_code == ExitCode.OK:
                     bar_color = Qt.green
                 else:
                     bar_color = Qt.red
-            else:
-                bar_color = Qt.black
 
             # draw the horizontal bar
-            x1 = int(round((start_time - self.min_time_stamp) * horizontal_pixels_per_second)) + self.bar_margin
-            y1 = outer_rect.y() + self.bar_margin
-            w = int(round((end_time - start_time) * horizontal_pixels_per_second)) - (2 * self.bar_margin)
-            h = self.one_character_dimensions.height()
-            painter.setPen(QPen(bar_color, 1))
-            bar_rect = QRect(x1, y1, w, h)
+            if start_running_time is None:
+                # tick for the queue time
+                x1 = outer_rect.x() + self.bar_margin
+                y1 = outer_rect.y() + self.bar_margin
+                w = (end_time - self.min_time_stamp) * horizontal_pixels_per_second
+                h = self.one_character_dimensions.height()
+                painter.setPen(QPen(bar_color, 1))
+                bar_rect = QRectF(x1, y1, w, h)
+            else:
+                seconds_from_start = start_running_time - self.min_time_stamp
+                x1 = (seconds_from_start * horizontal_pixels_per_second) + self.bar_margin
+                y1 = outer_rect.y() + self.bar_margin
+                w = ((end_time - start_running_time) * horizontal_pixels_per_second) - (2 * self.bar_margin)
+                h = self.one_character_dimensions.height()
+                painter.setPen(QPen(bar_color, 1))
+                bar_rect = QRectF(x1, y1, w, h)
             bar_brush = QBrush(bar_color)
             painter.fillRect(bar_rect, bar_brush)
 

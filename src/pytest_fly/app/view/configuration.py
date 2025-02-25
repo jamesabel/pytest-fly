@@ -2,7 +2,7 @@ from typing import Callable
 
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QCheckBox, QLabel, QLineEdit
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QIntValidator
+from PySide6.QtGui import QIntValidator, QDoubleValidator
 
 from tobool import to_bool_strict
 
@@ -46,6 +46,19 @@ class Configuration(QWidget):
         self.processes_lineedit.textChanged.connect(self.update_processes)
         layout.addWidget(self.processes_lineedit)
 
+        layout.addWidget(QLabel(""))  # space
+
+        # Scheduler Time Quantum option
+        self.scheduler_time_quantum_label = QLabel("Scheduler Time Quantum (seconds)")
+        layout.addWidget(self.scheduler_time_quantum_label)
+        self.scheduler_time_quantum_lineedit = QLineEdit()
+        self.scheduler_time_quantum_lineedit.setText(str(pref.scheduler_time_quantum))
+        self.scheduler_time_quantum_lineedit.setValidator(QDoubleValidator())  # only integers allowed
+        quantum_width = get_text_dimensions(4 * "X", True)  # 4 digits for time quantum should be plenty
+        self.scheduler_time_quantum_lineedit.setFixedWidth(quantum_width.width())
+        self.scheduler_time_quantum_lineedit.textChanged.connect(self.update_scheduler_time_quantum)
+        layout.addWidget(self.scheduler_time_quantum_lineedit)
+
     def update_verbose(self, state: str):
         pref = get_pref()
         pref.verbose = to_bool_strict(state)
@@ -55,4 +68,12 @@ class Configuration(QWidget):
         pref = get_pref()
         if value.isnumeric():
             pref.processes = int(value)  # validator should ensure this is an integer
+        self.configuration_update_callback()
+
+    def update_scheduler_time_quantum(self, value: str):
+        pref = get_pref()
+        try:
+            pref.scheduler_time_quantum = float(value)  # validator should ensure this is a float
+        except ValueError:
+            pass
         self.configuration_update_callback()

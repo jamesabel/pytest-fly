@@ -63,7 +63,8 @@ class ControlWindow(QGroupBox):
         self.pytest_runner_worker.update_signal.connect(self.pytest_update)
         self.update_timer.timeout.connect(self.pytest_runner_worker.request_update)
         self.pytest_runner_thread.start()
-        self.update_timer.start(1000)
+        scheduler_time_quantum = get_pref().scheduler_time_quantum
+        self.update_timer.start(int(round(scheduler_time_quantum * 1000.0)))  # convert to milliseconds
 
         self.update_processes_configuration()
 

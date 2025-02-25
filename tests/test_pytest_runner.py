@@ -25,7 +25,7 @@ def test_pytest_runner(app):
         thread.start()
 
         performance_core_count = get_performance_core_count()
-        worker._request_run_signal.emit(performance_core_count)
+        worker.request_run(performance_core_count)
         app.processEvents()
 
         # the statuses list will be updated in the background in the worker thread

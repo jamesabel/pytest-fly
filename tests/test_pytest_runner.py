@@ -5,6 +5,7 @@ from PySide6.QtCore import QThread
 from pytest import ExitCode
 from pytest_fly.app.controller import PytestRunnerWorker
 from pytest_fly.app.model import PytestProcessState
+from pytest_fly.app.platform_info import get_performance_core_count
 
 
 def test_pytest_runner(app):
@@ -23,7 +24,8 @@ def test_pytest_runner(app):
         worker.update_signal.connect(statuses.append)
         thread.start()
 
-        worker._request_run_signal.emit()
+        performance_core_count = get_performance_core_count()
+        worker._request_run_signal.emit(performance_core_count)
         app.processEvents()
 
         # the statuses list will be updated in the background in the worker thread

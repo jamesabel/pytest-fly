@@ -34,17 +34,20 @@ class ControlWindow(QGroupBox):
         layout = QVBoxLayout()
         self.setLayout(layout)
 
-        self.run_button = ControlButton(self, "Run", True)
-        layout.addWidget(self.run_button)
+        self.run_serial_button = ControlButton(self, "Run\nSerial", True)
+        layout.addWidget(self.run_serial_button)
+        self.run_parallel_button = ControlButton(self, "Run\nParallel", True)
+        layout.addWidget(self.run_parallel_button)
         self.stop_button = ControlButton(self, "Stop", False)
         layout.addWidget(self.stop_button)
         layout.addStretch()
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        self.setFixedWidth(self.run_button.size().width() + 30)
+        self.setFixedWidth(self.run_parallel_button.size().width() + 30)
         self.processes_label = QLabel()
         layout.addWidget(self.processes_label)
 
-        self.run_button.clicked.connect(self.run)
+        self.run_serial_button.clicked.connect(self.run_serial)
+        self.run_parallel_button.clicked.connect(self.run_multiprocess)
         self.stop_button.clicked.connect(self.stop)
         self.pytest_runner_thread = None
         self.pytest_runner_worker = None
@@ -64,14 +67,20 @@ class ControlWindow(QGroupBox):
 
         self.update_processes_configuration()
 
-    def run(self):
+    def run_serial(self):
         self.reset_callback()
-        self.pytest_runner_worker.request_run()
+        self.pytest_runner_worker.request_run(1)
+
+    def run_multiprocess(self):
+        self.reset_callback()
+        max_number_of_processes = get_pref().processes
+        self.pytest_runner_worker.request_run(max_number_of_processes)
 
     def stop(self):
         log.info(f"{__class__.__name__}.stop() - entering")
         self.pytest_runner_worker.request_stop()
-        self.run_button.setEnabled(True)
+        self.run_serial_button.setEnabled(True)
+        self.run_parallel_button.setEnabled(True)
         self.stop_button.setEnabled(False)
         log.info(f"{__class__.__name__}.stop() - exiting")
 
@@ -83,10 +92,12 @@ class ControlWindow(QGroupBox):
         log.info(f"{__class__.__name__}.pytest_update() - self.update_callback() returned")
         all_pytest_processes_finished = all([status.state == PytestProcessState.FINISHED for status in self.most_recent_statuses.values()])
         if all_pytest_processes_finished:
-            self.run_button.setEnabled(True)
+            self.run_serial_button.setEnabled(True)
+            self.run_parallel_button.setEnabled(True)
             self.stop_button.setEnabled(False)
         else:
-            self.run_button.setEnabled(False)
+            self.run_serial_button.setEnabled(False)
+            self.run_parallel_button.setEnabled(False)
             self.stop_button.setEnabled(True)
         self.update_processes_configuration()
         log.info(f"{__class__.__name__}.pytest_update() - exiting")

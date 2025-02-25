@@ -13,7 +13,6 @@ from typeguard import typechecked
 from ..logging import get_logger
 from ..model import PytestResult, PytestProcessState, PytestStatus
 from ..test_list import get_tests
-from ..preferences import get_pref
 
 log = get_logger()
 
@@ -58,15 +57,16 @@ class _PytestProcess(Process):
 class PytestRunnerWorker(QObject):
 
     # signals to request pytest actions
-    _request_run_signal = Signal()  # request run
+    _request_run_signal = Signal(int)  # request run, passing in the number of processes to run
     _request_update_signal = Signal()  # request update
     _request_stop_signal = Signal()  # request stop
     request_exit_signal = Signal()  # request exit (not private since it's connected to the thread quit slot)
 
     update_signal = Signal(PytestStatus)  # caller connects to this signal to get updates
 
-    def request_run(self):
-        self._request_run_signal.emit()
+    @typechecked()
+    def request_run(self, max_processes: int):
+        self._request_run_signal.emit(max_processes)
 
     def request_update(self):
         self._request_update_signal.emit()
@@ -85,6 +85,7 @@ class PytestRunnerWorker(QObject):
         self.tests = tests
         self.processes = {}
         self.statuses = {}
+        self.max_processes = 1
 
         self._request_run_signal.connect(self._run)
         self._request_stop_signal.connect(self._stop)
@@ -95,11 +96,13 @@ class PytestRunnerWorker(QObject):
         self._scheduler_timer.start(1000)
 
     @Slot()
-    def _run(self):
+    def _run(self, max_processes: int):
         """
         Runs in the background to start and monitor pytest processes.
         """
         log.info(f"{__class__.__name__}.run()")
+
+        self.max_processes = max(max_processes, 1)  # ensure at least one process is run
 
         if self.processes is None:
             self.processes = {}
@@ -156,29 +159,29 @@ class PytestRunnerWorker(QObject):
 
     @Slot()
     def _scheduler(self):
-        if (pref_processes := get_pref().processes) > 0:
 
-            # determine tests to run
-            number_of_running_processes = len([process for process in self.processes.values() if process.is_alive()])
-            max_number_of_tests_to_run = pref_processes - number_of_running_processes
-            tests_to_run = []
-            for test, status in self.statuses.items():
-                if len(tests_to_run) >= max_number_of_tests_to_run:
-                    break
-                if status.state == PytestProcessState.QUEUED:
-                    tests_to_run.append(test)
-            if len(tests_to_run) > 0:
-                log.info(f"{tests_to_run=}")
+        # determine what tests to run
+        number_of_running_processes = len([process for process in self.processes.values() if process.is_alive()])
+        max_number_of_tests_to_run = self.max_processes - number_of_running_processes
+        tests_to_run = []
+        for test in sorted(self.statuses):
+            if len(tests_to_run) >= max_number_of_tests_to_run:
+                break
+            status = self.statuses[test]
+            if status.state == PytestProcessState.QUEUED:
+                tests_to_run.append(test)
+        if len(tests_to_run) > 0:
+            log.info(f"{tests_to_run=}")
 
-            # run tests
-            for test in tests_to_run:
-                log.info(f"{__class__.__name__}: {test} is queued - starting")
-                process = self.processes[test]
-                if not process.is_alive():
-                    log.info(f"{__class__.__name__}: starting {test}")
-                    process.start()
-                status = PytestStatus(name=test, state=PytestProcessState.RUNNING, exit_code=None, output=None, time_stamp=time.time())
-                log.info(f"{status=}")
-                self.statuses[test] = status
-                self.update_signal.emit(status)
-                QCoreApplication.processEvents()
+        # run tests
+        for test in tests_to_run:
+            log.info(f"{__class__.__name__}: {test} is queued - starting")
+            process = self.processes[test]
+            if not process.is_alive():
+                log.info(f"{__class__.__name__}: starting {test}")
+                process.start()
+            status = PytestStatus(name=test, state=PytestProcessState.RUNNING, exit_code=None, output=None, time_stamp=time.time())
+            log.info(f"{status=}")
+            self.statuses[test] = status
+            self.update_signal.emit(status)
+            QCoreApplication.processEvents()

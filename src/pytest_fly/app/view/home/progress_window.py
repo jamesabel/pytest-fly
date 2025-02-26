@@ -68,7 +68,7 @@ class ProgressWindow(QGroupBox):
 
         # update progress bar for this particular test
         if status is not None:
-            self.progress_bars[status.name].update_status(status_list, min_time_stamp_for_all_tests, max_time_stamp_for_all_tests)
+            self.progress_bars[status.name].update_status(status_list)
 
         # stop the timer if there are no tests running
         if all(status_list[-1].state == PytestProcessState.FINISHED for status_list in self.statuses.values()):

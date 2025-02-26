@@ -3,10 +3,12 @@ from datetime import datetime, timedelta
 import math
 import time
 
+from typeguard import typechecked
 from pytest import ExitCode
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QGroupBox, QSizePolicy, QStatusBar, QLabel
 from PySide6.QtCore import Qt, QRectF, QPointF, QRect
 from PySide6.QtGui import QPainter, QColor, QPen, QPaintEvent, QBrush
+import humanize
 
 from ..gui_util import get_text_dimensions
 from ...model import PytestStatus, PytestProcessState, exit_code_to_string
@@ -16,6 +18,11 @@ log = get_logger()
 
 
 class PytestProgressBar(QWidget):
+    """
+    A progress bar for a single test. The progress bar shows the status of the test, including the time it has been running.
+    """
+
+    @typechecked()
     def __init__(self, status_list: list[PytestStatus], min_time_stamp: float, max_time_stamp: float, parent: QWidget) -> None:
         super().__init__(parent)
         self.min_time_stamp = min_time_stamp
@@ -38,17 +45,17 @@ class PytestProgressBar(QWidget):
         log.info(f"{self.bar_height=},{name_text_dimensions=}")
         self.setFixedHeight(self.bar_height)
 
-    def update_status(self, status_list: list[PytestStatus], min_time_stamp: float, max_time_stamp: float) -> None:
+    @typechecked()
+    def update_status(self, status_list: list[PytestStatus]) -> None:
         """
         Update the status list for the progress bar. Called when the status list changes for this test.
 
         :param status_list: the list of statuses for this test
-        :param min_time_stamp: the minimum time stamp for all tests
-        :param max_time_stamp: the maximum time stamp for all tests
         """
         self.status_list = status_list
         self.update()
 
+    @typechecked()
     def update_time_window(self, min_time_stamp: float, max_time_stamp: float) -> None:
         """
         Update the time window for the progress bar. Can be called when the overall time window changes, but not for this test.
@@ -87,13 +94,17 @@ class PytestProgressBar(QWidget):
             else:
                 most_recent_process_state = PytestProcessState.UNKNOWN
                 most_recent_exit_code = None
-                most_recent_exit_code_string = ""
+                most_recent_exit_code_string = None
 
             if start_running_time is None or math.isclose(start_running_time, end_time):
                 bar_text = f"{name} - {most_recent_process_state.name}"
             else:
                 duration = end_time - start_running_time
-                bar_text = f"{name} - {most_recent_process_state.name},{most_recent_exit_code_string} ({duration:.2f}s)"
+                duration_string = humanize.precisedelta(timedelta(seconds=duration))
+                if most_recent_exit_code is None:
+                    bar_text = f"{name} - {most_recent_process_state.name} ({duration_string})"
+                else:
+                    bar_text = f"{name} - {most_recent_process_state.name},{most_recent_exit_code_string} ({duration_string})"
 
             outer_rect = self.rect()
             overall_time_window = max(self.max_time_stamp - self.min_time_stamp, time.time() - self.min_time_stamp, 1)  # at least 1 second

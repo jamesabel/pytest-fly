@@ -5,13 +5,16 @@ import getpass
 import psutil
 from cpuinfo import get_cpu_info
 
+
 @cache
 def get_user_name():
     return getpass.getuser()
 
+
 @cache
 def get_computer_name():
     return platform.node()
+
 
 @cache
 def get_performance_core_count() -> int:
@@ -33,6 +36,7 @@ def get_performance_core_count() -> int:
 
     return core_count
 
+
 @cache
 def get_efficiency_core_count() -> int:
     """
@@ -46,6 +50,7 @@ def get_efficiency_core_count() -> int:
     efficiency_core_count = all_core_count - performance_core_count
 
     return efficiency_core_count
+
 
 @cache
 def get_platform_info(details: bool = False) -> dict:

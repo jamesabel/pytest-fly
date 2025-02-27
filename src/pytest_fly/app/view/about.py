@@ -25,7 +25,7 @@ class AboutDataWorker(QObject):
             if any([descriptor in key.lower() for descriptor in ["cache", "memory"]]):
                 text_lines.append(f"{key_string}: {humanize.naturalsize(value)}")
             elif "freq" in key:
-                text_lines.append(f"{key_string}: {value/1000.0} GHz")
+                text_lines.append(f"{key_string}: {value / 1000.0} GHz")
             else:
                 text_lines.append(f"{key_string}: {value}")
 

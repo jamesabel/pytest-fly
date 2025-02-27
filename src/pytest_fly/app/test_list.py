@@ -9,6 +9,7 @@ from .logging import get_logger
 
 log = get_logger()
 
+
 @typechecked
 def get_tests(test_dir: Path = Path(".").resolve()) -> list[str]:
     """

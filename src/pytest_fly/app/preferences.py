@@ -12,6 +12,7 @@ preferences_file_name = f"{application_name}_preferences.db"
 scheduler_time_quantum_default = 1.0
 refresh_rate_default = 3.0
 
+
 @attrs
 class FlyPreferences(Pref):
     window_x: int = attrib(default=-1)

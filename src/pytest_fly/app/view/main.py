@@ -40,13 +40,13 @@ class FlyAppMainWindow(QMainWindow):
         self.tab_widget = QTabWidget()
         self.home = Home(self)
         self.tests = Tests()
-        self.history = History()
+        # self.history = History()  # no history yet
         # configuration update also updates processes count in control window
         self.configuration = Configuration(self.home.control_window.update_processes_configuration)
         self.about = About()
         self.tab_widget.addTab(self.home, "Home")
         self.tab_widget.addTab(self.tests, "Tests")
-        self.tab_widget.addTab(self.history, "History")
+        # self.tab_widget.addTab(self.history, "History")
         self.tab_widget.addTab(self.configuration, "Configuration")
         self.tab_widget.addTab(self.about, "About")
 

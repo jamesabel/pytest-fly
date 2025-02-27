@@ -1,4 +1,8 @@
+from datetime import timedelta
+
 from PySide6.QtWidgets import QGroupBox, QVBoxLayout, QSizePolicy
+
+import humanize
 
 from ..gui_util import PlainTextWidget, get_text_dimensions
 from ...model import exit_code_to_string, PytestStatus, PytestKey
@@ -32,6 +36,13 @@ class StatusWindow(QGroupBox):
                 lines.append(f"{name},{status.state.name}")
             else:
                 lines.append(f"{name},{status.state.name},{exit_code_to_string(exit_code)}")
+
+        # add total time so far to status
+        min_time_stamp = min(status.time_stamp for status in most_recent_statuses.values())
+        max_time_stamp = max(status.time_stamp for status in most_recent_statuses.values())
+        overall_time = max_time_stamp - min_time_stamp
+
+        lines.append(f"Total time: {humanize.precisedelta(timedelta(seconds=overall_time))}")
 
         text = "\n".join(lines)
 

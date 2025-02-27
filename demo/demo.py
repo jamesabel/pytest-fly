@@ -5,12 +5,12 @@ import pytest
 
 from ismain import is_main
 
-from pytest_fly import visualize
+from pytest_fly import main
 
 
 class Visualize(Process):
     def run(self):
-        visualize()
+        main()
 
 
 def generate_tests():

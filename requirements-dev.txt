@@ -2,21 +2,26 @@ appdirs
 msqlite
 ismain
 numpy
-matplotlib
 watchdog
 PySide6
 pref
 attrs
 typeguard
+balsa
+psutil
+py-cpuinfo
+humanize
+tobool
 # linters
 black
 flake8
 mypy
 # testing
 pytest
+pytest-qt
+pytest-pycharm
 pytest-cov
 pytest-xdist
-pytest-pycharm
 flask
 requests
 # distribution

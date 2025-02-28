@@ -1,12 +1,12 @@
 import multiprocessing
 
 from PySide6.QtWidgets import QMainWindow, QApplication, QTabWidget
-from PySide6.QtCore import QCoreApplication
+from PySide6.QtCore import QCoreApplication, QRect
 
 from .gui_util import get_font, get_text_dimensions
 from ..logging import get_logger
 from .home import Home
-from .tests import Tests
+from .list_of_tests import ListOfTests
 from .history import History
 from .configuration import Configuration
 from .about import About
@@ -32,6 +32,16 @@ class FlyAppMainWindow(QMainWindow):
 
         # restore window size and position
         pref = get_pref()
+        # ensure window is not off the screen
+        screen = QApplication.primaryScreen()
+        screen_geometry = screen.availableGeometry()
+        restore_rect = QRect(pref.window_x, pref.window_y, pref.window_width, pref.window_height)
+        if not screen_geometry.contains(restore_rect):
+            pref.window_x = 0
+            pref.window_y = 0
+            pref.window_width = pref.window_width if pref.window_width < screen_geometry.width() else screen_geometry.width()
+            pref.window_height = pref.window_height if pref.window_height < screen_geometry.height() else screen_geometry.height()
+            log.info(f"window is off the screen, moving to (0, 0) with width={pref.window_width} and height={pref.window_height}")
         self.setGeometry(pref.window_x, pref.window_y, pref.window_width, pref.window_height)
 
         self.setWindowTitle(application_name)
@@ -39,7 +49,7 @@ class FlyAppMainWindow(QMainWindow):
         # add tab windows
         self.tab_widget = QTabWidget()
         self.home = Home(self)
-        self.tests = Tests()
+        self.tests = ListOfTests()
         # self.history = History()  # no history yet
         # configuration update also updates processes count in control window
         self.configuration = Configuration(self.home.control_window.update_processes_configuration)
@@ -58,6 +68,7 @@ class FlyAppMainWindow(QMainWindow):
 
         pref = get_pref()
 
+        # save window size and position
         pref.window_x = self.x()
         frame_height = self.frameGeometry().height() - self.geometry().height()
         pref.window_y = self.y() + frame_height

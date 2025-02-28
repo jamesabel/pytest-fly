@@ -80,3 +80,4 @@ temp/
 venv/
 # automatically generated
 test_demo/
+tests/tests_many/

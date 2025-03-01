@@ -3,7 +3,7 @@ from PySide6.QtWidgets import QWidget, QHBoxLayout, QSplitter, QScrollArea
 from .control import ControlWindow
 from .progress_window import ProgressWindow
 from .status_window import StatusWindow
-from ...model import PytestStatus
+from pytest_fly.common.classes import PytestStatus
 from ...logging import get_logger
 
 log = get_logger()

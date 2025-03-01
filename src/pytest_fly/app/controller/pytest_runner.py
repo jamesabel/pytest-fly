@@ -11,8 +11,10 @@ from PySide6.QtCore import QObject, Signal, Slot, QTimer, QCoreApplication
 from typeguard import typechecked
 
 from ..logging import get_logger
-from ..model import PytestResult, PytestProcessState, PytestStatus
+from ...common import get_guid, PytestResult, PytestProcessState, PytestStatus
 from ..test_list import get_tests
+from ...db import write_test_status
+
 
 log = get_logger()
 
@@ -65,7 +67,8 @@ class PytestRunnerWorker(QObject):
     update_signal = Signal(PytestStatus)  # caller connects to this signal to get updates
 
     @typechecked()
-    def request_run(self, max_processes: int):
+    def request_run(self, run_guid: str, max_processes: int):
+        self.run_guid = run_guid
         self._request_run_signal.emit(max_processes)
 
     def request_update(self):
@@ -86,6 +89,7 @@ class PytestRunnerWorker(QObject):
         self.processes = {}
         self.statuses = {}
         self.max_processes = 1
+        self.run_guid = None
 
         self._request_run_signal.connect(self._run)
         self._request_stop_signal.connect(self._stop)
@@ -101,6 +105,8 @@ class PytestRunnerWorker(QObject):
         Runs in the background to start and monitor pytest processes.
         """
         log.info(f"{__class__.__name__}.run()")
+
+        self.run_guid = get_guid()
 
         self.max_processes = max(max_processes, 1)  # ensure at least one process is run
 
@@ -119,6 +125,7 @@ class PytestRunnerWorker(QObject):
                 process = _PytestProcess(test)
                 self.processes[test] = process
                 status = PytestStatus(name=test, state=PytestProcessState.QUEUED, exit_code=None, output=None, time_stamp=time.time())
+                write_test_status(self.run_guid, test, status, None)
                 self.statuses[test] = status
                 self.update_signal.emit(status)
                 QCoreApplication.processEvents()
@@ -140,7 +147,9 @@ class PytestRunnerWorker(QObject):
                     process.join(10)
                 except PermissionError:
                     log.warning(f"PermissionError joining {test}")
-            self.statuses[test] = PytestStatus(name=test, state=PytestProcessState.FINISHED, exit_code=None, output=None, time_stamp=time.time())
+            status = PytestStatus(name=test, state=PytestProcessState.FINISHED, exit_code=None, output=None, time_stamp=time.time())
+            self.statuses[test] = status
+            write_test_status(self.run_guid, test, status, None)
         log.info(f"{__class__.__name__}.stop() - exiting")
 
     @Slot()
@@ -156,6 +165,7 @@ class PytestRunnerWorker(QObject):
                 log.info(f"{__class__.__name__}._update():{status=}")
                 self.update_signal.emit(status)
                 QCoreApplication.processEvents()
+                write_test_status(self.run_guid, test, status, result)
 
     @Slot()
     def _scheduler(self):

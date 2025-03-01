@@ -4,24 +4,12 @@ import time
 from pathlib import Path
 from typing import Union
 from logging import getLogger
-import getpass
-import platform
 import sys
 from functools import cache
 
 from typeguard import typechecked
 
 log = getLogger(__file__)
-
-
-@cache
-def get_user_name():
-    return getpass.getuser()
-
-
-@cache
-def get_computer_name():
-    return platform.node()
 
 
 @cache

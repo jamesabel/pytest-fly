@@ -8,7 +8,7 @@ from tobool import to_bool_strict
 
 from ..preferences import get_pref, scheduler_time_quantum_default, refresh_rate_default
 from .gui_util import get_text_dimensions
-from ..platform_info import get_performance_core_count
+from pytest_fly.common.platform_info import get_performance_core_count
 from ..logging import get_logger
 
 log = get_logger()
@@ -75,9 +75,9 @@ class Configuration(QWidget):
         self.refresh_rate_lineedit.textChanged.connect(self.update_refresh_rate)
         layout.addWidget(self.refresh_rate_lineedit)
 
-    def update_verbose(self, state: str):
+    def update_verbose(self):
         pref = get_pref()
-        pref.verbose = to_bool_strict(state)
+        pref.verbose = self.verbose_checkbox.isChecked()
         self.configuration_update_callback()
 
     def update_processes(self, value: str):

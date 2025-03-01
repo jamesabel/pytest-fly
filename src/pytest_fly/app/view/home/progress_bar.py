@@ -10,8 +10,9 @@ from PySide6.QtCore import Qt, QRectF, QPointF, QRect
 from PySide6.QtGui import QPainter, QColor, QPen, QPaintEvent, QBrush
 import humanize
 
+from ....common import PytestProcessState, PytestStatus
 from ..gui_util import get_text_dimensions
-from ...model import PytestStatus, PytestProcessState, exit_code_to_string
+from ...model import exit_code_to_string
 from ...logging import get_logger
 
 log = get_logger()

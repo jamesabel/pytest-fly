@@ -5,7 +5,8 @@ from PySide6.QtWidgets import QGroupBox, QVBoxLayout, QSizePolicy
 import humanize
 
 from ..gui_util import PlainTextWidget, get_text_dimensions
-from ...model import exit_code_to_string, PytestStatus, PytestKey
+from ...model import exit_code_to_string, PytestKey
+from pytest_fly.common.classes import PytestStatus
 
 
 class StatusWindow(QGroupBox):

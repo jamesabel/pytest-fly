@@ -5,7 +5,7 @@ from pref import Pref, PrefOrderedSet
 from appdirs import user_data_dir
 
 from ..__version__ import application_name, author
-from .platform_info import get_performance_core_count
+from pytest_fly.common.platform_info import get_performance_core_count
 
 preferences_file_name = f"{application_name}_preferences.db"
 

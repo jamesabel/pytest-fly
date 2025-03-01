@@ -4,9 +4,9 @@ from collections import defaultdict
 from PySide6.QtWidgets import QGroupBox, QVBoxLayout
 from PySide6.QtCore import Qt, QTimer
 
-from .progress_bar import PytestProgressBar
-from ...model import PytestStatus, PytestProcessState
+from ....common import PytestProcessState, PytestStatus
 from ...preferences import get_pref
+from .progress_bar import PytestProgressBar
 
 
 def get_overall_time_window(statuses: dict[str, list[PytestStatus]]) -> tuple[float, float]:

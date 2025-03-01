@@ -8,6 +8,7 @@ from ..__version__ import application_name
 # id - unique id for the record (not part of the pytest run itself)
 # ts - timestamp
 # run_uid - unique id for the pytest run
+# max_processes - maximum number of processes
 # test_name - name of the particular test
 # state - state of the test (queued, running, finished)
 # result - result of the test (passed, failed, skipped, error)

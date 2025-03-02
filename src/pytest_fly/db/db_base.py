@@ -10,9 +10,14 @@ from ..__version__ import application_name, author
 
 class PytestFlyDBBase(MSQLite):
 
-    def __init__(self, table_name: str, schema: dict[str, type] | None = None):
+    def __init__(self, table_name: str, schema: dict[str, type] | None = None, indexes: list[str] | None = None):
+        """
+        :param table_name: Name of the table.
+        :param schema: Dictionary of column names and types.
+        :param indexes: List of indexes to create.
+        """
         self.db_path = Path(self.get_db_dir(), self.get_db_file_name())
-        super().__init__(self.db_path, table_name, schema)
+        super().__init__(self.db_path, table_name, schema, indexes)
 
     def get_db_file_name(self) -> str:
         """

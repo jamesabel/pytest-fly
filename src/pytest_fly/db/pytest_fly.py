@@ -5,18 +5,23 @@ from ..common.classes import PytestResult, PytestStatus
 
 from ..__version__ import application_name
 
-# id - unique id for the record (not part of the pytest run itself)
-# ts - timestamp
-# run_uid - unique id for the pytest run
-# max_processes - maximum number of processes
-# test_name - name of the particular test
-# state - state of the test (queued, running, finished)
-# result - result of the test (passed, failed, skipped, error)
-# out - stdout/stderr output
-pytest_fly_status_schema = {"id PRIMARY KEY": int, "ts": float, "run_uid": str, "max_processes": int, "test_name": str, "status": str, "result": str, "out": str}
+schema = {"id PRIMARY KEY": int, "ts": float, "run_uid": str, "max_processes": int, "test_name": str, "status": str, "result": str, "out": str}
+indexes = ["run_uid", "test_name"]
+table_name = "status"
 
 
 class PytestFlyDB(PytestFlyDBBase):
+
+    def __init__(self):
+        # id - unique id for the record (not part of the pytest run itself)
+        # ts - timestamp
+        # run_uid - unique id for the pytest run
+        # max_processes - maximum number of processes
+        # test_name - name of the particular test
+        # state - state of the test (queued, running, finished)
+        # result - result of the test (passed, failed, skipped, error)
+        # out - stdout/stderr output
+        super().__init__(table_name, schema, indexes)
 
     def get_db_file_name(self) -> str:
         return f"{application_name}_status.db"
@@ -32,7 +37,7 @@ def write_test_status(run_uid: str, max_processes: int, test_name: str, status: 
     :param status: status of the test
     :param result: result of the test
     """
-    with PytestFlyDB("status", pytest_fly_status_schema) as db:
+    with PytestFlyDB() as db:
         if result is None:
             statement = f"INSERT INTO status (ts, run_uid, max_processes, test_name, status, result, out) VALUES ({status.time_stamp}, '{run_uid}', '{max_processes}', '{test_name}', '{status.state}', NULL, NULL)"
         else:

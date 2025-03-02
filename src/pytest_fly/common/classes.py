@@ -23,6 +23,7 @@ class PytestProcessState(StrEnum):
     QUEUED = auto()  # queued to be run by the PyTest runner scheduler
     RUNNING = auto()  # test is currently running
     FINISHED = auto()  # test has finished
+    TERMINATED = auto()  # test was terminated
 
     def __str__(self):
         return self.name

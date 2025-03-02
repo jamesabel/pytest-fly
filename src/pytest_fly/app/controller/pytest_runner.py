@@ -147,9 +147,8 @@ class PytestRunnerWorker(QObject):
                     process.join(10)
                 except PermissionError:
                     log.warning(f"PermissionError joining {test}")
-            status = PytestStatus(name=test, state=PytestProcessState.FINISHED, exit_code=None, output=None, time_stamp=time.time())
-            self.statuses[test] = status
-            write_test_status(self.run_guid, self.max_processes, test, status, None)
+                status = PytestStatus(name=test, state=PytestProcessState.TERMINATED, exit_code=None, output=None, time_stamp=time.time())
+                self.statuses[test] = status
         log.info(f"{__class__.__name__}.stop() - exiting")
 
     @Slot()
@@ -191,6 +190,7 @@ class PytestRunnerWorker(QObject):
                 log.info(f"{__class__.__name__}: starting {test}")
                 process.start()
             status = PytestStatus(name=test, state=PytestProcessState.RUNNING, exit_code=None, output=None, time_stamp=time.time())
+            write_test_status(self.run_guid, self.max_processes, test, status, None)
             log.info(f"{status=}")
             self.statuses[test] = status
             self.update_signal.emit(status)

@@ -12,6 +12,7 @@ psutil
 py-cpuinfo
 humanize
 tobool
+uuid6
 # linters
 black
 flake8

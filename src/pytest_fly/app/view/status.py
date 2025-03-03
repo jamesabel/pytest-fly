@@ -1,13 +1,16 @@
 from PySide6.QtWidgets import QGroupBox, QVBoxLayout, QScrollArea, QWidget
 
-from ..test_list import get_tests
 from .gui_util import PlainTextWidget
+from ...common import PytestStatus
 
 
-class ListOfTests(QGroupBox):
+class Status(QGroupBox):
 
     def __init__(self):
         super().__init__()
+
+        self.statuses = {}
+
         self.setTitle("Tests")
         layout = QVBoxLayout()
 
@@ -27,5 +30,12 @@ class ListOfTests(QGroupBox):
         layout.addWidget(scroll_area)
         self.setLayout(layout)
 
-        tests = get_tests()
-        self.test_widget.set_text("\n".join(tests))
+    def update_status(self, status: PytestStatus):
+
+        self.statuses[status.name] = status
+
+        lines = []
+        for status in self.statuses.values():
+            lines.append(f"{status.name}: {status.state}")
+
+        self.test_widget.set_text("\n".join(lines))

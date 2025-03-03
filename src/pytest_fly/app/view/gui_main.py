@@ -6,7 +6,7 @@ from PySide6.QtCore import QCoreApplication, QRect
 from .gui_util import get_font, get_text_dimensions
 from ..logging import get_logger
 from .home import Home
-from .list_of_tests import ListOfTests
+from .status import Status
 from .history import History
 from .configuration import Configuration
 from .about import About
@@ -48,14 +48,14 @@ class FlyAppMainWindow(QMainWindow):
 
         # add tab windows
         self.tab_widget = QTabWidget()
-        self.home = Home(self)
-        self.tests = ListOfTests()
+        self.status = Status()
+        self.home = Home(self, self.status.update_status)
         # self.history = History()  # no history yet
         # configuration update also updates processes count in control window
         self.configuration = Configuration(self.home.control_window.update_processes_configuration)
         self.about = About()
         self.tab_widget.addTab(self.home, "Home")
-        self.tab_widget.addTab(self.tests, "Tests")
+        self.tab_widget.addTab(self.status, "Status")
         # self.tab_widget.addTab(self.history, "History")
         self.tab_widget.addTab(self.configuration, "Configuration")
         self.tab_widget.addTab(self.about, "About")

@@ -1,1 +1,1 @@
-from .main import fly_main
+from .gui_main import fly_main

@@ -1,3 +1,5 @@
+from collections import defaultdict
+
 from PySide6.QtWidgets import QGroupBox, QVBoxLayout, QScrollArea, QWidget
 
 from .gui_util import PlainTextWidget
@@ -10,6 +12,8 @@ class Status(QGroupBox):
         super().__init__()
 
         self.statuses = {}
+        self.max_cpu_usage = defaultdict(float)
+        self.max_memory_usage = defaultdict(float)
 
         self.setTitle("Tests")
         layout = QVBoxLayout()
@@ -35,7 +39,10 @@ class Status(QGroupBox):
         self.statuses[status.name] = status
 
         lines = []
-        for status in self.statuses.values():
-            lines.append(f"{status.name}: {status.state}")
+        for test, status in self.statuses.items():
+            if (process_monitor_data := status.process_monitor_data) is not None:
+                self.max_memory_usage[test] = max(process_monitor_data.memory_percent / 100.0, self.max_memory_usage[test])
+                self.max_cpu_usage[test] = max(process_monitor_data.cpu_percent / 100.0, self.max_cpu_usage[test])
+            lines.append(f"{status.name}: {status.state} (cpu={self.max_cpu_usage[test]},memory={self.max_memory_usage[test]})")
 
         self.test_widget.set_text("\n".join(lines))

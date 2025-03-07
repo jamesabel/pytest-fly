@@ -5,6 +5,14 @@ from _pytest.config import ExitCode
 
 
 @dataclass(frozen=True)
+class PytestProcessMonitorData:
+    pid: int
+    name: str
+    cpu_percent: float
+    memory_percent: float
+
+
+@dataclass(frozen=True)
 class PytestResult:
     """
     Represents the result of a pytest run.
@@ -36,7 +44,16 @@ class PytestStatus:
     """
 
     name: str  # test name
+    process_monitor_data: PytestProcessMonitorData
     state: PytestProcessState
     exit_code: ExitCode | None  # None if running, ExitCode if finished
     output: str | None  # stdout/stderr output
     time_stamp: float  # epoch timestamp of this status
+
+
+def exit_code_to_string(exit_code: ExitCode | None) -> str:
+    if exit_code is None:
+        exit_code_string = str(exit_code)
+    else:
+        exit_code_string = exit_code.name
+    return exit_code_string

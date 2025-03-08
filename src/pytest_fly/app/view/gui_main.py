@@ -49,7 +49,7 @@ class FlyAppMainWindow(QMainWindow):
         # add tab windows
         self.tab_widget = QTabWidget()
         self.status = Status()
-        self.home = Home(self, self.status.update_status)
+        self.home = Home(self, self.reset, self.status.update_status)
         # self.history = History()  # no history yet
         # configuration update also updates processes count in control window
         self.configuration = Configuration(self.home.control_window.update_processes_configuration)
@@ -61,6 +61,9 @@ class FlyAppMainWindow(QMainWindow):
         self.tab_widget.addTab(self.about, "About")
 
         self.setCentralWidget(self.tab_widget)
+
+    def reset(self):
+        self.status.reset()
 
     def closeEvent(self, event, /):
 

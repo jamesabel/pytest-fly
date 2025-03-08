@@ -10,8 +10,9 @@ log = get_logger()
 
 
 class Home(QWidget):
-    def __init__(self, parent, update_callback):
+    def __init__(self, parent, reset_callback, update_callback):
         super().__init__(parent)
+        self.reset_callback = reset_callback
         self.update_callback = update_callback
 
         layout = QHBoxLayout()
@@ -19,7 +20,7 @@ class Home(QWidget):
 
         self.summary_window = SummaryWindow()
         self.progress_window = ProgressWindow()
-        self.control_window = ControlWindow(self, self.progress_window.reset, self.update_status)
+        self.control_window = ControlWindow(self, self.reset, self.update_status)
 
         # Create scroll areas for both windows
         self.summary_scroll_area = QScrollArea()
@@ -43,6 +44,10 @@ class Home(QWidget):
         self.setLayout(layout)
 
         self.set_splitter()
+
+    def reset(self):
+        self.progress_window.reset()
+        self.reset_callback()
 
     def update_status(self, status: PytestStatus):
         self.progress_window.update_status(status)

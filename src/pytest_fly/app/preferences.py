@@ -11,6 +11,8 @@ preferences_file_name = f"{application_name}_preferences.db"
 
 scheduler_time_quantum_default = 1.0
 refresh_rate_default = 3.0
+utilization_high_threshold_default = 0.8
+utilization_low_threshold_default = 0.5
 
 
 @attrs
@@ -23,6 +25,8 @@ class FlyPreferences(Pref):
     processes: int = attrib(default=get_performance_core_count())  # number of processes to use
     scheduler_time_quantum: float = attrib(default=scheduler_time_quantum_default)  # scheduler time quantum in seconds
     refresh_rate: float = attrib(default=refresh_rate_default)  # display minimum refresh rate in seconds
+    utilization_high_threshold: float = attrib(default=utilization_high_threshold_default)  # above this threshold, the process is considered high utilization
+    utilization_low_threshold: float = attrib(default=utilization_low_threshold_default)  # below this threshold, the process is considered low utilization
     csv_dump_path: str = attrib(default=str(Path(user_data_dir(application_name, author), f"{application_name}.csv")))
 
 

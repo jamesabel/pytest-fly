@@ -1,8 +1,13 @@
-from PySide6.QtWidgets import QGroupBox, QVBoxLayout, QScrollArea, QWidget, QGridLayout, QLabel
-from PySide6.QtCore import Qt
 from collections import defaultdict
 from enum import Enum
-from ...common import PytestStatus, PytestProcessState
+
+from PySide6.QtWidgets import QGroupBox, QVBoxLayout, QScrollArea, QWidget, QGridLayout, QLabel
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QPalette, QColor
+from _pytest.config import ExitCode
+
+from ..preferences import get_pref
+from ...common import PytestStatus, PytestProcessState, get_performance_core_count
 
 
 class Columns(Enum):
@@ -10,6 +15,18 @@ class Columns(Enum):
     STATE = 1
     CPU = 2
     MEMORY = 3
+
+
+def set_widget_color(widget, value):
+    pref = get_pref()
+    palette = widget.palette()
+    if value > pref.utilization_high_threshold:
+        palette.setColor(QPalette.WindowText, QColor("red"))
+    elif value > pref.utilization_low_threshold:
+        palette.setColor(QPalette.WindowText, QColor("yellow"))
+    else:
+        palette.setColor(QPalette.WindowText, QColor("black"))
+    widget.setPalette(palette)
 
 
 class Status(QGroupBox):
@@ -75,7 +92,23 @@ class Status(QGroupBox):
                     layout.addWidget(label, row_number, column.value)
 
             self.labels[test][Columns.NAME].setText(status.name)
-            self.labels[test][Columns.STATE].setText(status.state)
+            if status.state == PytestProcessState.FINISHED and status.exit_code is not None:
+                palette = self.labels[test][Columns.STATE].palette()
+                if status.exit_code == ExitCode.OK:
+                    palette.setColor(QPalette.WindowText, QColor("green"))
+                else:
+                    palette.setColor(QPalette.WindowText, QColor("red"))
+                self.labels[test][Columns.STATE].setText(status.exit_code.name)
+                self.labels[test][Columns.STATE].setPalette(palette)
+            else:
+                self.labels[test][Columns.STATE].setText(status.state)
             if status.state != PytestProcessState.QUEUED:
-                self.labels[test][Columns.CPU].setText(f"{self.max_cpu_usage[test]:.2}")
-                self.labels[test][Columns.MEMORY].setText(f"{self.max_memory_usage[test]:.2%}")
+                performance_core_count = get_performance_core_count()
+
+                cpu_usage = self.max_cpu_usage[test] / performance_core_count
+                set_widget_color(self.labels[test][Columns.CPU], cpu_usage)
+                self.labels[test][Columns.CPU].setText(f"{cpu_usage:.2%}")
+
+                memory_usage = self.max_memory_usage[test]
+                set_widget_color(self.labels[test][Columns.MEMORY], memory_usage)
+                self.labels[test][Columns.MEMORY].setText(f"{memory_usage:.2%}")

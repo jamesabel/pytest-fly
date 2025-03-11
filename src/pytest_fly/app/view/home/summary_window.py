@@ -51,7 +51,7 @@ class SummaryWindow(QGroupBox):
         lines = []
         for status_name in [PytestProcessState.QUEUED, PytestProcessState.RUNNING, PytestProcessState.FINISHED, PytestProcessState.TERMINATED, PytestProcessState.UNKNOWN]:
             count = counts[status_name]
-            lines.append(f"{status_name}: {count} ({count/total_count:.2%})")
+            lines.append(f"{status_name}: {count} ({count / total_count:.2%})")
         lines.append(f"Total: {total_count}")
 
         # add total time so far to status

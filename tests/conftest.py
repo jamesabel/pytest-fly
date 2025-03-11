@@ -29,5 +29,5 @@ def make_many_tests():
         # more than can fit in a window without scroll bars
         for test_number in range(20):
             test_file = Path(many_test_dir, f"test_many_{test_number:03d}.py")
-            lines = [f"def test_many_{test_number}():", "    print(sum([x for x in range((int(1E7)))]))", "    assert True"]
+            lines = [f"def test_many_{test_number}():", "    print(sum([x for x in range((int(1E7)))]))", "    assert True\n"]
             test_file.write_text("\n".join(lines))

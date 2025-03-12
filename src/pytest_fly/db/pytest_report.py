@@ -1,26 +1,35 @@
-import sqlite3
-from pathlib import Path
+"""
+This module is responsible for writing and reading pytest "reports" to a SQLite database. This is a major portion of the "pytest-fly" pytest plugin.
+"""
+
 import json
-import uuid
+import sqlite3
+import time
+from pathlib import Path
 from functools import cache
 from logging import getLogger
-import time
 from dataclasses import dataclass
-
-from msqlite import MSQLite
-from appdirs import user_data_dir
+from typing import Any, Sized
 
 from _pytest.reports import BaseReport
 
-from .report_converter import report_to_json
-from .os import rm_file
+from ..__version__ import application_name
+from .db_base import PytestFlyDBBase, get_all_table_names
+from ..common import get_user_name, get_computer_name, get_guid
 
-from .__version__ import author, application_name
-
-fly_db_file_name = f"{application_name}.db"
-fly_db_path = Path(user_data_dir(application_name, author), fly_db_file_name)
+# "when" is a keyword in SQLite so use "pt_when"
+pytest_fly_report_schema = {"id PRIMARY KEY": int, "ts": float, "uid": str, "pt_when": str, "nodeid": str, "report": json}
 
 log = getLogger(application_name)
+
+
+class PytestReportDB(PytestFlyDBBase):
+
+    def get_db_file_name(self) -> str:
+        """
+        Name of DB file for pytest report.
+        """
+        return f"{application_name}_report.db"
 
 
 def to_valid_table_name(table_name: str) -> str:
@@ -30,41 +39,13 @@ def to_valid_table_name(table_name: str) -> str:
     return table_name.replace("-", "_")
 
 
-def set_db_path(db_path: Path | str):
-    global fly_db_path
-    fly_db_path = Path(db_path)
-
-
-def get_db_path() -> Path:
-    fly_db_path.parent.mkdir(parents=True, exist_ok=True)
-    return fly_db_path
-
-
 @cache
 def _get_process_guid() -> str:
     """
     Get a unique guid for this process by using functools.cache.
     :return: GUID string
     """
-    return str(uuid.uuid4())
-
-
-# "when" is a keyword in SQLite so use "pt_when"
-fly_schema = {"id PRIMARY KEY": int, "ts": float, "uid": str, "pt_when": str, "nodeid": str, "report": json}
-
-
-class PytestFlyDB(MSQLite):
-
-    def __init__(self, table_name: str, schema: dict[str, type] | None = None, retry_limit: int | None = None):
-        db_path = get_db_path()
-        log.info(f"{db_path=}")
-        super().__init__(db_path, table_name, schema, retry_limit=retry_limit)
-
-    def delete(self):
-        """
-        Delete the database file. Generally not needed. Mainly for testing.
-        """
-        rm_file(self.db_path)
+    return get_guid()
 
 
 def _get_table_name_from_report(report: BaseReport) -> str:
@@ -92,11 +73,11 @@ def write_report(report: BaseReport):
     pt_when = report.when
     node_id = report.nodeid
     setattr(report, "is_xdist", is_xdist)  # signify if we're running pytest-xdist or not
-    with PytestFlyDB(table_name, fly_schema) as db:
+    with PytestReportDB(table_name, pytest_fly_report_schema) as db:
         report_json = report_to_json(report)
-        statement = f"INSERT OR REPLACE INTO {table_name} (ts, uid, pt_when, nodeid, report) VALUES ({time.time()}, '{testrun_uid}', '{pt_when}', '{node_id}', '{report_json}')"
+        statement = f"INSERT OR REPLACE INTO {table_name} (ts, uid, pt_when, nodeid, report) VALUES (?, ?, ?, ?, ?)"
         try:
-            db.execute(statement)
+            db.execute(statement, (time.time(), testrun_uid, pt_when, node_id, report_json))
         except sqlite3.OperationalError as e:
             log.error(f"{e}:{statement}")
 
@@ -106,10 +87,10 @@ meta_session_schema = {"id PRIMARY KEY": int, "ts": float, "test_name": str, "st
 
 
 def _write_meta_session(test_name: str, state: str):
-    with PytestFlyDB(meta_session_table_name, meta_session_schema) as db:
+    with PytestReportDB(meta_session_table_name, meta_session_schema) as db:
         now = time.time()
-        statement = f"INSERT INTO {meta_session_table_name} (ts, test_name, state) VALUES ({now}, '{test_name}', '{state}')"
-        db.execute(statement)
+        statement = f"INSERT INTO {meta_session_table_name} (ts, test_name, state) VALUES (?, ?, ?)"
+        db.execute(statement, (now, test_name, state))
 
 
 def write_start(test_name: str | None):
@@ -138,7 +119,7 @@ def get_test_groupings() -> list[TestGrouping]:
     test_name = None
     test_grouping = None
     test_groupings = []
-    with PytestFlyDB(meta_session_table_name, meta_session_schema) as db:
+    with PytestReportDB(meta_session_table_name, meta_session_schema) as db:
         statement = f"SELECT * FROM {meta_session_table_name} ORDER BY ts"
         result = db.execute(statement)
         rows = list(result)
@@ -181,20 +162,7 @@ class RunInfo:
     passed: bool | None = None
 
 
-def _get_all_table_names(db_path: Path) -> list[str]:
-    """
-    Get all table names in the SQLite database.
-    :param db_path: Path to the SQLite database file.
-    :return: List of table names.
-    """
-    with sqlite3.connect(db_path) as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
-        table_names = [row[0] for row in cursor.fetchall() if not row[0].startswith("_")]
-    return table_names
-
-
-def get_most_recent_run_info() -> dict[str, dict[str, RunInfo]]:
+def get_most_recent_run_info(db_path: Path) -> dict[str, dict[str, RunInfo]]:
 
     # get a collection of test start and stop times
 
@@ -205,10 +173,9 @@ def get_most_recent_run_info() -> dict[str, dict[str, RunInfo]]:
         start_ts = most_recent_grouping.start
         finish_ts = most_recent_grouping.finish
 
-        db_path = get_db_path()
-        table_names = _get_all_table_names(db_path)
+        table_names = get_all_table_names(db_path)
         for table_name in table_names:
-            with PytestFlyDB(table_name) as db:
+            with PytestReportDB(table_name) as db:
                 statement = f"SELECT * FROM {table_name} WHERE ts BETWEEN {start_ts} AND {finish_ts} ORDER BY ts"
                 try:
                     rows = list(db.execute(statement))
@@ -230,3 +197,46 @@ def get_most_recent_run_info() -> dict[str, dict[str, RunInfo]]:
                     run_infos[test_id][when] = RunInfo(worker_id, start, stop, passed)
 
     return run_infos
+
+
+def _convert_report_to_dict(report: BaseReport) -> dict[str, Any]:
+    """
+    Convert a pytest Report to a dict, excluding zero-length iterables, None values, and other data that's not serializable. This isn't perfect but it seems to preserve
+    the data we're interested in.
+    :param report: Pytest Report
+    :return: a dict representation of the report
+    """
+    report_dict = {}
+    for attr in dir(report):
+        # Exclude private attributes and methods, None, and zero-length lists
+        if not attr.startswith("__") and (value := getattr(report, attr)) is not None:
+            has_size = isinstance(value, Sized)
+            if not has_size or has_size and len(value) > 0:
+                # Check if the attribute is serializable
+                try:
+                    json.dumps(value)
+                    report_dict[attr] = value
+                except TypeError:
+                    # a string representation starting with "<" generally isn't a useful serialization, so ignore it
+                    if not (s := str(value)).startswith("<"):
+                        report_dict[attr] = s
+    return report_dict
+
+
+def report_to_json(report: BaseReport) -> str:
+    """
+    Convert Pytest Report object to a JSON string (as much as possible)
+    :param report: Pytest Report
+    :return: JSON string representation of the report
+    """
+    d = _convert_report_to_dict(report)
+    # remove fields that we don't need that can have formatting issues with SQLite JSON
+    removes = ["sections", "capstdout", "capstderr", "caplog", "longrepr", "longreprtext"]
+    for remove in removes:
+        if remove in d:
+            del d[remove]
+    d["fly_timestamp"] = time.time()  # pytest-fly's own timestamp
+    d["username"] = get_user_name()
+    d["computer_name"] = get_computer_name()
+    s = json.dumps(d)
+    return s

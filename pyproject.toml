@@ -1,7 +1,7 @@
 [project]
 name = "pytest-fly"
-description = "pytest observer"
-version = "0.0.25"
+description = "pytest runner and observer"
+version = "0.0.29"
 readme = "README.md"
 requires-python = ">=3.12"
 authors = [
@@ -37,7 +37,8 @@ dependencies = [
     "psutil",
     "py-cpuinfo",
     "humanize",
-    "tobool"
+    "tobool",
+    "uuid6"
 ]
 keywords = ["pytest", "observer", "testing"]
 

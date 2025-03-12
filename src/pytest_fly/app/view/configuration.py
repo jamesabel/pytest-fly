@@ -6,9 +6,9 @@ from PySide6.QtGui import QIntValidator, QDoubleValidator
 
 from tobool import to_bool_strict
 
-from ..preferences import get_pref, scheduler_time_quantum_default, refresh_rate_default
+from ..preferences import get_pref, scheduler_time_quantum_default, refresh_rate_default, utilization_high_threshold_default, utilization_low_threshold_default
 from .gui_util import get_text_dimensions
-from ..platform_info import get_performance_core_count
+from pytest_fly.common.platform_info import get_performance_core_count
 from ..logging import get_logger
 
 log = get_logger()
@@ -75,9 +75,30 @@ class Configuration(QWidget):
         self.refresh_rate_lineedit.textChanged.connect(self.update_refresh_rate)
         layout.addWidget(self.refresh_rate_lineedit)
 
-    def update_verbose(self, state: str):
+        layout.addWidget(QLabel(""))  # space
+
+        # utilization thresholds
+        self.utilization_high_threshold_label = QLabel(f"High Utilization Threshold (0.0-1.0, {utilization_high_threshold_default} default)")
+        layout.addWidget(self.utilization_high_threshold_label)
+        self.utilization_high_threshold_lineedit = QLineEdit()
+        self.utilization_high_threshold_lineedit.setText(str(pref.utilization_high_threshold))
+        self.utilization_high_threshold_lineedit.setValidator(QDoubleValidator())  # allow floats
+        self.utilization_high_threshold_lineedit.setFixedWidth(get_text_dimensions(4 * "X", True).width())
+        self.utilization_high_threshold_lineedit.textChanged.connect(self.update_utilization_high_threshold)
+        layout.addWidget(self.utilization_high_threshold_lineedit)
+
+        self.update_utilization_low_threshold_label = QLabel(f"Low Utilization Threshold (0.0-1.0, {utilization_low_threshold_default} default)")
+        layout.addWidget(self.update_utilization_low_threshold_label)
+        self.utilization_low_threshold_lineedit = QLineEdit()
+        self.utilization_low_threshold_lineedit.setText(str(pref.utilization_low_threshold))
+        self.utilization_low_threshold_lineedit.setValidator(QDoubleValidator())  # allow floats
+        self.utilization_low_threshold_lineedit.setFixedWidth(get_text_dimensions(4 * "X", True).width())
+        self.utilization_low_threshold_lineedit.textChanged.connect(self.update_utilization_low_threshold)
+        layout.addWidget(self.utilization_low_threshold_lineedit)
+
+    def update_verbose(self):
         pref = get_pref()
-        pref.verbose = to_bool_strict(state)
+        pref.verbose = self.verbose_checkbox.isChecked()
         self.configuration_update_callback()
 
     def update_processes(self, value: str):
@@ -100,4 +121,24 @@ class Configuration(QWidget):
             pref.refresh_rate = max(float(value), minimum_refresh_rate)  # validator should ensure this is a float
         except ValueError:
             pass
+        self.configuration_update_callback()
+
+    def update_utilization_high_threshold(self, value: str):
+        pref = get_pref()
+        try:
+            pref.utilization_high_threshold = float(value)  # validator should ensure this is a float
+        except ValueError:
+            pass
+        if pref.utilization_low_threshold > pref.utilization_high_threshold:
+            log.warning("Low utilization threshold is greater than high utilization threshold")
+        self.configuration_update_callback()
+
+    def update_utilization_low_threshold(self, value: str):
+        pref = get_pref()
+        try:
+            pref.utilization_low_threshold = float(value)  # validator should ensure this is a float
+        except ValueError:
+            pass
+        if pref.utilization_low_threshold > pref.utilization_high_threshold:
+            log.warning("Low utilization threshold is greater than high utilization threshold")
         self.configuration_update_callback()

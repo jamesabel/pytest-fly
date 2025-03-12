@@ -5,12 +5,14 @@ from pref import Pref, PrefOrderedSet
 from appdirs import user_data_dir
 
 from ..__version__ import application_name, author
-from .platform_info import get_performance_core_count
+from pytest_fly.common.platform_info import get_performance_core_count
 
 preferences_file_name = f"{application_name}_preferences.db"
 
 scheduler_time_quantum_default = 1.0
 refresh_rate_default = 3.0
+utilization_high_threshold_default = 0.8
+utilization_low_threshold_default = 0.5
 
 
 @attrs
@@ -21,8 +23,10 @@ class FlyPreferences(Pref):
     window_height: int = attrib(default=-1)
     verbose: bool = attrib(default=False)
     processes: int = attrib(default=get_performance_core_count())  # number of processes to use
-    scheduler_time_quantum: float = attrib(default=scheduler_time_quantum_default)  # schedular time quantum in seconds
+    scheduler_time_quantum: float = attrib(default=scheduler_time_quantum_default)  # scheduler time quantum in seconds
     refresh_rate: float = attrib(default=refresh_rate_default)  # display minimum refresh rate in seconds
+    utilization_high_threshold: float = attrib(default=utilization_high_threshold_default)  # above this threshold, the process is considered high utilization
+    utilization_low_threshold: float = attrib(default=utilization_low_threshold_default)  # below this threshold, the process is considered low utilization
     csv_dump_path: str = attrib(default=str(Path(user_data_dir(application_name, author), f"{application_name}.csv")))
 
 

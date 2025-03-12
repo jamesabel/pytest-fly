@@ -4,15 +4,14 @@ import time
 from PySide6.QtCore import QThread
 from pytest import ExitCode
 from pytest_fly.app.controller import PytestRunnerWorker
-from pytest_fly.app.model import PytestProcessState
-from pytest_fly.app.platform_info import get_performance_core_count
+from pytest_fly.common import PytestProcessState, get_performance_core_count, get_guid
 
 
 def test_pytest_runner(app):
 
     # run twice to test the worker's ability to run multiple tests
     for run_count in range(2):
-        tests = [Path("tests", "test_sleep.py")]  # an "easy" test
+        tests = [str(Path("tests", "test_sleep.py"))]  # an "easy" test
         worker = PytestRunnerWorker(tests)
         thread = QThread()
         worker.moveToThread(thread)
@@ -25,7 +24,8 @@ def test_pytest_runner(app):
         thread.start()
 
         performance_core_count = get_performance_core_count()
-        worker.request_run(performance_core_count)
+        run_guid = get_guid()
+        worker.request_run(run_guid, performance_core_count)
         app.processEvents()
 
         # the statuses list will be updated in the background in the worker thread

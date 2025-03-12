@@ -40,7 +40,7 @@ def get_tests(test_dir: Path = Path(".").resolve()) -> list[str]:
     # A simplistic approach is to keep lines containing '::' (the typical pytest node-id pattern).
     delimiter = "::"
 
-    node_ids_set = set(([line.split(delimiter)[0] for line in lines if delimiter in line]))
+    node_ids_set = set(([str(line.split(delimiter)[0]) for line in lines if delimiter in line]))
     node_ids = sorted(node_ids_set)
 
     log.info(f'Discovered {len(node_ids)} pytest tests in "{test_dir}"')

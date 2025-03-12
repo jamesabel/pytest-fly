@@ -5,7 +5,7 @@ from PySide6.QtCore import QThread, QTimer
 
 
 from ...controller.pytest_runner import PytestRunnerWorker
-from ...model import PytestProcessState, PytestStatus
+from ....common import PytestProcessState, PytestStatus, get_guid
 from ...preferences import get_pref
 from ..gui_util import get_text_dimensions
 from ... import get_logger
@@ -49,6 +49,8 @@ class ControlWindow(QGroupBox):
         self.run_serial_button.clicked.connect(self.run_serial)
         self.run_parallel_button.clicked.connect(self.run_multiprocess)
         self.stop_button.clicked.connect(self.stop)
+
+        self.run_guid = None
         self.pytest_runner_thread = None
         self.pytest_runner_worker = None
         self.update_timer = QTimer()
@@ -70,12 +72,14 @@ class ControlWindow(QGroupBox):
 
     def run_serial(self):
         self.reset_callback()
-        self.pytest_runner_worker.request_run(1)
+        self.run_guid = get_guid()
+        self.pytest_runner_worker.request_run(self.run_guid, 1)
 
     def run_multiprocess(self):
         self.reset_callback()
         max_number_of_processes = get_pref().processes
-        self.pytest_runner_worker.request_run(max_number_of_processes)
+        self.run_guid = get_guid()
+        self.pytest_runner_worker.request_run(self.run_guid, max_number_of_processes)
 
     def stop(self):
         log.info(f"{__class__.__name__}.stop() - entering")

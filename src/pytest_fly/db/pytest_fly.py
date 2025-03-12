@@ -38,8 +38,8 @@ def write_test_status(run_uid: str, max_processes: int, test_name: str, status: 
     :param result: result of the test
     """
     with PytestFlyDB() as db:
+        statement = f"INSERT INTO status (ts, run_uid, max_processes, test_name, status, result, out) VALUES (?, ?, ?, ?, ?, ?, ?)"
         if result is None:
-            statement = f"INSERT INTO status (ts, run_uid, max_processes, test_name, status, result, out) VALUES ({status.time_stamp}, '{run_uid}', '{max_processes}', '{test_name}', '{status.state}', NULL, NULL)"
+            db.execute(statement, (status.time_stamp, run_uid, max_processes, test_name, status.state, None, None))
         else:
-            statement = f"INSERT INTO status (ts, run_uid, max_processes, test_name, status, result, out) VALUES ({status.time_stamp}, '{run_uid}', '{max_processes}', '{test_name}', '{status.state}', '{result.exit_code}', '{result.output}')"
-        db.execute(statement)
+            db.execute(statement, (status.time_stamp, run_uid, max_processes, test_name, status.state, result.exit_code, result.output))

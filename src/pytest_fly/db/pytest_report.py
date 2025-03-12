@@ -75,9 +75,9 @@ def write_report(report: BaseReport):
     setattr(report, "is_xdist", is_xdist)  # signify if we're running pytest-xdist or not
     with PytestReportDB(table_name, pytest_fly_report_schema) as db:
         report_json = report_to_json(report)
-        statement = f"INSERT OR REPLACE INTO {table_name} (ts, uid, pt_when, nodeid, report) VALUES ({time.time()}, '{testrun_uid}', '{pt_when}', '{node_id}', '{report_json}')"
+        statement = f"INSERT OR REPLACE INTO {table_name} (ts, uid, pt_when, nodeid, report) VALUES (?, ?, ?, ?, ?)"
         try:
-            db.execute(statement)
+            db.execute(statement, (time.time(), testrun_uid, pt_when, node_id, report_json))
         except sqlite3.OperationalError as e:
             log.error(f"{e}:{statement}")
 
@@ -89,8 +89,8 @@ meta_session_schema = {"id PRIMARY KEY": int, "ts": float, "test_name": str, "st
 def _write_meta_session(test_name: str, state: str):
     with PytestReportDB(meta_session_table_name, meta_session_schema) as db:
         now = time.time()
-        statement = f"INSERT INTO {meta_session_table_name} (ts, test_name, state) VALUES ({now}, '{test_name}', '{state}')"
-        db.execute(statement)
+        statement = f"INSERT INTO {meta_session_table_name} (ts, test_name, state) VALUES (?, ?, ?)"
+        db.execute(statement, (now, test_name, state))
 
 
 def write_start(test_name: str | None):

@@ -148,6 +148,8 @@ class PytestRunnerWorker(QObject):
         self.tests = tests
         self.processes = {}
         self.statuses = {}
+        self.starts = {}
+        self.ends = {}
         self.max_processes = 1
         self.run_guid = None
 
@@ -183,12 +185,22 @@ class PytestRunnerWorker(QObject):
         else:
             tests = self.tests
 
+        self.starts = {}
+        self.ends = {}
+
         for test in tests:
             if test not in self.processes or not self.processes[test].is_alive():
                 process = _PytestProcess(test, refresh_rate)
                 self.processes[test] = process
                 status = PytestStatus(
-                    name=test, process_monitor_data=process.get_pytest_process_monitor_data(), state=PytestProcessState.QUEUED, exit_code=None, output=None, time_stamp=time.time()
+                    name=test,
+                    process_monitor_data=process.get_pytest_process_monitor_data(),
+                    state=PytestProcessState.QUEUED,
+                    exit_code=None,
+                    output=None,
+                    start=None,
+                    end=None,
+                    time_stamp=time.time(),
                 )
                 write_test_status(self.run_guid, self.max_processes, test, status, None)
                 self.statuses[test] = status
@@ -218,6 +230,8 @@ class PytestRunnerWorker(QObject):
                     state=PytestProcessState.TERMINATED,
                     exit_code=None,
                     output=None,
+                    start=self.starts.get(test),
+                    end=self.ends.get(test),
                     time_stamp=time.time(),
                 )
                 self.statuses[test] = status
@@ -232,8 +246,17 @@ class PytestRunnerWorker(QObject):
                     state = PytestProcessState.RUNNING
                 else:
                     state = PytestProcessState.FINISHED
+                    if test not in self.ends:
+                        self.ends[test] = time.time()
                 status = PytestStatus(
-                    name=test, process_monitor_data=process.get_pytest_process_monitor_data(), state=state, exit_code=result.exit_code, output=result.output, time_stamp=time.time()
+                    name=test,
+                    process_monitor_data=process.get_pytest_process_monitor_data(),
+                    state=state,
+                    exit_code=result.exit_code,
+                    output=result.output,
+                    start=self.starts.get(test),
+                    end=self.ends.get(test),
+                    time_stamp=time.time(),
                 )
                 log.info(f"{__class__.__name__}._update():{status=}")
                 self.update_signal.emit(status)
@@ -262,9 +285,17 @@ class PytestRunnerWorker(QObject):
             process = self.processes[test]
             if not process.is_alive():
                 log.info(f"{__class__.__name__}: starting {test}")
+                self.starts[test] = time.time()
                 process.start()
             status = PytestStatus(
-                name=test, process_monitor_data=process.get_pytest_process_monitor_data(), state=PytestProcessState.RUNNING, exit_code=None, output=None, time_stamp=time.time()
+                name=test,
+                process_monitor_data=process.get_pytest_process_monitor_data(),
+                state=PytestProcessState.RUNNING,
+                exit_code=None,
+                output=None,
+                start=self.starts[test],
+                end=None,
+                time_stamp=time.time(),
             )
             write_test_status(self.run_guid, self.max_processes, test, status, None)
             log.info(f"{status=}")

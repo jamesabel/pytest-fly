@@ -1,7 +1,7 @@
 from typeguard import typechecked
 
 from .db_base import PytestFlyDBBase
-from ..common.classes import PytestResult, PytestStatus
+from ..common.interfaces import PytestResult, PytestStatus
 
 from ..__version__ import application_name
 

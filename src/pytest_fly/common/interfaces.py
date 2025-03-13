@@ -48,6 +48,8 @@ class PytestStatus:
     state: PytestProcessState
     exit_code: ExitCode | None  # None if running, ExitCode if finished
     output: str | None  # stdout/stderr output
+    start: float | None  # None if not started, float if started
+    end: float | None  # None until finished, float if finished
     time_stamp: float  # epoch timestamp of this status
 
 

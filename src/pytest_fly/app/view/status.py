@@ -1,6 +1,8 @@
 from collections import defaultdict
 from enum import Enum
+from datetime import timedelta
 
+import humanize
 from PySide6.QtWidgets import QGroupBox, QVBoxLayout, QScrollArea, QWidget, QGridLayout, QLabel
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPalette, QColor
@@ -15,6 +17,7 @@ class Columns(Enum):
     STATE = 1
     CPU = 2
     MEMORY = 3
+    RUNTIME = 4
 
 
 def set_widget_color(widget, value):
@@ -53,7 +56,7 @@ class Status(QGroupBox):
         self.content_widget.setLayout(content_layout)
 
         # Add header row
-        headers = ["Name", "State", "CPU", "Memory"]
+        headers = ["Name", "State", "CPU", "Memory", "Runtime"]
         for col, header in enumerate(headers):
             header_label = QLabel(header)
             header_label.setStyleSheet("font-weight: bold;")
@@ -86,6 +89,7 @@ class Status(QGroupBox):
                 self.max_cpu_usage[test] = max(process_monitor_data.cpu_percent / 100.0, self.max_cpu_usage[test])
 
             if test not in self.labels:
+                # test, so new row
                 for column in Columns:
                     label = QLabel()
                     self.labels[test][column] = label
@@ -112,3 +116,7 @@ class Status(QGroupBox):
                 memory_usage = self.max_memory_usage[test]
                 set_widget_color(self.labels[test][Columns.MEMORY], memory_usage)
                 self.labels[test][Columns.MEMORY].setText(f"{memory_usage:.2%}")
+
+                if status.start is not None and status.end is not None:
+                    runtime = status.end - status.start
+                    self.labels[test][Columns.RUNTIME].setText(humanize.precisedelta(timedelta(seconds=runtime)))

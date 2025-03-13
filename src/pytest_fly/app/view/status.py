@@ -20,15 +20,16 @@ class Columns(Enum):
     RUNTIME = 4
 
 
-def set_widget_color(widget, value):
+def set_utilization_color(widget: QWidget, value: float):
     pref = get_pref()
-    palette = widget.palette()
+    palette = widget.palette()  # default palette
     if value > pref.utilization_high_threshold:
         palette.setColor(QPalette.WindowText, QColor("red"))
     elif value > pref.utilization_low_threshold:
         palette.setColor(QPalette.WindowText, QColor("yellow"))
     else:
-        palette.setColor(QPalette.WindowText, QColor("black"))
+        # no change to color
+        return
     widget.setPalette(palette)
 
 
@@ -110,11 +111,11 @@ class Status(QGroupBox):
                 performance_core_count = get_performance_core_count()
 
                 cpu_usage = self.max_cpu_usage[test] / performance_core_count
-                set_widget_color(self.labels[test][Columns.CPU], cpu_usage)
+                set_utilization_color(self.labels[test][Columns.CPU], cpu_usage)
                 self.labels[test][Columns.CPU].setText(f"{cpu_usage:.2%}")
 
                 memory_usage = self.max_memory_usage[test]
-                set_widget_color(self.labels[test][Columns.MEMORY], memory_usage)
+                set_utilization_color(self.labels[test][Columns.MEMORY], memory_usage)
                 self.labels[test][Columns.MEMORY].setText(f"{memory_usage:.2%}")
 
                 if status.start is not None and status.end is not None:

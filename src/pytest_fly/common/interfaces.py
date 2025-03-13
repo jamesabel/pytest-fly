@@ -20,6 +20,7 @@ class PytestResult:
 
     exit_code: ExitCode
     output: str  # stdout/stderr output
+    time_stamp: float
 
 
 class PytestProcessState(StrEnum):
@@ -50,7 +51,6 @@ class PytestStatus:
     output: str | None  # stdout/stderr output
     start: float | None  # None if not started, float if started
     end: float | None  # None until finished, float if finished
-    time_stamp: float  # epoch timestamp of this status
 
 
 def exit_code_to_string(exit_code: ExitCode | None) -> str:

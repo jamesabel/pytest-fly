@@ -80,7 +80,7 @@ class _PytestProcess(Process):
         with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
             exit_code = pytest.main([self.test])
         output: str = buf.getvalue()
-        pytest_result = PytestResult(exit_code=exit_code, output=output)
+        pytest_result = PytestResult(exit_code=exit_code, output=output, time_stamp=time.time())
         self.result_queue.put(pytest_result)
         self._process_monitor.request_stop()
         self._process_monitor.join(100.0)  # plenty of time for the monitor to stop
@@ -200,7 +200,6 @@ class PytestRunnerWorker(QObject):
                     output=None,
                     start=None,
                     end=None,
-                    time_stamp=time.time(),
                 )
                 write_test_status(self.run_guid, self.max_processes, test, status, None)
                 self.statuses[test] = status
@@ -232,7 +231,6 @@ class PytestRunnerWorker(QObject):
                     output=None,
                     start=self.starts.get(test),
                     end=self.ends.get(test),
-                    time_stamp=time.time(),
                 )
                 self.statuses[test] = status
         log.info(f"{__class__.__name__}.stop() - exiting")
@@ -247,7 +245,7 @@ class PytestRunnerWorker(QObject):
                 else:
                     state = PytestProcessState.FINISHED
                     if test not in self.ends:
-                        self.ends[test] = time.time()
+                        self.ends[test] = result.time_stamp
                 status = PytestStatus(
                     name=test,
                     process_monitor_data=process.get_pytest_process_monitor_data(),
@@ -256,7 +254,6 @@ class PytestRunnerWorker(QObject):
                     output=result.output,
                     start=self.starts.get(test),
                     end=self.ends.get(test),
-                    time_stamp=time.time(),
                 )
                 log.info(f"{__class__.__name__}._update():{status=}")
                 self.update_signal.emit(status)
@@ -295,7 +292,6 @@ class PytestRunnerWorker(QObject):
                 output=None,
                 start=self.starts[test],
                 end=None,
-                time_stamp=time.time(),
             )
             write_test_status(self.run_guid, self.max_processes, test, status, None)
             log.info(f"{status=}")

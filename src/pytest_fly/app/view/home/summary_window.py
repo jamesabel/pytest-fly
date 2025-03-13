@@ -1,5 +1,6 @@
 from datetime import timedelta
 from collections import defaultdict
+import time
 
 from PySide6.QtWidgets import QGroupBox, QVBoxLayout, QSizePolicy
 
@@ -41,10 +42,14 @@ class SummaryWindow(QGroupBox):
         max_time_stamp = None
         for status in self.statuses.values():
             counts[status.state] += 1
-            if min_time_stamp is None or status.time_stamp < min_time_stamp:
-                min_time_stamp = status.time_stamp
-            if max_time_stamp is None or status.time_stamp > max_time_stamp:
-                max_time_stamp = status.time_stamp
+            if status.start is not None and (min_time_stamp is None or status.start < min_time_stamp):
+                min_time_stamp = status.start
+            if status.end is not None and (max_time_stamp is None or status.end > max_time_stamp):
+                max_time_stamp = status.end
+        if min_time_stamp is None:
+            min_time_stamp = time.time()
+        if max_time_stamp is None:
+            max_time_stamp = time.time()
 
         # convert statistics to text
         total_count = len(self.statuses)

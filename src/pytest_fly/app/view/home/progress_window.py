@@ -11,13 +11,17 @@ from .progress_bar import PytestProgressBar
 
 def get_overall_time_window(statuses: dict[str, list[PytestStatus]]) -> tuple[float, float]:
     min_time_stamp_for_all_tests = None
-    max_time_stamp_for_all_tests = time.time()
+    max_time_stamp_for_all_tests = None
     for status_list in statuses.values():
         for status in status_list:
-            if min_time_stamp_for_all_tests is None or status.time_stamp < min_time_stamp_for_all_tests:
-                min_time_stamp_for_all_tests = status.time_stamp
-            if max_time_stamp_for_all_tests is None or status.time_stamp > max_time_stamp_for_all_tests:
-                max_time_stamp_for_all_tests = status.time_stamp
+            if status.start is not None and (min_time_stamp_for_all_tests is None or status.start < min_time_stamp_for_all_tests):
+                min_time_stamp_for_all_tests = status.start
+            if status.end is not None and (max_time_stamp_for_all_tests is None or status.end > max_time_stamp_for_all_tests):
+                max_time_stamp_for_all_tests = status.end
+    if min_time_stamp_for_all_tests is None:
+        min_time_stamp_for_all_tests = time.time()
+    if max_time_stamp_for_all_tests is None:
+        max_time_stamp_for_all_tests = time.time()
     return min_time_stamp_for_all_tests, max_time_stamp_for_all_tests
 
 
@@ -48,7 +52,6 @@ class ProgressWindow(QGroupBox):
 
         if status is not None:
             self.statuses[status.name].append(status)
-            self.statuses[status.name].sort(key=lambda s: s.time_stamp)  # keep sorted by time (probably unnecessary)
 
             status_list = self.statuses[status.name]
         else:

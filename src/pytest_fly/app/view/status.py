@@ -3,9 +3,9 @@ from enum import Enum
 from datetime import timedelta
 
 import humanize
-from PySide6.QtWidgets import QGroupBox, QVBoxLayout, QScrollArea, QWidget, QGridLayout, QLabel
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QPalette, QColor
+from PySide6.QtWidgets import QGroupBox, QVBoxLayout, QScrollArea, QTableWidget, QTableWidgetItem, QHeaderView, QMenu
+from PySide6.QtCore import Qt, QPoint
+from PySide6.QtGui import QPalette, QColor, QClipboard, QGuiApplication
 from _pytest.config import ExitCode
 
 from ..preferences import get_pref
@@ -20,17 +20,15 @@ class Columns(Enum):
     RUNTIME = 4
 
 
-def set_utilization_color(widget: QWidget, value: float):
+def set_utilization_color(item: QTableWidgetItem, value: float):
     pref = get_pref()
-    palette = widget.palette()  # default palette
     if value > pref.utilization_high_threshold:
-        palette.setColor(QPalette.WindowText, QColor("red"))
+        item.setForeground(QColor("red"))
     elif value > pref.utilization_low_threshold:
-        palette.setColor(QPalette.WindowText, QColor("yellow"))
+        item.setForeground(QColor("yellow"))
     else:
         # no change to color
         return
-    widget.setPalette(palette)
 
 
 class Status(QGroupBox):
@@ -39,7 +37,6 @@ class Status(QGroupBox):
         super().__init__()
 
         self.statuses = {}
-        self.labels = defaultdict(dict)
         self.max_cpu_usage = defaultdict(float)
         self.max_memory_usage = defaultdict(float)
 
@@ -50,74 +47,82 @@ class Status(QGroupBox):
         scroll_area = QScrollArea(parent=self)
         scroll_area.setWidgetResizable(True)
 
-        # Create a widget to hold the content
-        self.content_widget = QWidget(parent=scroll_area)
-        content_layout = QGridLayout(self.content_widget)
-        content_layout.setAlignment(Qt.AlignTop | Qt.AlignLeft)
-        self.content_widget.setLayout(content_layout)
+        # Create a table widget to hold the content
+        self.table_widget = QTableWidget(parent=scroll_area)
+        self.table_widget.setColumnCount(len(Columns))
+        self.table_widget.setHorizontalHeaderLabels(["Name", "State", "CPU", "Memory", "Runtime"])
+        self.table_widget.horizontalHeader().setStretchLastSection(True)
+        self.table_widget.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.table_widget.customContextMenuRequested.connect(self.show_context_menu)
 
-        # Add header row
-        headers = ["Name", "State", "CPU", "Memory", "Runtime"]
-        for col, header in enumerate(headers):
-            header_label = QLabel(header)
-            header_label.setStyleSheet("font-weight: bold;")
-            content_layout.addWidget(header_label, 0, col)
-
-        scroll_area.setWidget(self.content_widget)
+        scroll_area.setWidget(self.table_widget)
         layout.addWidget(scroll_area)
         self.setLayout(layout)
 
+    def show_context_menu(self, position: QPoint):
+        menu = QMenu()
+        copy_action = menu.addAction("Copy")
+        action = menu.exec_(self.table_widget.viewport().mapToGlobal(position))
+        if action == copy_action:
+            self.copy_selected_text()
+
+    def copy_selected_text(self):
+        selected_ranges = self.table_widget.selectedRanges()
+        if selected_ranges:
+            clipboard = QGuiApplication.clipboard()
+            selected_text = []
+            for selected_range in selected_ranges:
+                for row in range(selected_range.topRow(), selected_range.bottomRow() + 1):
+                    row_data = []
+                    for col in range(selected_range.leftColumn(), selected_range.rightColumn() + 1):
+                        item = self.table_widget.item(row, col)
+                        if item is not None:
+                            row_data.append(item.text())
+                    selected_text.append(",".join(row_data))
+            clipboard.setText("\n".join(selected_text))
+
     def reset(self):
-        layout = self.content_widget.layout()
-        for row_number, test in enumerate(self.statuses, start=1):
-            for column in Columns:
-                label = self.labels[test][column]
-                layout.removeWidget(label)
-                label.deleteLater()
+        self.table_widget.setRowCount(0)
         self.statuses = {}
-        self.labels = defaultdict(dict)
         self.max_cpu_usage = defaultdict(float)
         self.max_memory_usage = defaultdict(float)
 
     def update_status(self, status: PytestStatus):
         self.statuses[status.name] = status
 
-        layout = self.content_widget.layout()
-        for row_number, test in enumerate(self.statuses, start=1):
-            status = self.statuses[test]
-            if (process_monitor_data := status.process_monitor_data) is not None:
-                self.max_memory_usage[test] = max(process_monitor_data.memory_percent / 100.0, self.max_memory_usage[test])
-                self.max_cpu_usage[test] = max(process_monitor_data.cpu_percent / 100.0, self.max_cpu_usage[test])
+        row_number = list(self.statuses.keys()).index(status.name)
+        if row_number >= self.table_widget.rowCount():
+            self.table_widget.insertRow(row_number)
 
-            if test not in self.labels:
-                # test, so new row
-                for column in Columns:
-                    label = QLabel()
-                    self.labels[test][column] = label
-                    layout.addWidget(label, row_number, column.value)
+        if (process_monitor_data := status.process_monitor_data) is not None:
+            self.max_memory_usage[status.name] = max(process_monitor_data.memory_percent / 100.0, self.max_memory_usage[status.name])
+            self.max_cpu_usage[status.name] = max(process_monitor_data.cpu_percent / 100.0, self.max_cpu_usage[status.name])
 
-            self.labels[test][Columns.NAME].setText(status.name)
-            if status.state == PytestProcessState.FINISHED and status.exit_code is not None:
-                palette = self.labels[test][Columns.STATE].palette()
-                if status.exit_code == ExitCode.OK:
-                    palette.setColor(QPalette.WindowText, QColor("green"))
-                else:
-                    palette.setColor(QPalette.WindowText, QColor("red"))
-                self.labels[test][Columns.STATE].setText(status.exit_code.name)
-                self.labels[test][Columns.STATE].setPalette(palette)
+        self.table_widget.setItem(row_number, Columns.NAME.value, QTableWidgetItem(status.name))
+        state_item = QTableWidgetItem(status.state)
+        if status.state == PytestProcessState.FINISHED and status.exit_code is not None:
+            if status.exit_code == ExitCode.OK:
+                state_item.setForeground(QColor("green"))
             else:
-                self.labels[test][Columns.STATE].setText(status.state)
-            if status.state != PytestProcessState.QUEUED:
-                performance_core_count = get_performance_core_count()
+                state_item.setForeground(QColor("red"))
+        self.table_widget.setItem(row_number, Columns.STATE.value, state_item)
 
-                cpu_usage = self.max_cpu_usage[test] / performance_core_count
-                set_utilization_color(self.labels[test][Columns.CPU], cpu_usage)
-                self.labels[test][Columns.CPU].setText(f"{cpu_usage:.2%}")
+        if status.state != PytestProcessState.QUEUED:
+            performance_core_count = get_performance_core_count()
 
-                memory_usage = self.max_memory_usage[test]
-                set_utilization_color(self.labels[test][Columns.MEMORY], memory_usage)
-                self.labels[test][Columns.MEMORY].setText(f"{memory_usage:.2%}")
+            cpu_usage = self.max_cpu_usage[status.name] / performance_core_count
+            cpu_item = QTableWidgetItem(f"{cpu_usage:.2%}")
+            set_utilization_color(cpu_item, cpu_usage)
+            self.table_widget.setItem(row_number, Columns.CPU.value, cpu_item)
 
-                if status.start is not None and status.end is not None:
-                    runtime = status.end - status.start
-                    self.labels[test][Columns.RUNTIME].setText(humanize.precisedelta(timedelta(seconds=runtime)))
+            memory_usage = self.max_memory_usage[status.name]
+            memory_item = QTableWidgetItem(f"{memory_usage:.2%}")
+            set_utilization_color(memory_item, memory_usage)
+            self.table_widget.setItem(row_number, Columns.MEMORY.value, memory_item)
+
+            if status.start is not None and status.end is not None:
+                runtime = status.end - status.start
+                self.table_widget.setItem(row_number, Columns.RUNTIME.value, QTableWidgetItem(humanize.precisedelta(timedelta(seconds=runtime))))
+
+        # Resize columns to fit contents
+        self.table_widget.resizeColumnsToContents()

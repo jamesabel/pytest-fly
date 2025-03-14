@@ -22,6 +22,18 @@ from ...db import write_test_status
 log = get_logger()
 
 
+def put_process_monitor_data(_psutil_process: PsutilProcess, queue: Queue):
+    try:
+        cpu_percent = _psutil_process.cpu_percent()
+        memory_percent = _psutil_process.memory_percent()
+    except NoSuchProcess:
+        cpu_percent = None
+        memory_percent = None
+    if cpu_percent is not None and memory_percent is not None:
+        process_info = PytestProcessMonitorData(pid=_psutil_process.pid, name=_psutil_process.name(), cpu_percent=cpu_percent, memory_percent=memory_percent)
+        queue.put(process_info)
+
+
 class _PytestProcessMonitor(Process):
 
     def __init__(self, pytest_process_pid: int, update_rate: float, process_monitor_queue: Queue):
@@ -33,30 +45,17 @@ class _PytestProcessMonitor(Process):
         self._stop_event = Event()
 
     def run(self):
+
         self._psutil_process = PsutilProcess(self._pytest_process_pid)
         self._psutil_process.cpu_percent()  # initialize psutil's CPU usage (ignore the first 0.0)
 
         while not self._stop_event.is_set():
             # memory percent default is "rss"
-            try:
-                cpu_percent = self._psutil_process.cpu_percent()
-                memory_percent = self._psutil_process.memory_percent()
-            except NoSuchProcess:
-                cpu_percent = None
-                memory_percent = None
-            process_info = PytestProcessMonitorData(pid=self._psutil_process.pid, name=self._psutil_process.name(), cpu_percent=cpu_percent, memory_percent=memory_percent)
-            self._process_monitor_queue.put(process_info)
+            put_process_monitor_data(self._psutil_process, self._process_monitor_queue)
             self._stop_event.wait(self._update_rate)
 
         # ensure we call PsutilProcess.cpu_percent() at least twice to get a valid CPU percent
-        try:
-            cpu_percent = self._psutil_process.cpu_percent()
-            memory_percent = self._psutil_process.memory_percent()
-        except NoSuchProcess:
-            cpu_percent = None
-            memory_percent = None
-        process_info = PytestProcessMonitorData(pid=self._psutil_process.pid, name=self._psutil_process.name(), cpu_percent=cpu_percent, memory_percent=memory_percent)
-        self._process_monitor_queue.put(process_info)
+        put_process_monitor_data(self._psutil_process, self._process_monitor_queue)
 
     def request_stop(self):
         self._stop_event.set()

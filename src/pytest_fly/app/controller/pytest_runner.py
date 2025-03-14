@@ -37,16 +37,24 @@ class _PytestProcessMonitor(Process):
 
         while not self._stop_event.is_set():
             # memory percent default is "rss"
-            process_info = PytestProcessMonitorData(
-                pid=self._psutil_process.pid, name=self._psutil_process.name(), cpu_percent=self._psutil_process.cpu_percent(), memory_percent=self._psutil_process.memory_percent()
-            )
+            try:
+                cpu_percent = self._psutil_process.cpu_percent()
+                memory_percent = self._psutil_process.memory_percent()
+            except psutil.NoSuchProcess:
+                cpu_percent = None
+                memory_percent = None
+            process_info = PytestProcessMonitorData(pid=self._psutil_process.pid, name=self._psutil_process.name(), cpu_percent=cpu_percent, memory_percent=memory_percent)
             self._process_monitor_queue.put(process_info)
             self._stop_event.wait(self._update_rate)
 
         # ensure we call PsutilProcess.cpu_percent() at least twice to get a valid CPU percent
-        process_info = PytestProcessMonitorData(
-            pid=self._psutil_process.pid, name=self._psutil_process.name(), cpu_percent=self._psutil_process.cpu_percent(), memory_percent=self._psutil_process.memory_percent()
-        )
+        try:
+            cpu_percent = self._psutil_process.cpu_percent()
+            memory_percent = self._psutil_process.memory_percent()
+        except psutil.NoSuchProcess:
+            cpu_percent = None
+            memory_percent = None
+        process_info = PytestProcessMonitorData(pid=self._psutil_process.pid, name=self._psutil_process.name(), cpu_percent=cpu_percent, memory_percent=memory_percent)
         self._process_monitor_queue.put(process_info)
 
     def request_stop(self):

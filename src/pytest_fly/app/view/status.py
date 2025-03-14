@@ -83,9 +83,9 @@ class Status(QGroupBox):
 
     def reset(self):
         self.table_widget.setRowCount(0)
-        self.statuses = {}
-        self.max_cpu_usage = defaultdict(float)
-        self.max_memory_usage = defaultdict(float)
+        self.statuses.clear()
+        self.max_cpu_usage.clear()
+        self.max_memory_usage.clear()
 
     def update_status(self, status: PytestStatus):
         self.statuses[status.name] = status

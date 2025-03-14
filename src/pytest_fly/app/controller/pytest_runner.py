@@ -10,6 +10,7 @@ import pytest
 from PySide6.QtCore import QObject, Signal, Slot, QTimer, QCoreApplication
 from typeguard import typechecked
 from psutil import Process as PsutilProcess
+from psutil import NoSuchProcess
 
 from ..logging import get_logger
 from ...common import get_guid, PytestResult, PytestProcessState, PytestStatus, PytestProcessMonitorData
@@ -40,7 +41,7 @@ class _PytestProcessMonitor(Process):
             try:
                 cpu_percent = self._psutil_process.cpu_percent()
                 memory_percent = self._psutil_process.memory_percent()
-            except psutil.NoSuchProcess:
+            except NoSuchProcess:
                 cpu_percent = None
                 memory_percent = None
             process_info = PytestProcessMonitorData(pid=self._psutil_process.pid, name=self._psutil_process.name(), cpu_percent=cpu_percent, memory_percent=memory_percent)
@@ -51,7 +52,7 @@ class _PytestProcessMonitor(Process):
         try:
             cpu_percent = self._psutil_process.cpu_percent()
             memory_percent = self._psutil_process.memory_percent()
-        except psutil.NoSuchProcess:
+        except NoSuchProcess:
             cpu_percent = None
             memory_percent = None
         process_info = PytestProcessMonitorData(pid=self._psutil_process.pid, name=self._psutil_process.name(), cpu_percent=cpu_percent, memory_percent=memory_percent)

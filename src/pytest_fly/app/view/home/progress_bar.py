@@ -7,7 +7,7 @@ from typeguard import typechecked
 from pytest import ExitCode
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QGroupBox, QSizePolicy, QStatusBar, QLabel
 from PySide6.QtCore import Qt, QRectF, QPointF, QRect
-from PySide6.QtGui import QPainter, QColor, QPen, QPaintEvent, QBrush
+from PySide6.QtGui import QPainter, QColor, QPen, QPaintEvent, QBrush, QPalette
 import humanize
 
 from ....common import PytestProcessState, PytestStatus, exit_code_to_string
@@ -144,7 +144,12 @@ class PytestProgressBar(QWidget):
             # draw the text
             text_left_margin = self.one_character_dimensions.width()
             text_y_margin = int(round((0.5 * self.one_character_dimensions.height() + self.bar_margin + 1)))
-            painter.setPen(QPen(Qt.black, 1))
+
+            # Set pen color based on the current palette
+            palette = self.palette()
+            text_color = palette.color(QPalette.WindowText)
+            painter.setPen(QPen(text_color, 1))
+
             painter.drawText(outer_rect.x() + text_left_margin, outer_rect.y() + text_y_margin, bar_text)
 
             painter.end()

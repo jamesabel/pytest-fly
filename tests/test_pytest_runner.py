@@ -30,19 +30,23 @@ def test_pytest_runner(app):
 
         # the statuses list will be updated in the background in the worker thread
         count = 0
-        while len(statuses) != 3 and count < 100:
-            worker._request_update_signal.emit()
+        finished = False
+        while not finished and count < 100:
             app.processEvents()
-            time.sleep(1)
+            for status in statuses:
+                if status.state == PytestProcessState.FINISHED:
+                    finished = True
+            if not finished:
+                time.sleep(1)
             count += 1
 
-        assert len(statuses) == 3  # QUEUED, RUNNING, FINISHED
+        assert len(statuses) >= 3  # QUEUED, RUNNING (may repeat), FINISHED
         assert statuses[0].exit_code is None
         assert statuses[0].state == PytestProcessState.QUEUED
         assert statuses[1].exit_code is None
         assert statuses[1].state == PytestProcessState.RUNNING
-        assert statuses[2].exit_code == ExitCode.OK
-        assert statuses[2].state == PytestProcessState.FINISHED
+        assert statuses[-1].exit_code == ExitCode.OK
+        assert statuses[-1].state == PytestProcessState.FINISHED
 
         # tell worker to stop and exit
         worker.request_stop()

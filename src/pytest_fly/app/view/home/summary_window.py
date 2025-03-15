@@ -8,7 +8,7 @@ import humanize
 
 from ..gui_util import PlainTextWidget, get_text_dimensions
 from ....common import PytestProcessState
-from pytest_fly.common.interfaces import PytestStatus
+from pytest_fly.common.interfaces import PytestProcessInfo
 
 
 class SummaryWindow(QGroupBox):
@@ -26,7 +26,7 @@ class SummaryWindow(QGroupBox):
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self.setFixedSize(self.status_widget.size())
 
-    def update_summary(self, status: PytestStatus):
+    def update_summary(self, status: PytestProcessInfo):
         """
         Update the status window with the new status.
 

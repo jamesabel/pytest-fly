@@ -10,7 +10,7 @@ from PySide6.QtCore import Qt, QRectF, QPointF, QRect
 from PySide6.QtGui import QPainter, QColor, QPen, QPaintEvent, QBrush, QPalette
 import humanize
 
-from ....common import PytestProcessState, PytestStatus, exit_code_to_string
+from ....common import PytestProcessState, PytestProcessInfo, exit_code_to_string
 from ..gui_util import get_text_dimensions
 from ...logging import get_logger
 
@@ -23,7 +23,7 @@ class PytestProgressBar(QWidget):
     """
 
     @typechecked()
-    def __init__(self, status_list: list[PytestStatus], min_time_stamp: float, max_time_stamp: float, parent: QWidget) -> None:
+    def __init__(self, status_list: list[PytestProcessInfo], min_time_stamp: float, max_time_stamp: float, parent: QWidget) -> None:
         super().__init__(parent)
         self.min_time_stamp = min_time_stamp
         self.max_time_stamp = max_time_stamp
@@ -46,7 +46,7 @@ class PytestProgressBar(QWidget):
         self.setFixedHeight(self.bar_height)
 
     @typechecked()
-    def update_status(self, status_list: list[PytestStatus]) -> None:
+    def update_status(self, status_list: list[PytestProcessInfo]) -> None:
         """
         Update the status list for the progress bar. Called when the status list changes for this test.
 

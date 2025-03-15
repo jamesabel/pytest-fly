@@ -5,7 +5,7 @@ from PySide6.QtCore import QThread, QTimer
 
 
 from ...controller.pytest_runner import PytestRunnerWorker
-from ....common import PytestProcessState, PytestStatus, get_guid
+from ....common import PytestProcessState, PytestProcessInfo, get_guid
 from ...preferences import get_pref
 from ..gui_util import get_text_dimensions
 from ... import get_logger
@@ -25,7 +25,7 @@ class ControlButton(QPushButton):
 
 class ControlWindow(QGroupBox):
 
-    def __init__(self, parent, reset_callback: Callable, update_callback: Callable[[PytestStatus], None]):
+    def __init__(self, parent, reset_callback: Callable, update_callback: Callable[[PytestProcessInfo], None]):
         super().__init__(parent)
         self.reset_callback = reset_callback
         self.update_callback = update_callback
@@ -53,7 +53,6 @@ class ControlWindow(QGroupBox):
         self.run_guid = None
         self.pytest_runner_thread = None
         self.pytest_runner_worker = None
-        self.update_timer = QTimer()
         self.most_recent_statuses = {}
 
         self.pytest_runner_thread = QThread(self)  # work will be done in this thread
@@ -63,10 +62,7 @@ class ControlWindow(QGroupBox):
         self.pytest_runner_worker.moveToThread(self.pytest_runner_thread)  # move worker to thread
         self.pytest_runner_worker.request_exit_signal.connect(self.pytest_runner_thread.quit)  # required to stop the thread
         self.pytest_runner_worker.update_signal.connect(self.pytest_update)
-        self.update_timer.timeout.connect(self.pytest_runner_worker.request_update)
         self.pytest_runner_thread.start()
-        scheduler_time_quantum = get_pref().scheduler_time_quantum
-        self.update_timer.start(int(round(scheduler_time_quantum * 1000.0)))  # convert to milliseconds
 
         self.update_processes_configuration()
 
@@ -89,7 +85,7 @@ class ControlWindow(QGroupBox):
         self.stop_button.setEnabled(False)
         log.info(f"{__class__.__name__}.stop() - exiting")
 
-    def pytest_update(self, status: PytestStatus):
+    def pytest_update(self, status: PytestProcessInfo):
         log.info(f"{__class__.__name__}.pytest_update() - {status.name=}, {status.state=}, {status.exit_code=}")
         self.most_recent_statuses[status.name] = status
         log.info(f"{__class__.__name__}.pytest_update() - calling self.update_callback()")

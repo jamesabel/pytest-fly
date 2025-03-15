@@ -3,7 +3,7 @@ import time
 from typeguard import typechecked
 
 from .db_base import PytestFlyDBBase
-from ..common.interfaces import PytestResult, PytestStatus
+from ..common.interfaces import PytestProcessInfo
 
 from ..__version__ import application_name
 
@@ -30,20 +30,15 @@ class PytestFlyDB(PytestFlyDBBase):
 
 
 @typechecked()
-def write_test_status(run_uid: str, max_processes: int, test_name: str, status: PytestStatus, result: PytestResult | None):
+def write_test_status(run_uid: str, max_processes: int, test_name: str, pytest_process_info: PytestProcessInfo):
     """
     Write a pytest test status to the database
     :param run_uid: unique id for the pytest run
     :param max_processes: maximum number of processes
     :param test_name: name of the particular test
-    :param status: status of the test
-    :param result: result of the test
+    :param pytest_process_info: status of the test
     """
     with PytestFlyDB() as db:
         statement = "INSERT INTO status (ts, run_uid, max_processes, test_name, status, result, out) VALUES (?, ?, ?, ?, ?, ?, ?)"
-        parameters = [time.time(), run_uid, max_processes, test_name, status.state]
-        if result is None:
-            parameters.extend([None, None])
-        else:
-            parameters.extend([result.exit_code, result.output])
+        parameters = [time.time(), run_uid, max_processes, test_name, pytest_process_info.state, pytest_process_info.exit_code, pytest_process_info.output]
         db.execute(statement, parameters)

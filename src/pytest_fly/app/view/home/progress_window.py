@@ -4,12 +4,12 @@ from collections import defaultdict
 from PySide6.QtWidgets import QGroupBox, QVBoxLayout
 from PySide6.QtCore import Qt, QTimer
 
-from ....common import PytestProcessState, PytestStatus
+from ....common import PytestProcessState, PytestProcessInfo
 from ...preferences import get_pref
 from .progress_bar import PytestProgressBar
 
 
-def get_overall_time_window(statuses: dict[str, list[PytestStatus]]) -> tuple[float, float]:
+def get_overall_time_window(statuses: dict[str, list[PytestProcessInfo]]) -> tuple[float, float]:
     min_time_stamp_for_all_tests = None
     max_time_stamp_for_all_tests = None
     for status_list in statuses.values():
@@ -47,7 +47,7 @@ class ProgressWindow(QGroupBox):
             progress_bar.deleteLater()
         self.progress_bars = {}
 
-    def update_status(self, status: PytestStatus | None = None):
+    def update_status(self, status: PytestProcessInfo | None = None):
         layout = self.layout()
 
         if status is not None:

@@ -9,7 +9,7 @@ from PySide6.QtGui import QPalette, QColor, QClipboard, QGuiApplication
 from _pytest.config import ExitCode
 
 from ..preferences import get_pref
-from ...common import PytestStatus, PytestProcessState, get_performance_core_count
+from ...common import PytestProcessInfo, PytestProcessState, get_performance_core_count
 
 
 class Columns(Enum):
@@ -87,16 +87,16 @@ class Status(QGroupBox):
         self.max_cpu_usage.clear()
         self.max_memory_usage.clear()
 
-    def update_status(self, status: PytestStatus):
+    def update_status(self, status: PytestProcessInfo):
         self.statuses[status.name] = status
 
         row_number = list(self.statuses.keys()).index(status.name)
         if row_number >= self.table_widget.rowCount():
             self.table_widget.insertRow(row_number)
 
-        if (process_monitor_data := status.process_monitor_data) is not None:
-            self.max_memory_usage[status.name] = max(process_monitor_data.memory_percent / 100.0, self.max_memory_usage[status.name])
-            self.max_cpu_usage[status.name] = max(process_monitor_data.cpu_percent / 100.0, self.max_cpu_usage[status.name])
+        if status.memory_percent is not None and status.cpu_percent is not None:
+            self.max_memory_usage[status.name] = max(status.memory_percent / 100.0, self.max_memory_usage[status.name])
+            self.max_cpu_usage[status.name] = max(status.cpu_percent / 100.0, self.max_cpu_usage[status.name])
 
         self.table_widget.setItem(row_number, Columns.NAME.value, QTableWidgetItem(status.name))
         state_item = QTableWidgetItem(status.state)

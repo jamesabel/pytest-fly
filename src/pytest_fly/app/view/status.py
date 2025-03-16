@@ -3,13 +3,13 @@ from enum import Enum
 from datetime import timedelta
 
 import humanize
-from PySide6.QtWidgets import QGroupBox, QVBoxLayout, QScrollArea, QTableWidget, QTableWidgetItem, QHeaderView, QMenu
+from PySide6.QtWidgets import QGroupBox, QVBoxLayout, QScrollArea, QTableWidget, QTableWidgetItem, QMenu
 from PySide6.QtCore import Qt, QPoint
-from PySide6.QtGui import QPalette, QColor, QClipboard, QGuiApplication
+from PySide6.QtGui import QColor, QGuiApplication
 from _pytest.config import ExitCode
 
 from ..preferences import get_pref
-from ...common import PytestProcessInfo, PytestProcessState, get_performance_core_count
+from ...common import PytestProcessInfo, PytestProcessState, get_performance_core_count, exit_code_to_string
 
 
 class Columns(Enum):
@@ -99,12 +99,14 @@ class Status(QGroupBox):
             self.max_cpu_usage[status.name] = max(status.cpu_percent / 100.0, self.max_cpu_usage[status.name])
 
         self.table_widget.setItem(row_number, Columns.NAME.value, QTableWidgetItem(status.name))
+
         state_item = QTableWidgetItem(status.state)
         if status.state == PytestProcessState.FINISHED and status.exit_code is not None:
             if status.exit_code == ExitCode.OK:
                 state_item.setForeground(QColor("green"))
             else:
                 state_item.setForeground(QColor("red"))
+            state_item.setText(exit_code_to_string(status.exit_code))
         self.table_widget.setItem(row_number, Columns.STATE.value, state_item)
 
         if status.state != PytestProcessState.QUEUED:

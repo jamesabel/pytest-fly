@@ -74,27 +74,23 @@ class PytestProgressBar(QWidget):
             painter = QPainter(self)
             painter.setRenderHint(QPainter.Antialiasing)
 
-            name = self.status_list[0].name
+            status_list = sorted(self.status_list, key=lambda s: (s.state.order_of_execution(), s.time_stamp))
+            name = status_list[0].name
 
             # extract status to display
             start_running_time = None
-            for status in self.status_list:
+            for status in status_list:
                 if status.start is not None:
                     start_running_time = status.start
                     break
-            if self.status_list[-1].state == PytestProcessState.RUNNING:
+            if status_list[-1].state == PytestProcessState.RUNNING:
                 end_time = time.time()  # running, so use current time
             else:
-                end_time = self.status_list[-1].end
-            if len(self.status_list) > 0:
-                most_recent_status = self.status_list[-1]
-                most_recent_process_state = most_recent_status.state
-                most_recent_exit_code = most_recent_status.exit_code
-                most_recent_exit_code_string = exit_code_to_string(most_recent_exit_code)
-            else:
-                most_recent_process_state = PytestProcessState.UNKNOWN
-                most_recent_exit_code = None
-                most_recent_exit_code_string = None
+                end_time = status_list[-1].end
+            most_recent_status = status_list[-1]
+            most_recent_process_state = most_recent_status.state
+            most_recent_exit_code = most_recent_status.exit_code
+            most_recent_exit_code_string = exit_code_to_string(most_recent_exit_code)
 
             if start_running_time is None or math.isclose(start_running_time, end_time):
                 bar_text = f"{name} - {most_recent_process_state.name}"
@@ -117,6 +113,10 @@ class PytestProgressBar(QWidget):
                     bar_color = Qt.green
                 else:
                     bar_color = Qt.red
+
+            print()
+            for status in status_list:
+                print(status)
 
             # draw the horizontal bar
             if start_running_time is None:

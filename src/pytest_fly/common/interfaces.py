@@ -11,10 +11,15 @@ class PytestProcessState(StrEnum):
     """
 
     UNKNOWN = auto()  # unknown state
-    QUEUED = auto()  # queued to be run by the PyTest runner scheduler
+    QUEUED = auto()  # queued to be run by the scheduler
     RUNNING = auto()  # test is currently running
     FINISHED = auto()  # test has finished
     TERMINATED = auto()  # test was terminated
+
+    def order_of_execution(self) -> int:
+        # for sorting
+        order = {PytestProcessState.UNKNOWN: 0, PytestProcessState.QUEUED: 1, PytestProcessState.RUNNING: 2, PytestProcessState.FINISHED: 3, PytestProcessState.TERMINATED: 4}
+        return order[self]
 
 
 @dataclass
@@ -24,7 +29,7 @@ class PytestProcessInfo:
     """
 
     name: str  # test name
-    state: PytestProcessState  # state of the test process
+    state: PytestProcessState | None = None  # state of the test process
     pid: int | None = None  # OS process ID of the pytest process
     exit_code: ExitCode | None = None  # exit code of the test
     output: str | None = None  # output (stdout, stderr) of the test

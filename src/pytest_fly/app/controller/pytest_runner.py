@@ -25,6 +25,14 @@ log = get_logger()
 class _PytestProcessMonitor(Process):
 
     def __init__(self, name: str, pid: int, update_rate: float, process_monitor_queue: Queue):
+        """
+        Monitor a process for things like CPU and memory usage.
+
+        :param name: the name of the process to monitor
+        :param pid: the process ID of the process to monitor
+        :param update_rate: the rate at which to send back updates
+        :param process_monitor_queue: the queue to send updates to
+        """
         super().__init__()
         self._name = name
         self._pid = pid
@@ -45,7 +53,7 @@ class _PytestProcessMonitor(Process):
                     cpu_percent = None
                     memory_percent = None
                 if cpu_percent is not None and memory_percent is not None:
-                    pytest_process_info = PytestProcessInfo(self._name, PytestProcessState.RUNNING, self._pid, cpu_percent=cpu_percent, memory_percent=memory_percent)
+                    pytest_process_info = PytestProcessInfo(self._name, pid=self._pid, cpu_percent=cpu_percent, memory_percent=memory_percent)
                     self._process_monitor_queue.put(pytest_process_info)
 
         self._psutil_process = PsutilProcess(self._pid)
@@ -274,6 +282,7 @@ class PytestRunnerWorker(QObject):
         else:
             # new test (e.g., when queued)
             new_pytest_process_info = updated_pytest_process_info
+        new_pytest_process_info.time_stamp = time.time()
 
         with Lock():
             self.pytest_processes_dict[name] = new_pytest_process_info  # update global dict

@@ -62,8 +62,6 @@ class _PytestProcessMonitor(Process):
         while not self._stop_event.is_set():
             put_process_monitor_data()
             self._stop_event.wait(self._update_rate)
-
-        # ensure we call PsutilProcess.cpu_percent() at least twice to get a valid CPU percent
         put_process_monitor_data()
 
     def request_stop(self):

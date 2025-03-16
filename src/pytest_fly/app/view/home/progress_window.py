@@ -14,10 +14,10 @@ def get_overall_time_window(statuses: dict[str, list[PytestProcessInfo]]) -> tup
     max_time_stamp_for_all_tests = None
     for status_list in statuses.values():
         for status in status_list:
-            if status.start is not None and (min_time_stamp_for_all_tests is None or status.start < min_time_stamp_for_all_tests):
-                min_time_stamp_for_all_tests = status.start
-            if status.end is not None and (max_time_stamp_for_all_tests is None or status.end > max_time_stamp_for_all_tests):
-                max_time_stamp_for_all_tests = status.end
+            if status.start is not None and (min_time_stamp_for_all_tests is None or status.time_stamp < min_time_stamp_for_all_tests):
+                min_time_stamp_for_all_tests = status.time_stamp
+            if status.end is not None and (max_time_stamp_for_all_tests is None or status.time_stamp > max_time_stamp_for_all_tests):
+                max_time_stamp_for_all_tests = status.time_stamp
     if min_time_stamp_for_all_tests is None:
         min_time_stamp_for_all_tests = time.time()
     if max_time_stamp_for_all_tests is None:

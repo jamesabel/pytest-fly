@@ -75,24 +75,35 @@ class PytestProgressBar(QWidget):
             painter.setRenderHint(QPainter.Antialiasing)
 
             status_list = sorted(self.status_list, key=lambda s: (s.state.order_of_execution(), s.time_stamp))
-            name = status_list[0].name
+            name = status_list[0].name  # all should be the same name
 
-            # extract status to display
+            # get start of bar
             start_running_time = None
             for status in status_list:
                 if status.start is not None:
                     start_running_time = status.start
                     break
-            if status_list[-1].state == PytestProcessState.RUNNING:
-                end_time = time.time()  # running, so use current time
-            else:
-                end_time = status_list[-1].end
+            if start_running_time is None:
+                for status in status_list:
+                    if status.state == PytestProcessState.RUNNING:
+                        start_running_time = status.time_stamp
+                        break
+            if start_running_time is None:
+                start_running_time = status_list[-1].time_stamp
+
+            # get end of bar
+            if (end_time := status_list[-1].end) is None:
+                if status_list[-1].state == PytestProcessState.QUEUED:
+                    end_time = status_list[-1].time_stamp  # use the latest time stamp
+                else:
+                    end_time = time.time()
+
             most_recent_status = status_list[-1]
             most_recent_process_state = most_recent_status.state
             most_recent_exit_code = most_recent_status.exit_code
             most_recent_exit_code_string = exit_code_to_string(most_recent_exit_code)
 
-            if start_running_time is None or math.isclose(start_running_time, end_time):
+            if end_time is None or math.isclose(start_running_time, end_time):
                 bar_text = f"{name} - {most_recent_process_state.name}"
             else:
                 duration = end_time - start_running_time
@@ -113,10 +124,6 @@ class PytestProgressBar(QWidget):
                     bar_color = Qt.green
                 else:
                     bar_color = Qt.red
-
-            print()
-            for status in status_list:
-                print(status)
 
             # draw the horizontal bar
             if start_running_time is None:

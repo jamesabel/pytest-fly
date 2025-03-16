@@ -8,7 +8,6 @@ import time
 import psutil
 import pytest
 from PySide6.QtCore import QObject, Signal, Slot, QTimer, QCoreApplication
-from numpy.f2py.crackfortran import endifs
 from typeguard import typechecked
 from psutil import Process as PsutilProcess
 from psutil import NoSuchProcess
@@ -21,22 +20,6 @@ from ...db import write_test_status
 
 
 log = get_logger()
-
-
-
-
-def put_process_monitor_data(name: str, psutil_process: PsutilProcess, queue: Queue):
-    if psutil_process.is_running():
-        pid = psutil_process.pid
-        try:
-            cpu_percent = psutil_process.cpu_percent()
-            memory_percent = psutil_process.memory_percent()
-        except NoSuchProcess:
-            cpu_percent = None
-            memory_percent = None
-        if cpu_percent is not None and memory_percent is not None:
-            pytest_process_info = PytestProcessInfo(name, PytestProcessState.RUNNING, pid, cpu_percent=cpu_percent, memory_percent=memory_percent)
-            queue.put(pytest_process_info)
 
 
 class _PytestProcessMonitor(Process):
@@ -52,16 +35,28 @@ class _PytestProcessMonitor(Process):
 
     def run(self):
 
+        def put_process_monitor_data():
+            if self._psutil_process.is_running():
+                try:
+                    # memory percent default is "rss"
+                    cpu_percent = self._psutil_process.cpu_percent()
+                    memory_percent = self._psutil_process.memory_percent()
+                except NoSuchProcess:
+                    cpu_percent = None
+                    memory_percent = None
+                if cpu_percent is not None and memory_percent is not None:
+                    pytest_process_info = PytestProcessInfo(self._name, PytestProcessState.RUNNING, self._pid, cpu_percent=cpu_percent, memory_percent=memory_percent)
+                    self._process_monitor_queue.put(pytest_process_info)
+
         self._psutil_process = PsutilProcess(self._pid)
         self._psutil_process.cpu_percent()  # initialize psutil's CPU usage (ignore the first 0.0)
 
         while not self._stop_event.is_set():
-            # memory percent default is "rss"
-            put_process_monitor_data(self._name, self._psutil_process, self._process_monitor_queue)
+            put_process_monitor_data()
             self._stop_event.wait(self._update_rate)
 
         # ensure we call PsutilProcess.cpu_percent() at least twice to get a valid CPU percent
-        put_process_monitor_data(self._name, self._psutil_process, self._process_monitor_queue)
+        put_process_monitor_data()
 
     def request_stop(self):
         self._stop_event.set()
@@ -76,13 +71,14 @@ class _PytestProcess(Process):
     def __init__(self, test: Path | str, update_rate: float, pytest_monitor_queue: Queue) -> None:
         """
         :param test: the test to run
+        :param update_rate: the rate at which to update the monitor
+        :param pytest_monitor_queue: the queue to send pytest updates to
         """
         super().__init__(name=str(test))
         self.update_rate = update_rate
         self.pytest_monitor_queue = pytest_monitor_queue
 
         self._process_monitor_process = None
-
 
     def run(self) -> None:
 
@@ -91,12 +87,11 @@ class _PytestProcess(Process):
         self._process_monitor_process.start()
 
         # update the pytest process info to show that the test is running
-        pytest_process_info = PytestProcessInfo(self.name, PytestProcessState.RUNNING, self.pid)
+        pytest_process_info = PytestProcessInfo(self.name, PytestProcessState.RUNNING, self.pid, start=time.time())
         self.pytest_monitor_queue.put(pytest_process_info)
 
         # Finally, actually run pytest!
         # Redirect stdout and stderr so nothing goes to the console.
-        start = time.time()
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
             exit_code = pytest.main([self.name])
@@ -110,40 +105,16 @@ class _PytestProcess(Process):
             log.error(f"{self._process_monitor_process} is alive")
 
         # update the pytest process info to show that the test has finished
-        pytest_process_info = PytestProcessInfo(self.name, PytestProcessState.FINISHED, self.pid, exit_code, output, start, end)
+        pytest_process_info = PytestProcessInfo(self.name, PytestProcessState.FINISHED, self.pid, exit_code, output, end=end)
         self.pytest_monitor_queue.put(pytest_process_info)
 
         log.debug(f"{self.name=},{self.name},{exit_code=},{output=}")
 
-    # @typechecked()
-    # def get_result(self) -> PytestProcessInfo | None:
-    #     """
-    #     Returns the result of the pytest run, if available.
-    #     """
-    #     try:
-    #         result = self._result_queue.get(False)
-    #     except Empty:
-    #         result = None
-    #     return result
-
-    # def get_pytest_process_monitor_data(self) -> PytestProcessInfo:
-    #     """
-    #     Returns the process monitor data, if available.
-    #     """
-    #     monitor_data = None
-    #     max_cpu_percent = 0.0
-    #     max_memory_percent = 0.0
-    #     try:
-    #         while (monitor_data := self._process_monitor_queue.get(False)) is not None:
-    #             max_cpu_percent = max(max_cpu_percent, monitor_data.cpu_percent)
-    #             max_memory_percent = max(max_memory_percent, monitor_data.memory_percent)
-    #             monitor_data = PytestProcessInfo(monitor_data.name, monitor_data.pid, cpu_percent=max_cpu_percent, memory_percent=max_memory_percent)
-    #     except Empty:
-    #         pass
-    #     return monitor_data
-
 
 class PytestRunnerWorker(QObject):
+    """
+    Worker that runs pytest tests in separate processes.
+    """
 
     # signals to request pytest actions
     _request_run_signal = Signal(int)  # request run, passing in the number of processes to run
@@ -167,6 +138,11 @@ class PytestRunnerWorker(QObject):
 
     @typechecked()
     def __init__(self, tests: list[str] | None = None) -> None:
+        """
+        Pytest runner worker.
+
+        :param tests: the tests to run
+        """
         super().__init__()
 
         if tests is None:
@@ -180,7 +156,7 @@ class PytestRunnerWorker(QObject):
         self.pytest_processes_manager = Manager()  # dict values are PytestProcessInfo
         self.pytest_processes_dict = self.pytest_processes_manager.dict()
 
-        self._processes = {}
+        self._processes = {}  # dict of running processes
 
         self.max_processes = 1
         self.run_guid = None
@@ -194,6 +170,9 @@ class PytestRunnerWorker(QObject):
 
     @Slot()
     def _run(self, max_processes: int):
+        """
+        Run tests (puts the tests in the queue).
+        """
         log.info(f"{max_processes=}")
 
         self.run_guid = get_guid()
@@ -209,35 +188,37 @@ class PytestRunnerWorker(QObject):
 
     @Slot()
     def _stop(self):
+        """
+        Stop all running tests.
+        """
 
         for test, pytest_process in self.pytest_processes_dict.items():
             if pytest_process.state == PytestProcessState.RUNNING:
-                process = psutil.Process(pytest_process.pid)
-                log.info(f"terminating {test}")
                 try:
-                    process.terminate()
-                except PermissionError:
-                    log.warning(f"PermissionError terminating {test}")
-                log.info(f"joining {test}")
-                try:
-                    process.wait(100)
-                except PermissionError:
-                    log.warning(f"PermissionError joining {test}")
+                    process = psutil.Process(pytest_process.pid)
+                    log.info(f"terminating {test}")
+                    try:
+                        process.terminate()
+                    except PermissionError:
+                        log.warning(f"PermissionError terminating {test}")
+                    log.info(f"joining {test}")
+                    try:
+                        process.wait(10)
+                    except PermissionError:
+                        log.warning(f"PermissionError joining {test}")
+                except NoSuchProcess:
+                    pass
                 pytest_process_info = PytestProcessInfo(name=test, state=PytestProcessState.TERMINATED)
                 self.update_pytest_process_info(pytest_process_info)
-        log.info(f"{__class__.__name__}.stop() - exiting")
-
-    # @Slot()
-    # def _update(self):
-    #     # status update (if any status updates are available)
-    #     for test in sorted(self.pytest_processes):
-    #         pytest_process = self.pytest_processes[test]
-    #         self.update_signal.emit(pytest_process)
-    #         QCoreApplication.processEvents()
-    #         write_test_status(self.run_guid, self.max_processes, test, pytest_process)
+        self._processes.clear()
+        self.pytest_processes_dict.clear()
+        log.info(f"exiting")
 
     @Slot()
     def _scheduler(self):
+        """
+        Schedule tests to run.
+        """
 
         # determine what tests to run
         running_processes = [p for p in self.pytest_processes_dict.values() if p.state == PytestProcessState.RUNNING]
@@ -276,6 +257,12 @@ class PytestRunnerWorker(QObject):
             pass
 
     def update_pytest_process_info(self, updated_pytest_process_info: PytestProcessInfo):
+        """
+        Update the PytestProcessInfo for a test.
+        If the test is new, add it to the global dict. Only use non-None values to update the existing test.
+
+        :param updated_pytest_process_info: the updated PytestProcessInfo
+        """
         name = updated_pytest_process_info.name
 
         if name in self.pytest_processes_dict:

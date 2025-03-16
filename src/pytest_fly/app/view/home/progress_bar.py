@@ -79,7 +79,7 @@ class PytestProgressBar(QWidget):
             # extract status to display
             start_running_time = None
             for status in self.status_list:
-                if status.state == PytestProcessState.RUNNING:
+                if status.start is not None:
                     start_running_time = status.start
                     break
             if self.status_list[-1].state == PytestProcessState.RUNNING:

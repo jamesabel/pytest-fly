@@ -47,7 +47,7 @@ class ProgressWindow(QGroupBox):
             progress_bar.deleteLater()
         self.progress_bars = {}
 
-    def update_status(self, status: PytestProcessInfo | None = None):
+    def update_status(self, status: PytestProcessInfo):
         layout = self.layout()
 
         if status is not None:

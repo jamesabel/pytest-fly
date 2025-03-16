@@ -75,6 +75,7 @@ class PytestProgressBar(QWidget):
             painter.setRenderHint(QPainter.Antialiasing)
 
             status_list = sorted(self.status_list, key=lambda s: (s.state.order_of_execution(), s.time_stamp))
+
             name = status_list[0].name  # all should be the same name
 
             # get start of bar

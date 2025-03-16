@@ -1,4 +1,5 @@
 from pathlib import Path
+from enum import IntEnum
 
 from attr import attrib, attrs
 from pref import Pref, PrefOrderedSet
@@ -15,18 +16,36 @@ utilization_high_threshold_default = 0.8
 utilization_low_threshold_default = 0.5
 
 
+class Resume(IntEnum):
+    RESTART = 0  # rerun all tests
+    RESUME = 1  # resume test run, and run tests that either failed or were not run
+    AUTO = 2  # resume if program under test has not changed, otherwise restart
+
+
+class ParallelismControl(IntEnum):
+    SERIAL = 0  # run tests serially (processes=1)
+    PARALLEL = 1  # run "processes" number of tests in parallel
+    DYNAMIC = 2  # automatically dynamically determine max number of processes to run in parallel, while trying to avoid high utilization thresholds (see utilization_high_threshold)
+
+
 @attrs
 class FlyPreferences(Pref):
     window_x: int = attrib(default=-1)
     window_y: int = attrib(default=-1)
     window_width: int = attrib(default=-1)
     window_height: int = attrib(default=-1)
+
     verbose: bool = attrib(default=False)
-    processes: int = attrib(default=get_performance_core_count())  # number of processes to use
     scheduler_time_quantum: float = attrib(default=scheduler_time_quantum_default)  # scheduler time quantum in seconds
     refresh_rate: float = attrib(default=refresh_rate_default)  # display minimum refresh rate in seconds
-    utilization_high_threshold: float = attrib(default=utilization_high_threshold_default)  # above this threshold, the process is considered high utilization
-    utilization_low_threshold: float = attrib(default=utilization_low_threshold_default)  # below this threshold, the process is considered low utilization
+
+    parallelism: int = attrib(default=ParallelismControl.SERIAL)  # 0=serial, 1=parallel, 2=dynamic
+    processes: int = attrib(default=get_performance_core_count())  # fixed number of processes to use for "PARALLEL" mode
+
+    utilization_high_threshold: float = attrib(default=utilization_high_threshold_default)  # above this threshold is considered high utilization
+    utilization_low_threshold: float = attrib(default=utilization_low_threshold_default)  # below this threshold is considered low utilization
+
+    resume: int = attrib(default=Resume.AUTO)  # 0=restart all tests, 1=resume, 2=auto resume if possible (i.e. program version under test has not changed)
     csv_dump_path: str = attrib(default=str(Path(user_data_dir(application_name, author), f"{application_name}.csv")))
 
 

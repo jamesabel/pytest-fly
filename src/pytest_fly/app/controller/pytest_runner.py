@@ -4,6 +4,7 @@ import contextlib
 from pathlib import Path
 from queue import Empty
 import time
+from copy import deepcopy
 
 import psutil
 import pytest
@@ -188,19 +189,15 @@ class PytestRunnerWorker(QObject):
 
         self._stop()  # in case any tests are already running
 
+        pytest_processes_dict = deepcopy(self.pytest_processes_dict)
         for test in self.tests:
             add_test = True
-            if run_parameters.run_mode == RunMode.RESTART and (results_list := self.pytest_processes_dict.get(test)) is not None:
-                if len(results_list) > 0:
-                    result = results_list[-1]
-                    state = result.state
-                    exit_code = result.exit_code
-                    if state == PytestProcessState.FINISHED and exit_code == ExitCode.OK:
-                        # mode is restart and the test is not finished or failed
-                        add_test = False
+            if run_parameters.run_mode == RunMode.RESUME and (pytest_process_info := pytest_processes_dict.get(test)) is not None:
+                if pytest_process_info.state == PytestProcessState.FINISHED and pytest_process_info.exit_code == ExitCode.OK:
+                    add_test = False
             if add_test:
                 pytest_process_info = PytestProcessInfo(name=test, state=PytestProcessState.QUEUED)
-                self.update_pytest_process_info(pytest_process_info)
+                self.update_pytest_process_info(pytest_process_info, True)  # initialize
                 self.test_queue.put(test)
 
         if self.test_queue.qsize() == 0:
@@ -229,9 +226,8 @@ class PytestRunnerWorker(QObject):
                 except NoSuchProcess:
                     pass
                 pytest_process_info = PytestProcessInfo(name=test, state=PytestProcessState.TERMINATED)
-                self.update_pytest_process_info(pytest_process_info)
+                self.update_pytest_process_info(pytest_process_info, False)
         self._processes.clear()
-        self.pytest_processes_dict.clear()
         log.info(f"exiting")
 
     @Slot()
@@ -263,7 +259,7 @@ class PytestRunnerWorker(QObject):
 
                 log.debug(f"starting {test}")
                 pytest_process_info = PytestProcessInfo(name=test, state=PytestProcessState.RUNNING)
-                self.update_pytest_process_info(pytest_process_info)
+                self.update_pytest_process_info(pytest_process_info, False)
 
                 # we don't generally access self.processes, but we need to keep a reference to the process and ensure it stays alive
                 self._processes[test] = _PytestProcess(test, refresh_rate, self.pytest_monitor_queue)
@@ -272,28 +268,29 @@ class PytestRunnerWorker(QObject):
         # update UI
         try:
             while (pytest_process_info := self.pytest_monitor_queue.get(False)) is not None:
-                self.update_pytest_process_info(pytest_process_info)
+                self.update_pytest_process_info(pytest_process_info, False)
         except Empty:
             pass
 
-    def update_pytest_process_info(self, updated_pytest_process_info: PytestProcessInfo):
+    def update_pytest_process_info(self, updated_pytest_process_info: PytestProcessInfo, initialize: bool):
         """
         Update the PytestProcessInfo for a test.
         If the test is new, add it to the global dict. Only use non-None values to update the existing test.
 
         :param updated_pytest_process_info: the updated PytestProcessInfo
+        :param initialize: True if the test is new
         """
         name = updated_pytest_process_info.name
 
-        if name in self.pytest_processes_dict:
+        if initialize or name not in self.pytest_processes_dict:
+            new_pytest_process_info = updated_pytest_process_info
+        else:
             # update existing test info
             new_pytest_process_info = self.pytest_processes_dict[name]
             for attribute in updated_pytest_process_info.__dataclass_fields__.keys():  # update the attributes
                 if (value := getattr(updated_pytest_process_info, attribute)) is not None:
                     setattr(new_pytest_process_info, attribute, value)
-        else:
-            # new test (e.g., when queued)
-            new_pytest_process_info = updated_pytest_process_info
+
         new_pytest_process_info.time_stamp = time.time()
 
         with Lock():

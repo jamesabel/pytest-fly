@@ -75,6 +75,8 @@ class ControlWindow(QGroupBox):
             self.reset_callback()
         self.run_guid = get_guid()
         run_parameters = RunParameters(self.run_guid, pref.run_mode, pref.processes)
+        if pref.parallelism == ParallelismControl.SERIAL:
+            run_parameters.max_processes = 1
         self.pytest_runner_worker.request_run(run_parameters)
 
     def stop(self):

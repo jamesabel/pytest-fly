@@ -4,6 +4,7 @@ import contextlib
 from pathlib import Path
 from queue import Empty
 import time
+import pickle
 from copy import deepcopy
 
 import psutil
@@ -13,12 +14,14 @@ from PySide6.QtCore import QObject, Signal, Slot, QTimer, QCoreApplication
 from typeguard import typechecked
 from psutil import Process as PsutilProcess
 from psutil import NoSuchProcess
+import appdirs
 
 from ..logging import get_logger
 from ...common import get_guid, PytestProcessInfo, PytestProcessState, RunParameters, RunMode
 from ..preferences import get_pref
 from ..test_list import get_tests
 from ...db import write_test_status
+from ...__version__ import application_name, author
 
 
 log = get_logger()
@@ -119,6 +122,7 @@ class _PytestProcess(Process):
         log.debug(f"{self.name=},{self.name},{exit_code=},{output=}")
 
 
+
 class PytestRunnerWorker(QObject):
     """
     Worker that runs pytest tests in separate processes.
@@ -144,6 +148,35 @@ class PytestRunnerWorker(QObject):
         self._scheduler_timer.deleteLater()
         self.request_exit_signal.emit()
 
+
+    def load_pytest_process_dict(self):
+        """
+        Load the pytest process dict from disk.
+        """
+        if self.pytest_process_dict_save_path.exists():
+            with self.pytest_process_dict_save_path.open("rb") as f:
+                with Lock():
+                    self.pytest_processes_dict.clear()
+                saved_pytest_process_dict = pickle.load(f)
+                for pytest_process_info in saved_pytest_process_dict.values():
+                    if pytest_process_info.state == PytestProcessState.FINISHED and pytest_process_info.exit_code == ExitCode.OK:
+                        # only load in the final finished OK state
+                        self.update_pytest_process_info(pytest_process_info, True)
+
+    def save_pytest_process_dict(self):
+        """
+        Save the pytest process dict to disk.
+        """
+        with Lock():
+            dict_copy = deepcopy(self.pytest_processes_dict)
+        # only save the final finished OK state
+        to_save = {}
+        for k, v in dict_copy.items():
+            if v.state == PytestProcessState.FINISHED and v.exit_code == ExitCode.OK:
+                to_save[k] = v
+        with self.pytest_process_dict_save_path.open("wb") as f:
+            pickle.dump(to_save, f)
+
     @typechecked()
     def __init__(self, tests: list[str] | None = None) -> None:
         """
@@ -152,6 +185,8 @@ class PytestRunnerWorker(QObject):
         :param tests: the tests to run
         """
         super().__init__()
+
+        self.pytest_process_dict_save_path = Path(appdirs.user_data_dir(application_name, author), "pytest_process_dict.pickle")
 
         if tests is None:
             self.tests = get_tests()
@@ -176,6 +211,8 @@ class PytestRunnerWorker(QObject):
         self._scheduler_timer.timeout.connect(self._scheduler)
         self._scheduler_timer.start(1000)
 
+
+
     @Slot()
     def _run(self, run_parameters: RunParameters):
         """
@@ -183,16 +220,17 @@ class PytestRunnerWorker(QObject):
         """
         log.info(f"{run_parameters=}")
 
+        self.load_pytest_process_dict()
+
         self.run_guid = get_guid()
 
         self.max_processes = max(run_parameters.max_processes, 1)  # ensure at least one process
 
         self._stop()  # in case any tests are already running
 
-        pytest_processes_dict = deepcopy(self.pytest_processes_dict)
         for test in self.tests:
             add_test = True
-            if run_parameters.run_mode == RunMode.RESUME and (pytest_process_info := pytest_processes_dict.get(test)) is not None:
+            if run_parameters.run_mode == RunMode.RESUME and (pytest_process_info := self.pytest_processes_dict.get(test)) is not None:
                 if pytest_process_info.state == PytestProcessState.FINISHED and pytest_process_info.exit_code == ExitCode.OK:
                     add_test = False
             if add_test:
@@ -295,7 +333,8 @@ class PytestRunnerWorker(QObject):
 
         with Lock():
             self.pytest_processes_dict[name] = new_pytest_process_info  # update global dict
+        self.save_pytest_process_dict()
 
         self.update_signal.emit(new_pytest_process_info)
         QCoreApplication.processEvents()
-        write_test_status(self.run_guid, self.max_processes, name, new_pytest_process_info)
+        # write_test_status(self.run_guid, self.max_processes, name, new_pytest_process_info)

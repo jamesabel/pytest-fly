@@ -1,8 +1,25 @@
 from dataclasses import dataclass
-from enum import StrEnum, auto
+from enum import StrEnum, auto, IntEnum
 import time
 
 from _pytest.config import ExitCode
+
+
+class RunMode(IntEnum):
+    RESTART = 0  # rerun all tests
+    RESUME = 1  # resume test run, and run tests that either failed or were not run
+    CHECK = 2  # resume if program under test has not changed, otherwise restart
+
+
+@dataclass
+class RunParameters:
+    """
+    Parameters provided to the pytest runner.
+    """
+
+    run_guid: str  # unique identifier for the run
+    run_mode: RunMode  # True to automatically determine the number of processes to run in parallel
+    max_processes: int  # maximum number of processes to run in parallel (ignored if dynamic_processes is True)
 
 
 class PytestProcessState(StrEnum):

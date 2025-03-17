@@ -7,13 +7,14 @@ import time
 
 import psutil
 import pytest
+from _pytest.config import ExitCode
 from PySide6.QtCore import QObject, Signal, Slot, QTimer, QCoreApplication
 from typeguard import typechecked
 from psutil import Process as PsutilProcess
 from psutil import NoSuchProcess
 
 from ..logging import get_logger
-from ...common import get_guid, PytestProcessInfo, PytestProcessState
+from ...common import get_guid, PytestProcessInfo, PytestProcessState, RunParameters, RunMode
 from ..preferences import get_pref
 from ..test_list import get_tests
 from ...db import write_test_status
@@ -123,16 +124,16 @@ class PytestRunnerWorker(QObject):
     """
 
     # signals to request pytest actions
-    _request_run_signal = Signal(int)  # request run, passing in the number of processes to run
+    _request_run_signal = Signal(RunParameters)  # request run, passing in the run parameters
     _request_stop_signal = Signal()  # request stop
     request_exit_signal = Signal()  # request exit (not private since it's connected to the thread quit slot)
 
     update_signal = Signal(PytestProcessInfo)  # caller connects to this signal to get updates (e.g., for the GUI)
 
     @typechecked()
-    def request_run(self, run_guid: str, max_processes: int):
-        self.run_guid = run_guid
-        self._request_run_signal.emit(max_processes)
+    def request_run(self, run_parameters: RunParameters):
+        self.run_guid = run_parameters.run_guid
+        self._request_run_signal.emit(run_parameters)
 
     def request_stop(self):
         self._request_stop_signal.emit()
@@ -175,22 +176,35 @@ class PytestRunnerWorker(QObject):
         self._scheduler_timer.start(1000)
 
     @Slot()
-    def _run(self, max_processes: int):
+    def _run(self, run_parameters: RunParameters):
         """
         Run tests (puts the tests in the queue).
         """
-        log.info(f"{max_processes=}")
+        log.info(f"{run_parameters=}")
 
         self.run_guid = get_guid()
 
-        self.max_processes = max(max_processes, 1)  # ensure at least one process is run
+        self.max_processes = max(run_parameters.max_processes, 1)  # ensure at least one process
 
         self._stop()  # in case any tests are already running
 
         for test in self.tests:
-            pytest_process_info = PytestProcessInfo(name=test, state=PytestProcessState.QUEUED)
-            self.update_pytest_process_info(pytest_process_info)
-            self.test_queue.put(test)
+            add_test = True
+            if run_parameters.run_mode == RunMode.RESTART and (results_list := self.pytest_processes_dict.get(test)) is not None:
+                if len(results_list) > 0:
+                    result = results_list[-1]
+                    state = result.state
+                    exit_code = result.exit_code
+                    if state == PytestProcessState.FINISHED and exit_code == ExitCode.OK:
+                        # mode is restart and the test is not finished or failed
+                        add_test = False
+            if add_test:
+                pytest_process_info = PytestProcessInfo(name=test, state=PytestProcessState.QUEUED)
+                self.update_pytest_process_info(pytest_process_info)
+                self.test_queue.put(test)
+
+        if self.test_queue.qsize() == 0:
+            log.warning("No tests to run")
 
     @Slot()
     def _stop(self):

@@ -51,6 +51,8 @@ class ProgressWindow(QGroupBox):
         layout = self.layout()
 
         if status is not None:
+            if status.state == PytestProcessState.QUEUED:
+                self.statuses[status.name].clear()  # in case of multiple runs
             self.statuses[status.name].append(status)
 
             status_list = self.statuses[status.name]

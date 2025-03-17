@@ -1,15 +1,16 @@
 from typing import Callable
 
-from PySide6.QtWidgets import QGroupBox, QVBoxLayout, QSizePolicy, QLabel
+from PySide6.QtWidgets import QGroupBox, QVBoxLayout, QSizePolicy
 from PySide6.QtCore import QThread
 
 from ....controller.pytest_runner import PytestRunnerWorker
-from .....common import PytestProcessState, PytestProcessInfo, get_guid
-from ....preferences import get_pref, ParallelismControl
+from .....common import PytestProcessState, PytestProcessInfo, get_guid, RunParameters
+from ....preferences import get_pref, ParallelismControl, RunMode
 from .... import get_logger
 
 from .control_pushbutton import ControlButton
-from .parallelism_box import ParallelismControlBox
+from .parallelism_control_box import ParallelismControlBox
+from .run_mode_control_box import RunModeControlBox
 
 log = get_logger()
 
@@ -35,6 +36,9 @@ class ControlWindow(QGroupBox):
 
         self.parallelism_box = ParallelismControlBox(self)
         layout.addWidget(self.parallelism_box)
+
+        self.run_mode_box = RunModeControlBox(self)
+        layout.addWidget(self.run_mode_box)
 
         self.run_button.clicked.connect(self.run)
         self.stop_button.clicked.connect(self.stop)
@@ -66,25 +70,17 @@ class ControlWindow(QGroupBox):
         self.setFixedWidth(max_width)
 
     def run(self):
-        self.reset_callback()
-        parallelism = self.parallelism_box.get_selection()
-        if parallelism == ParallelismControl.SERIAL:
-            processes = 1
-        elif parallelism == ParallelismControl.PARALLEL:
-            processes = get_pref().processes
-        elif parallelism == ParallelismControl.DYNAMIC:
-            processes = get_pref().processes  # in the future this will be dynamic, but just make it the same as PARALLEL for now
-        else:
-            processes = 1
+        pref = get_pref()
+        if pref.run_mode == RunMode.RESTART:
+            self.reset_callback()
         self.run_guid = get_guid()
-        self.pytest_runner_worker.request_run(self.run_guid, processes)
+        run_parameters = RunParameters(self.run_guid, pref.run_mode, pref.processes)
+        self.pytest_runner_worker.request_run(run_parameters)
 
     def stop(self):
-        log.info(f"{__class__.__name__}.stop() - entering")
         self.pytest_runner_worker.request_stop()
         self.run_button.setEnabled(True)
         self.stop_button.setEnabled(False)
-        log.info(f"{__class__.__name__}.stop() - exiting")
 
     def pytest_update(self, status: PytestProcessInfo):
         log.info(f"{status.name=}, {status.state=}, {status.exit_code=}")

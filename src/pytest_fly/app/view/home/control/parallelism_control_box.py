@@ -10,10 +10,14 @@ class ParallelismControlBox(QGroupBox):
         layout = QVBoxLayout()
         self.setLayout(layout)
 
+        pref = get_pref()
+
         self.parallelism_group = QButtonGroup(self)
         self.parallelism_serial = QRadioButton("Serial")
+        self.parallelism_serial.setToolTip("Run tests one at a time.")
         self.parallelism_parallel = QRadioButton("Parallel")
         self.parallelism_dynamic = QRadioButton("Dynamic")
+        self.parallelism_dynamic.setToolTip("Automatically determine maximum number\n of processes to run in parallel, while\nattempting to avoid high utilization thresholds.")
 
         self.parallelism_group.addButton(self.parallelism_serial)
         self.parallelism_group.addButton(self.parallelism_parallel)
@@ -23,7 +27,6 @@ class ParallelismControlBox(QGroupBox):
         layout.addWidget(self.parallelism_parallel)
         layout.addWidget(self.parallelism_dynamic)
 
-        pref = get_pref()
         self.parallelism_serial.setChecked(pref.parallelism == ParallelismControl.SERIAL)
         self.parallelism_parallel.setChecked(pref.parallelism == ParallelismControl.PARALLEL)
         self.parallelism_dynamic.setChecked(pref.parallelism == ParallelismControl.DYNAMIC)
@@ -37,6 +40,7 @@ class ParallelismControlBox(QGroupBox):
     def update_preferences(self):
         pref = get_pref()
         self.parallelism_parallel.setText(f"Parallel ({pref.processes})")
+        self.parallelism_parallel.setToolTip(f"Run a fixed number of tests ({pref.processes}) in parallel.")
         if self.parallelism_serial.isChecked():
             pref.parallelism = ParallelismControl.SERIAL
         elif self.parallelism_parallel.isChecked():

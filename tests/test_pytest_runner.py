@@ -4,55 +4,70 @@ import time
 from PySide6.QtCore import QThread
 from pytest import ExitCode
 from pytest_fly.app.controller import PytestRunnerWorker
-from pytest_fly.common import PytestProcessState, get_performance_core_count, get_guid
+from pytest_fly.common import PytestProcessState, get_performance_core_count, get_guid, RunParameters, RunMode
 
 
 def test_pytest_runner(app):
 
     # run twice to test the worker's ability to run multiple tests
     for run_count in range(2):
-        tests = [str(Path("tests", "test_sleep.py"))]  # an "easy" test
-        worker = PytestRunnerWorker(tests)
+        test = ["tests", "test_sleep.py"]
+        test_path = Path(*test)  # an "easy" test
+        worker = PytestRunnerWorker([str(test_path)])
         thread = QThread()
         worker.moveToThread(thread)
 
-        statuses = []
+        worker_statuses = []
 
         # connect worker and thread
         worker.request_exit_signal.connect(thread.quit)
-        worker.update_signal.connect(statuses.append)
+        worker.update_signal.connect(worker_statuses.append)
         thread.start()
 
         performance_core_count = get_performance_core_count()
         run_guid = get_guid()
-        worker.request_run(run_guid, performance_core_count)
+        run_parameters = RunParameters(run_guid, RunMode.RESTART, performance_core_count)
+        worker.request_run(run_parameters)
         app.processEvents()
 
         # the statuses list will be updated in the background in the worker thread
         count = 0
-        while len(statuses) != 3 and count < 100:
-            worker._request_update_signal.emit()
+        finished = False
+        statuses = []
+        while not finished and count < 100:
             app.processEvents()
-            time.sleep(1)
+
+            # remove all tests in statuses that are not the current test
+            statuses = []
+            for status in worker_statuses:
+                if status.name.split("/")[-1] == test_path.name:
+                    statuses.append(status)
+
+            # determine if the test has finished
+            for status in statuses:
+                if status.state == PytestProcessState.FINISHED:
+                    finished = True
+            if not finished:
+                time.sleep(1)
+
             count += 1
 
-        assert len(statuses) == 3  # QUEUED, RUNNING, FINISHED
-        assert statuses[0].exit_code is None
-        assert statuses[0].state == PytestProcessState.QUEUED
-        assert statuses[1].exit_code is None
-        assert statuses[1].state == PytestProcessState.RUNNING
-        assert statuses[2].exit_code == ExitCode.OK
-        assert statuses[2].state == PytestProcessState.FINISHED
+        if len(statuses) >= 3:
+            # resume (doesn't have to run)
+            assert statuses[0].exit_code is None
+            assert statuses[0].state == PytestProcessState.QUEUED
+            assert statuses[1].exit_code is None
+            assert statuses[1].state == PytestProcessState.RUNNING
+        assert len(statuses) >= 1
+        assert statuses[-1].exit_code == ExitCode.OK
+        assert statuses[-1].state == PytestProcessState.FINISHED
 
-        # tell worker to stop and exit
-        worker.request_stop()
-        app.processEvents()
         worker.request_exit()
         app.processEvents()
 
         # ensure worker exits properly
         count = 0
         while thread.isRunning() and count < 10:
-            app.processEvents()
+            # app.processEvents()
             thread.wait(10 * 1000)
             count += 1

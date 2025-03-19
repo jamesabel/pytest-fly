@@ -4,20 +4,24 @@ from collections import defaultdict
 from PySide6.QtWidgets import QGroupBox, QVBoxLayout
 from PySide6.QtCore import Qt, QTimer
 
-from ....common import PytestProcessState, PytestStatus
+from ....common import PytestProcessState, PytestProcessInfo
 from ...preferences import get_pref
 from .progress_bar import PytestProgressBar
 
 
-def get_overall_time_window(statuses: dict[str, list[PytestStatus]]) -> tuple[float, float]:
+def get_overall_time_window(statuses: dict[str, list[PytestProcessInfo]]) -> tuple[float, float]:
     min_time_stamp_for_all_tests = None
-    max_time_stamp_for_all_tests = time.time()
+    max_time_stamp_for_all_tests = None
     for status_list in statuses.values():
         for status in status_list:
-            if min_time_stamp_for_all_tests is None or status.time_stamp < min_time_stamp_for_all_tests:
+            if status.start is not None and (min_time_stamp_for_all_tests is None or status.time_stamp < min_time_stamp_for_all_tests):
                 min_time_stamp_for_all_tests = status.time_stamp
-            if max_time_stamp_for_all_tests is None or status.time_stamp > max_time_stamp_for_all_tests:
+            if status.end is not None and (max_time_stamp_for_all_tests is None or status.time_stamp > max_time_stamp_for_all_tests):
                 max_time_stamp_for_all_tests = status.time_stamp
+    if min_time_stamp_for_all_tests is None:
+        min_time_stamp_for_all_tests = time.time()
+    if max_time_stamp_for_all_tests is None:
+        max_time_stamp_for_all_tests = time.time()
     return min_time_stamp_for_all_tests, max_time_stamp_for_all_tests
 
 
@@ -43,12 +47,13 @@ class ProgressWindow(QGroupBox):
             progress_bar.deleteLater()
         self.progress_bars = {}
 
-    def update_status(self, status: PytestStatus | None = None):
+    def update_status(self, status: PytestProcessInfo):
         layout = self.layout()
 
         if status is not None:
+            if status.state == PytestProcessState.QUEUED:
+                self.statuses[status.name].clear()  # in case of multiple runs
             self.statuses[status.name].append(status)
-            self.statuses[status.name].sort(key=lambda s: s.time_stamp)  # keep sorted by time (probably unnecessary)
 
             status_list = self.statuses[status.name]
         else:

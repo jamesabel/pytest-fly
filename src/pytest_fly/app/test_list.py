@@ -34,7 +34,8 @@ def get_tests(test_dir: Path = Path(".").resolve()) -> list[str]:
         sys.stdout = original_stdout
 
     # The buffer now contains lines with test node IDs plus possibly other text
-    lines = buffer.getvalue().strip().split("\n")
+    buffer_value = buffer.getvalue()
+    lines = buffer_value.strip().split("\n")
 
     # Filter out lines that don't look like test node IDs.
     # A simplistic approach is to keep lines containing '::' (the typical pytest node-id pattern).

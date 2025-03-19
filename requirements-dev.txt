@@ -23,6 +23,9 @@ pytest-qt
 pytest-pycharm
 pytest-cov
 pytest-xdist
+pytest-benchmark
+pytest-rerunfailures
+pytest-randomly
 flask
 requests
 # distribution

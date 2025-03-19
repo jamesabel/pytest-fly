@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from enum import StrEnum, auto, IntEnum
 import time
 
-from _pytest.config import ExitCode
+from pytest import ExitCode
 
 
 class RunMode(IntEnum):

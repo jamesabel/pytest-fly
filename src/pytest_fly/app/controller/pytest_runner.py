@@ -9,7 +9,8 @@ from copy import deepcopy
 
 import psutil
 import pytest
-from _pytest.config import ExitCode
+from pytest import Cache
+from pytest import ExitCode
 from PySide6.QtCore import QObject, Signal, Slot, QTimer, QCoreApplication
 from typeguard import typechecked
 from psutil import Process as PsutilProcess
@@ -337,4 +338,7 @@ class PytestRunnerWorker(QObject):
 
         self.update_signal.emit(new_pytest_process_info)
         QCoreApplication.processEvents()
+
+        pytest_cache = Cache()
+
         # write_test_status(self.run_guid, self.max_processes, name, new_pytest_process_info)

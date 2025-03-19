@@ -6,7 +6,7 @@ import humanize
 from PySide6.QtWidgets import QGroupBox, QVBoxLayout, QScrollArea, QTableWidget, QTableWidgetItem, QMenu
 from PySide6.QtCore import Qt, QPoint
 from PySide6.QtGui import QColor, QGuiApplication
-from _pytest.config import ExitCode
+from pytest import ExitCode
 
 from ..preferences import get_pref
 from ...common import PytestProcessInfo, PytestProcessState, get_performance_core_count, exit_code_to_string

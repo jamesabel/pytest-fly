@@ -10,7 +10,7 @@ from PySide6.QtCore import Qt, QRectF, QPointF, QRect
 from PySide6.QtGui import QPainter, QColor, QPen, QPaintEvent, QBrush, QPalette
 import humanize
 
-from ....common import PytestProcessState, PytestProcessInfo, exit_code_to_string
+from ....common import PytestProcessState, PytestProcessInfo, exit_code_to_string, state_order
 from ..gui_util import get_text_dimensions
 from ...logging import get_logger
 
@@ -74,7 +74,7 @@ class PytestProgressBar(QWidget):
             painter = QPainter(self)
             painter.setRenderHint(QPainter.Antialiasing)
 
-            status_list = sorted(self.status_list, key=lambda s: (s.state.order_of_execution(), s.time_stamp))
+            status_list = sorted(self.status_list, key=lambda s: (state_order(s.state), s.time_stamp))
 
             name = status_list[0].name  # all should be the same name
 
@@ -105,14 +105,14 @@ class PytestProgressBar(QWidget):
             most_recent_exit_code_string = exit_code_to_string(most_recent_exit_code)
 
             if end_time is None or math.isclose(start_running_time, end_time):
-                bar_text = f"{name} - {most_recent_process_state.name}"
+                bar_text = f"{name} - {most_recent_process_state}"
             else:
                 duration = end_time - start_running_time
                 duration_string = humanize.precisedelta(timedelta(seconds=duration))
                 if most_recent_exit_code is None:
-                    bar_text = f"{name} - {most_recent_process_state.name} ({duration_string})"
+                    bar_text = f"{name} - {most_recent_process_state} ({duration_string})"
                 else:
-                    bar_text = f"{name} - {most_recent_process_state.name},{most_recent_exit_code_string} ({duration_string})"
+                    bar_text = f"{name} - {most_recent_process_state},{most_recent_exit_code_string} ({duration_string})"
 
             outer_rect = self.rect()
             overall_time_window = max(self.max_time_stamp - self.min_time_stamp, time.time() - self.min_time_stamp, 1)  # at least 1 second

@@ -1,4 +1,4 @@
-appdirs
+platformdirs
 msqlite
 ismain
 numpy

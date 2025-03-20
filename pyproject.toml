@@ -1,7 +1,7 @@
 [project]
 name = "pytest-fly"
 description = "pytest runner and observer"
-version = "0.0.32"
+version = "0.0.33"
 readme = "README.md"
 requires-python = ">=3.12"
 authors = [
@@ -46,9 +46,6 @@ keywords = ["pytest", "observer", "testing"]
 Home = "https://github.com/jamesabel/pytest-fly"
 Repository = "https://github.com/jamesabel/pytest-fly"
 Documentation = "https://github.com/jamesabel/pytest-fly#readme"
-
-[project.entry-points.pytest11]
-fly = "pytest_fly.plugin"
 
 [tool.black]
 line-length = 192

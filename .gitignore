@@ -82,3 +82,4 @@ venv/
 test_demo/
 tests/tests_many/
 .benchmarks/
+.pytest-fly/

@@ -1,8 +1,13 @@
 from dataclasses import dataclass
 from enum import StrEnum, auto, IntEnum
 import time
+from typing import Iterable
 
 from pytest import ExitCode
+from balsa import get_logger
+from ..__version__ import application_name
+
+log = get_logger(application_name)
 
 
 class RunMode(IntEnum):
@@ -33,10 +38,15 @@ class PytestProcessState(StrEnum):
     FINISHED = auto()  # test has finished
     TERMINATED = auto()  # test was terminated
 
-    def order_of_execution(self) -> int:
-        # for sorting
-        order = {PytestProcessState.UNKNOWN: 0, PytestProcessState.QUEUED: 1, PytestProcessState.RUNNING: 2, PytestProcessState.FINISHED: 3, PytestProcessState.TERMINATED: 4}
-        return order[self]
+
+def state_order(pytest_process_state: PytestProcessState) -> int:
+    # for sorting PytestProcessState, but keeping PytestProcessState as a str
+    orders = {PytestProcessState.UNKNOWN: 0, PytestProcessState.QUEUED: 1, PytestProcessState.RUNNING: 2, PytestProcessState.FINISHED: 3, PytestProcessState.TERMINATED: 4}
+    if pytest_process_state is None:
+        order = orders[PytestProcessState.UNKNOWN]
+    else:
+        order = orders[pytest_process_state]
+    return order
 
 
 @dataclass
@@ -57,9 +67,20 @@ class PytestProcessInfo:
     time_stamp: float = time.time()  # timestamp when the data was last updated
 
 
-def exit_code_to_string(exit_code: ExitCode | None) -> str:
-    if exit_code is None:
-        exit_code_string = str(exit_code)
-    else:
+# create a PytestProcessInfo from iterable
+def pytest_process_info_from_iterable(t: Iterable) -> PytestProcessInfo:
+    pytest_process_info = PytestProcessInfo(*t)
+    return pytest_process_info
+
+
+int_to_exit_code = {exit_code.value: exit_code for exit_code in ExitCode}
+
+
+def exit_code_to_string(exit_code: ExitCode | int | None) -> str:
+    if isinstance(exit_code, int):
+        exit_code = int_to_exit_code[exit_code]
+    if isinstance(exit_code, ExitCode):
         exit_code_string = exit_code.name
+    else:
+        exit_code_string = "unknown"
     return exit_code_string

@@ -1,15 +1,13 @@
-from multiprocessing import Process, Queue, Event, Manager, Lock
+from multiprocessing import Process, Queue, Event
 import io
 import contextlib
 from pathlib import Path
 from queue import Empty
 import time
-import pickle
 from copy import deepcopy
 
 import psutil
 import pytest
-from pytest import Cache
 from pytest import ExitCode
 from PySide6.QtCore import QObject, Signal, Slot, QTimer, QCoreApplication
 from typeguard import typechecked
@@ -18,10 +16,18 @@ from psutil import NoSuchProcess
 import appdirs
 
 from ..logging import get_logger
-from ...common import get_guid, PytestProcessInfo, PytestProcessState, RunParameters, RunMode
+from ...common import (
+    get_guid,
+    PytestProcessInfo,
+    PytestProcessState,
+    RunParameters,
+    upsert_pytest_process_current_info,
+    query_pytest_process_current_info,
+    RunMode,
+    delete_pytest_process_current_info,
+)
 from ..preferences import get_pref
 from ..test_list import get_tests
-from ...db import write_test_status
 from ...__version__ import application_name, author
 
 
@@ -123,7 +129,6 @@ class _PytestProcess(Process):
         log.debug(f"{self.name=},{self.name},{exit_code=},{output=}")
 
 
-
 class PytestRunnerWorker(QObject):
     """
     Worker that runs pytest tests in separate processes.
@@ -149,35 +154,6 @@ class PytestRunnerWorker(QObject):
         self._scheduler_timer.deleteLater()
         self.request_exit_signal.emit()
 
-
-    def load_pytest_process_dict(self):
-        """
-        Load the pytest process dict from disk.
-        """
-        if self.pytest_process_dict_save_path.exists():
-            with self.pytest_process_dict_save_path.open("rb") as f:
-                with Lock():
-                    self.pytest_processes_dict.clear()
-                saved_pytest_process_dict = pickle.load(f)
-                for pytest_process_info in saved_pytest_process_dict.values():
-                    if pytest_process_info.state == PytestProcessState.FINISHED and pytest_process_info.exit_code == ExitCode.OK:
-                        # only load in the final finished OK state
-                        self.update_pytest_process_info(pytest_process_info, True)
-
-    def save_pytest_process_dict(self):
-        """
-        Save the pytest process dict to disk.
-        """
-        with Lock():
-            dict_copy = deepcopy(self.pytest_processes_dict)
-        # only save the final finished OK state
-        to_save = {}
-        for k, v in dict_copy.items():
-            if v.state == PytestProcessState.FINISHED and v.exit_code == ExitCode.OK:
-                to_save[k] = v
-        with self.pytest_process_dict_save_path.open("wb") as f:
-            pickle.dump(to_save, f)
-
     @typechecked()
     def __init__(self, tests: list[str] | None = None) -> None:
         """
@@ -194,11 +170,7 @@ class PytestRunnerWorker(QObject):
         else:
             self.tests = tests
 
-        self.test_queue = Queue()  # tests to be run
         self.pytest_monitor_queue = Queue()  # monitor data for the pytest processes
-
-        self.pytest_processes_manager = Manager()  # dict values are PytestProcessInfo
-        self.pytest_processes_dict = self.pytest_processes_manager.dict()
 
         self._processes = {}  # dict of running processes
 
@@ -212,8 +184,6 @@ class PytestRunnerWorker(QObject):
         self._scheduler_timer.timeout.connect(self._scheduler)
         self._scheduler_timer.start(1000)
 
-
-
     @Slot()
     def _run(self, run_parameters: RunParameters):
         """
@@ -221,26 +191,30 @@ class PytestRunnerWorker(QObject):
         """
         log.info(f"{run_parameters=}")
 
-        self.load_pytest_process_dict()
-
         self.run_guid = get_guid()
 
         self.max_processes = max(run_parameters.max_processes, 1)  # ensure at least one process
 
         self._stop()  # in case any tests are already running
 
-        for test in self.tests:
-            add_test = True
-            if run_parameters.run_mode == RunMode.RESUME and (pytest_process_info := self.pytest_processes_dict.get(test)) is not None:
-                if pytest_process_info.state == PytestProcessState.FINISHED and pytest_process_info.exit_code == ExitCode.OK:
-                    add_test = False
-            if add_test:
-                pytest_process_info = PytestProcessInfo(name=test, state=PytestProcessState.QUEUED)
-                self.update_pytest_process_info(pytest_process_info, True)  # initialize
-                self.test_queue.put(test)
+        pref = get_pref()
+        mode = pref.run_mode
 
-        if self.test_queue.qsize() == 0:
-            log.warning("No tests to run")
+        for test in self.tests:
+            if mode == RunMode.RESTART:
+                add_test = True
+            else:
+                pytest_process_infos = query_pytest_process_current_info(name=test)
+                if len(pytest_process_infos) > 0:
+                    pytest_process_info = pytest_process_infos[-1]
+                    add_test = pytest_process_info.state != PytestProcessState.FINISHED or pytest_process_info.exit_code != ExitCode.OK
+                    self.update_pytest_process_info(pytest_process_info, False)
+                else:
+                    add_test = True
+            if add_test:
+                # start over for this test
+                pytest_process_info = PytestProcessInfo(name=test, state=PytestProcessState.QUEUED)
+                self.update_pytest_process_info(pytest_process_info, True)
 
     @Slot()
     def _stop(self):
@@ -248,26 +222,28 @@ class PytestRunnerWorker(QObject):
         Stop all running tests.
         """
 
-        for test, pytest_process in self.pytest_processes_dict.items():
-            if pytest_process.state == PytestProcessState.RUNNING:
-                try:
-                    process = psutil.Process(pytest_process.pid)
-                    log.info(f"terminating {test}")
+        for test in self.tests:
+            pytest_process_infos = query_pytest_process_current_info(name=test)
+            if len(pytest_process_infos) > 0:
+                pytest_process_info = pytest_process_infos[-1]
+                if pytest_process_info.state == PytestProcessState.RUNNING:
                     try:
-                        process.terminate()
-                    except PermissionError:
-                        log.warning(f"PermissionError terminating {test}")
-                    log.info(f"joining {test}")
-                    try:
-                        process.wait(10)
-                    except PermissionError:
-                        log.warning(f"PermissionError joining {test}")
-                except NoSuchProcess:
-                    pass
-                pytest_process_info = PytestProcessInfo(name=test, state=PytestProcessState.TERMINATED)
-                self.update_pytest_process_info(pytest_process_info, False)
+                        process = psutil.Process(pytest_process_info.pid)
+                        log.info(f"terminating {test}")
+                        try:
+                            process.terminate()
+                        except PermissionError:
+                            log.warning(f"PermissionError terminating {test}")
+                        log.info(f"joining {test}")
+                        try:
+                            process.wait(10)
+                        except PermissionError:
+                            log.warning(f"PermissionError joining {test}")
+                    except NoSuchProcess:
+                        pass
+                    new_pytest_process_info = PytestProcessInfo(name=test, state=PytestProcessState.TERMINATED)
+                    self.update_pytest_process_info(new_pytest_process_info, False)
         self._processes.clear()
-        log.info(f"exiting")
 
     @Slot()
     def _scheduler(self):
@@ -276,17 +252,21 @@ class PytestRunnerWorker(QObject):
         """
 
         # determine what tests to run
-        running_processes = [p for p in self.pytest_processes_dict.values() if p.state == PytestProcessState.RUNNING]
-        max_number_of_tests_to_run = max(self.max_processes - len(running_processes), 0)
-        tests_to_run = []
-        try:
-            while len(tests_to_run) < max_number_of_tests_to_run:
-                if (test := self.test_queue.get(False)) is None:
-                    break
+        tests_queued = []
+        tests_running = []
+        for test in self.tests:
+            pytest_process_infos = query_pytest_process_current_info(name=test)
+            if len(pytest_process_infos) > 0:
+                most_recent_pytest_process_info = pytest_process_infos[-1]
+                if most_recent_pytest_process_info.state == PytestProcessState.QUEUED:
+                    tests_queued.append(test)
+                elif most_recent_pytest_process_info.state == PytestProcessState.RUNNING:
+                    tests_running.append(test)
                 else:
-                    tests_to_run.append(test)
-        except Empty:
-            pass
+                    # test is finished or terminated
+                    pass
+        max_number_of_tests_to_run = max(self.max_processes - len(tests_running), 0)
+        tests_to_run = sorted(tests_queued)[:max_number_of_tests_to_run]
 
         # run tests
         if len(tests_to_run) > 0:
@@ -321,24 +301,22 @@ class PytestRunnerWorker(QObject):
         """
         name = updated_pytest_process_info.name
 
-        if initialize or name not in self.pytest_processes_dict:
-            new_pytest_process_info = updated_pytest_process_info
+        if initialize:
+            delete_pytest_process_current_info(name)
+
+        pytest_process_infos = query_pytest_process_current_info(name=name)
+
+        if initialize or len(pytest_process_infos) < 1:
+            pytest_process_info = updated_pytest_process_info
         else:
-            # update existing test info
-            new_pytest_process_info = self.pytest_processes_dict[name]
+            # update most recent test info
+            pytest_process_info = deepcopy(pytest_process_infos[-1])
             for attribute in updated_pytest_process_info.__dataclass_fields__.keys():  # update the attributes
                 if (value := getattr(updated_pytest_process_info, attribute)) is not None:
-                    setattr(new_pytest_process_info, attribute, value)
+                    setattr(pytest_process_info, attribute, value)
 
-        new_pytest_process_info.time_stamp = time.time()
+        pytest_process_info.time_stamp = time.time()
 
-        with Lock():
-            self.pytest_processes_dict[name] = new_pytest_process_info  # update global dict
-        self.save_pytest_process_dict()
-
-        self.update_signal.emit(new_pytest_process_info)
+        upsert_pytest_process_current_info(pytest_process_info)
+        self.update_signal.emit(pytest_process_info)
         QCoreApplication.processEvents()
-
-        pytest_cache = Cache()
-
-        # write_test_status(self.run_guid, self.max_processes, name, new_pytest_process_info)

@@ -1,7 +1,7 @@
 [project]
 name = "pytest-fly"
 description = "pytest runner and observer"
-version = "0.0.31"
+version = "0.0.32"
 readme = "README.md"
 requires-python = ">=3.12"
 authors = [
@@ -25,7 +25,7 @@ classifiers = [
 dependencies = [
     "pytest",
     "msqlite",
-    "appdirs",
+    "platformdirs",
     "ismain",
     "numpy",
     "watchdog",

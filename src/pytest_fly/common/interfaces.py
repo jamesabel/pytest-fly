@@ -9,6 +9,7 @@ from ..__version__ import application_name
 
 log = get_logger(application_name)
 
+
 class RunMode(IntEnum):
     RESTART = 0  # rerun all tests
     RESUME = 1  # resume test run, and run tests that either failed or were not run
@@ -36,6 +37,7 @@ class PytestProcessState(StrEnum):
     RUNNING = auto()  # test is currently running
     FINISHED = auto()  # test has finished
     TERMINATED = auto()  # test was terminated
+
 
 def state_order(pytest_process_state: PytestProcessState) -> int:
     # for sorting PytestProcessState, but keeping PytestProcessState as a str
@@ -71,9 +73,14 @@ def pytest_process_info_from_iterable(t: Iterable) -> PytestProcessInfo:
     return pytest_process_info
 
 
-def exit_code_to_string(exit_code: ExitCode | None) -> str:
-    if exit_code is None:
-        exit_code_string = str(exit_code)
-    else:
+int_to_exit_code = {exit_code.value: exit_code for exit_code in ExitCode}
+
+
+def exit_code_to_string(exit_code: ExitCode | int | None) -> str:
+    if isinstance(exit_code, int):
+        exit_code = int_to_exit_code[exit_code]
+    if isinstance(exit_code, ExitCode):
         exit_code_string = exit_code.name
+    else:
+        exit_code_string = "unknown"
     return exit_code_string

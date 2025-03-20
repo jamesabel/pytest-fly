@@ -2,7 +2,7 @@ import time
 
 from pytest import ExitCode
 
-from pytest_fly import PytestProcessInfo, PytestProcessState, save_pytest_process_info, query_pytest_process_info, drop_pytest_process_info
+from pytest_fly import PytestProcessInfo, PytestProcessState, upsert_pytest_process_current_info, query_pytest_process_current_info, drop_pytest_process_current_info
 
 pytest_process_info = PytestProcessInfo(
     name="test",
@@ -18,19 +18,10 @@ pytest_process_info = PytestProcessInfo(
 )
 
 
-# def test_pytest_process_info_db(init_pytest_process_info):
-#
-#     save_pytest_process_info(pytest_process_info)
-#     rows = query_pytest_process_info()
-#     assert len(rows) > 0
-#     row = rows[0]
-#     assert row == pytest_process_info
+def test_pytest_process_info_db_query_one():
 
-
-def test_pytest_process_info_db_query_one(init_pytest_process_info):
-
-    save_pytest_process_info(pytest_process_info)
-    rows = query_pytest_process_info(name="test")
+    upsert_pytest_process_current_info(pytest_process_info)
+    rows = query_pytest_process_current_info(name="test")
     assert len(rows) > 0
     row = rows[0]
     assert row.name == pytest_process_info.name
@@ -39,8 +30,8 @@ def test_pytest_process_info_db_query_one(init_pytest_process_info):
     assert row.exit_code == pytest_process_info.exit_code
 
 
-def test_pytest_process_info_db_query_none(init_pytest_process_info):
+def test_pytest_process_info_db_query_none():
 
-    save_pytest_process_info(pytest_process_info)
-    rows = query_pytest_process_info(name="I do not exist")
+    upsert_pytest_process_current_info(pytest_process_info)
+    rows = query_pytest_process_current_info(name="I do not exist")
     assert len(rows) == 0

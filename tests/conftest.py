@@ -36,4 +36,3 @@ def make_many_tests():
 @pytest.fixture(scope="function")
 def init_pytest_process_info():
     drop_pytest_process_current_info()
-    pass

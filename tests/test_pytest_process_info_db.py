@@ -6,6 +6,7 @@ from pytest_fly.app.model import PytestProcessInfo, PytestProcessState, upsert_p
 
 pytest_process_info = PytestProcessInfo(
     name="test",
+    singleton=False,
     state=PytestProcessState.FINISHED,
     pid=1234,
     exit_code=ExitCode.OK,

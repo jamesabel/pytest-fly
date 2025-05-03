@@ -5,6 +5,7 @@ from enum import IntEnum, StrEnum
 from msqlite import MSQLite
 from balsa import get_logger
 from pytest import ExitCode
+from typeguard import typechecked
 
 from ...__version__ import application_name
 from .interfaces import PytestProcessInfo, PytestProcessState, state_order
@@ -12,6 +13,7 @@ from .interfaces import PytestProcessInfo, PytestProcessState, state_order
 _db_path = Path(f".{application_name}", f"{application_name}.db")
 
 
+@typechecked
 def get_db_path() -> Path:
     """
     Get the path to the database.
@@ -21,6 +23,7 @@ def get_db_path() -> Path:
     return _db_path
 
 
+@typechecked
 def set_db_path(path: Path) -> None:
     """
     Set the path to the database.
@@ -32,12 +35,13 @@ def set_db_path(path: Path) -> None:
     _db_path.parent.mkdir(parents=True, exist_ok=True)
 
 
+@typechecked
 def _calculate_schema() -> dict[str, type]:
     """
     Build the schema for the pytest process info database.
     """
     schema = {}
-    dummy_pytest_process_info = PytestProcessInfo("", PytestProcessState.FINISHED, 0, ExitCode.OK, "", 0.0, 0.0, 0.0, 0.0)  # dummy to fill out all the fields
+    dummy_pytest_process_info = PytestProcessInfo("", False, PytestProcessState.FINISHED, 0, ExitCode.OK, "", 0.0, 0.0, 0.0, 0.0)  # fake to fill out all the fields
     for column, value in asdict(dummy_pytest_process_info).items():
         # "equivalent" SQLite types
         if isinstance(value, IntEnum):
@@ -53,6 +57,7 @@ _schema = _calculate_schema()
 _columns = list(_schema)
 
 
+@typechecked
 def _get_parameters(pytest_process_info: PytestProcessInfo) -> list:
     """
     Get the parameters from the pytest process info as an iterable for the database, in column order.
@@ -64,6 +69,7 @@ def _get_parameters(pytest_process_info: PytestProcessInfo) -> list:
 
 class PytestProcessInfoDB(MSQLite):
 
+    @typechecked
     def __init__(self, table_name: str):
         db_path = get_db_path()
         db_path.parent.mkdir(exist_ok=True)
@@ -94,6 +100,7 @@ log = get_logger(application_name)
 #         db.execute(statement, parameters)
 
 
+@typechecked
 def upsert_pytest_process_current_info(pytest_process_info: PytestProcessInfo) -> None:
     """
     Insert or update the pytest process info to the database for a given test.
@@ -117,6 +124,7 @@ def upsert_pytest_process_current_info(pytest_process_info: PytestProcessInfo) -
             db.execute(insert_statement, insert_parameters)
 
 
+@typechecked
 def delete_pytest_process_current_info(name: str):
     """
     Delete the pytest process info from the database for a particular test.

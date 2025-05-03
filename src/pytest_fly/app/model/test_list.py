@@ -1,18 +1,18 @@
 import sys
 from io import StringIO
 from pathlib import Path
-from dataclasses import dataclass
 
 import pytest
 from typeguard import typechecked
 
 from ..logger import get_logger
+from ..model import ScheduledTest
 
 log = get_logger()
 
 
 @typechecked
-def get_tests(test_dir: Path = Path(".").resolve()) -> dict[str, bool]:
+def get_tests(test_dir: Path = Path(".").resolve()) -> list[ScheduledTest]:
     """
     Collects all pytest tests within the given directory (recursively)
     and returns their node IDs as a list of strings.
@@ -52,7 +52,6 @@ def get_tests(test_dir: Path = Path(".").resolve()) -> dict[str, bool]:
         # A simplistic approach is to keep lines containing '::' (the typical pytest node-id pattern).
         delimiter = "::"
 
-        pytest_set = set()
         for line in lines:
             if delimiter in line:
                 # Extract the node ID from the line.
@@ -63,6 +62,12 @@ def get_tests(test_dir: Path = Path(".").resolve()) -> dict[str, bool]:
         # Restore the original stdout
         sys.stdout = original_stdout
 
-    log.info(f'Discovered {len(pytest_tests)} pytest tests in "{test_dir}"')
+    # todo: add test execution time and coverage to enable proper sorting
+    scheduled_tests = []
+    for node_id, singleton in pytest_tests.items():
+        scheduled_tests.append(ScheduledTest(node_id, singleton, None, None))
+    scheduled_tests.sort()
 
-    return pytest_tests
+    log.info(f'Discovered {len(scheduled_tests)} pytest tests in "{test_dir}"')
+
+    return scheduled_tests

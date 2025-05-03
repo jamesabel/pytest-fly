@@ -50,7 +50,6 @@ class Home(QWidget):
         for status in query_pytest_process_current_info():
             self.update_status(status)
 
-
     def reset(self):
         self.progress_window.reset()
         self.reset_callback()

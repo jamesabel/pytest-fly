@@ -28,9 +28,8 @@ def app_main():
 
     args = parse_args()
 
-    if False:
-        fly_logger = FlyLogger()
-        fly_logger.init_logger()
+    fly_logger = FlyLogger()
+    fly_logger.init_logger()
 
     if args.db is None:
         db_path = None

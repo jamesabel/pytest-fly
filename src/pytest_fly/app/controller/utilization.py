@@ -3,6 +3,7 @@ from collections import defaultdict
 
 from ..model import PytestProcessInfo
 
+
 def merge_intervals(intervals: List[Tuple[float, float]]) -> List[Tuple[float, float]]:
     """Merge overlapping intervals."""
     if not intervals:

@@ -23,12 +23,12 @@ blinker==1.9.0
     # via flask
 build==1.2.2.post1
     # via pip-tools
-certifi==2025.1.31
+certifi==2025.4.26
     # via
     #   httpcore
     #   httpx
     #   requests
-charset-normalizer==3.4.1
+charset-normalizer==3.4.2
     # via requests
 click==8.1.8
     # via
@@ -60,17 +60,17 @@ flit==3.12.0
     # via -r requirements-dev.txt
 flit-core==3.12.0
     # via flit
-h11==0.14.0
+h11==0.16.0
     # via httpcore
-hatch==1.14.0
+hatch==1.14.1
     # via -r requirements-dev.txt
 hatchling==1.27.0
     # via hatch
-httpcore==1.0.7
+httpcore==1.0.9
     # via httpx
 httpx==0.28.1
     # via hatch
-humanize==4.12.2
+humanize==4.12.3
     # via -r requirements-dev.txt
 hyperlink==21.0.0
     # via hatch
@@ -106,7 +106,7 @@ mccabe==0.7.0
     # via flake8
 mdurl==0.1.2
     # via markdown-it-py
-more-itertools==10.6.0
+more-itertools==10.7.0
     # via
     #   jaraco-classes
     #   jaraco-functools
@@ -116,13 +116,13 @@ mttkinter==0.6.1
     # via balsa
 mypy==1.15.0
     # via -r requirements-dev.txt
-mypy-extensions==1.0.0
+mypy-extensions==1.1.0
     # via
     #   black
     #   mypy
-numpy==2.2.4
+numpy==2.2.5
     # via -r requirements-dev.txt
-packaging==24.2
+packaging==25.0
     # via
     #   black
     #   build
@@ -189,7 +189,7 @@ pytest==8.3.5
     #   pytest-xdist
 pytest-benchmark==5.1.0
     # via -r requirements-dev.txt
-pytest-cov==6.1.0
+pytest-cov==6.1.1
     # via -r requirements-dev.txt
 pytest-pycharm==0.7.0
     # via -r requirements-dev.txt
@@ -234,21 +234,21 @@ tomli-w==1.2.0
     #   hatch
 tomlkit==0.13.2
     # via hatch
-trove-classifiers==2025.3.19.19
+trove-classifiers==2025.5.1.12
     # via hatchling
 typeguard==4.4.2
     # via -r requirements-dev.txt
-typing-extensions==4.13.0
+typing-extensions==4.13.2
     # via
     #   mypy
     #   typeguard
-urllib3==2.3.0
+urllib3==2.4.0
     # via requests
 userpath==1.9.2
     # via hatch
 uuid6==2024.7.10
     # via -r requirements-dev.txt
-uv==0.6.11
+uv==0.7.2
     # via hatch
 virtualenv==20.30.0
     # via hatch

@@ -1,8 +1,7 @@
 from typing import List, Tuple, Dict
 from collections import defaultdict
 
-from ..db import RunInfo
-
+from ..model import PytestProcessInfo
 
 def merge_intervals(intervals: List[Tuple[float, float]]) -> List[Tuple[float, float]]:
     """Merge overlapping intervals."""
@@ -24,7 +23,7 @@ def merge_intervals(intervals: List[Tuple[float, float]]) -> List[Tuple[float, f
     return merged
 
 
-def calculate_utilization(data: Dict[str, Dict[str, RunInfo]]) -> Tuple[Dict[str, float], float]:
+def calculate_utilization(data: Dict[str, Dict[str, PytestProcessInfo]]) -> Tuple[Dict[str, float], float]:
     """
     Calculate utilization for each worker and overall utilization.
     :param data: Dictionary with test names as keys and dictionaries with phase names as keys and RunInfo objects as values.

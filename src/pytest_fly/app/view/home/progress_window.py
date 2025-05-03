@@ -4,8 +4,8 @@ from collections import defaultdict
 from PySide6.QtWidgets import QGroupBox, QVBoxLayout
 from PySide6.QtCore import Qt, QTimer
 
-from ....common import PytestProcessState, PytestProcessInfo
-from ...preferences import get_pref
+from ...model import PytestProcessState, PytestProcessInfo
+from ...model.preferences import get_pref
 from .progress_bar import PytestProgressBar
 
 

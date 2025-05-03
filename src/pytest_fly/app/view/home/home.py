@@ -3,8 +3,9 @@ from PySide6.QtWidgets import QWidget, QHBoxLayout, QSplitter, QScrollArea
 from .control import ControlWindow
 from .progress_window import ProgressWindow
 from .summary_window import SummaryWindow
-from pytest_fly.common.interfaces import PytestProcessInfo
-from ...logging import get_logger
+from ...model.db import query_pytest_process_current_info
+from ...model.interfaces import PytestProcessInfo
+from ...logger import get_logger
 
 log = get_logger()
 
@@ -44,6 +45,11 @@ class Home(QWidget):
         self.setLayout(layout)
 
         self.set_splitter()
+
+        # load the last pytest process info from the database
+        for status in query_pytest_process_current_info():
+            self.update_status(status)
+
 
     def reset(self):
         self.progress_window.reset()

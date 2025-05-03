@@ -1,16 +1,17 @@
+from pathlib import Path
 import multiprocessing
 
 from PySide6.QtWidgets import QMainWindow, QApplication, QTabWidget
 from PySide6.QtCore import QCoreApplication, QRect
 
 from .gui_util import get_font, get_text_dimensions
-from ..logging import get_logger
+from ..logger import get_logger
 from .home import Home
 from .status import Status
-from .history import History
 from .configuration import Configuration
 from .about import About
-from ..preferences import get_pref
+from ..model.preferences import get_pref
+from ..model.db import set_db_path
 from ...__version__ import application_name
 
 log = get_logger()
@@ -96,7 +97,15 @@ class FlyAppMainWindow(QMainWindow):
         log.info(f"{__class__.__name__}.closeEvent() - exiting")
 
 
-def fly_main():
+def fly_main(db_path: Path | None = None):
+    """
+    Main function to start the GUI application.
+    """
+
+    if db_path is not None:
+        # command line override
+        set_db_path(db_path)
+
     multiprocessing.set_start_method("spawn")  # may not be necessary
     app = QApplication([])
     fly_app = FlyAppMainWindow()

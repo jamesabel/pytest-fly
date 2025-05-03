@@ -5,9 +5,53 @@ from typing import Iterable
 
 from pytest import ExitCode
 from balsa import get_logger
-from ..__version__ import application_name
+from ...__version__ import application_name
 
 log = get_logger(application_name)
+
+
+def _lines_per_second(duration: float, coverage: float) -> float:
+    """
+    Calculate the line coverage per second.
+    """
+
+    lines_per_second = coverage / max(duration, 1e-9)  # avoid division by zero
+    return lines_per_second
+
+
+@dataclass(frozen=True)
+class ScheduledTest:
+    """
+    Represents a test that is scheduled to be run.
+    """
+
+    node_id: str  # unique identifier for the test
+    singleton: bool  # True if the test is a singleton
+    duration: float | None  # duration of the most recent run (seconds)
+    coverage: float | None  # coverage of the most recent run, between 0.0 and 1.0 (1.0 = this tests covers all the code)
+
+    def __gt__(self, other):
+        """
+        Compare two ScheduledTest objects. True if this object should be executed earlier than the other.
+        """
+        if self.singleton and not other.singleton:
+            gt = True  # this object is a singleton, but the other is not, so this object should be executed later
+        elif not self.singleton and other.singleton:
+            gt = False  # this object is not a singleton, but the other is, so this object should be executed earlier
+        elif self.duration is None or self.coverage is None or other.duration is None or other.coverage is None:
+            # if either test has no duration or coverage, we just sort alphabetically
+            gt = self.node_id > other.node_id
+        else:
+            # the test with the most effective coverage per second should be executed first
+            gt = _lines_per_second(self.duration, self.coverage) > _lines_per_second(other.duration, other.coverage)
+        return gt
+
+    def __eq__(self, other):
+        """
+        Compare two ScheduledTest objects.
+        """
+        eq = self.singleton == other.singleton and self.duration == other.duration and self.coverage == other.coverage
+        return eq
 
 
 class RunMode(IntEnum):
@@ -44,8 +88,11 @@ def state_order(pytest_process_state: PytestProcessState) -> int:
     orders = {PytestProcessState.UNKNOWN: 0, PytestProcessState.QUEUED: 1, PytestProcessState.RUNNING: 2, PytestProcessState.FINISHED: 3, PytestProcessState.TERMINATED: 4}
     if pytest_process_state is None:
         order = orders[PytestProcessState.UNKNOWN]
-    else:
+    elif pytest_process_state in orders:
         order = orders[pytest_process_state]
+    else:
+        log.error(f"Unknown pytest_process_state: {pytest_process_state}")
+        order = orders[PytestProcessState.UNKNOWN]
     return order
 
 
@@ -56,6 +103,7 @@ class PytestProcessInfo:
     """
 
     name: str  # test name
+    singleton: bool  # True if the test is a singleton, False otherwise
     state: PytestProcessState | None = None  # state of the test process
     pid: int | None = None  # OS process ID of the pytest process
     exit_code: ExitCode | None = None  # exit code of the test

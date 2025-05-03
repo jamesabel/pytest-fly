@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 from PySide6.QtWidgets import QApplication
 
-from pytest_fly import drop_pytest_process_current_info
+from pytest_fly.app.model import drop_pytest_process_current_info
 
 pytest_plugins = "pytester"
 
@@ -36,4 +36,3 @@ def make_many_tests():
 @pytest.fixture(scope="function")
 def init_pytest_process_info():
     drop_pytest_process_current_info()
-    pass

@@ -4,9 +4,9 @@ from PySide6.QtWidgets import QGroupBox, QVBoxLayout, QSizePolicy
 from PySide6.QtCore import QThread
 
 from ....controller.pytest_runner import PytestRunnerWorker
-from .....common import PytestProcessState, PytestProcessInfo, get_guid, RunParameters
-from ....preferences import get_pref, ParallelismControl, RunMode
-from .... import get_logger
+from ....model import PytestProcessState, PytestProcessInfo, get_guid, RunParameters
+from ....model.preferences import get_pref, ParallelismControl, RunMode
+from ....logger import get_logger
 
 from .control_pushbutton import ControlButton
 from .parallelism_control_box import ParallelismControlBox

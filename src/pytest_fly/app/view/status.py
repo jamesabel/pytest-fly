@@ -8,8 +8,8 @@ from PySide6.QtCore import Qt, QPoint
 from PySide6.QtGui import QColor, QGuiApplication
 from pytest import ExitCode
 
-from ..preferences import get_pref
-from ...common import PytestProcessInfo, PytestProcessState, get_performance_core_count, exit_code_to_string
+from ..model.preferences import get_pref
+from ..model import PytestProcessInfo, PytestProcessState, get_performance_core_count, exit_code_to_string
 
 
 class Columns(Enum):

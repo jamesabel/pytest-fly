@@ -7,8 +7,8 @@ from PySide6.QtWidgets import QGroupBox, QVBoxLayout, QSizePolicy
 import humanize
 
 from ..gui_util import PlainTextWidget, get_text_dimensions
-from ....common import PytestProcessState
-from pytest_fly.common.interfaces import PytestProcessInfo
+from ...model import PytestProcessState
+from ...model.interfaces import PytestProcessInfo
 
 
 class SummaryWindow(QGroupBox):

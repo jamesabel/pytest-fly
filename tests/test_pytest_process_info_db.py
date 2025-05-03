@@ -2,7 +2,7 @@ import time
 
 from pytest import ExitCode
 
-from pytest_fly import PytestProcessInfo, PytestProcessState, upsert_pytest_process_current_info, query_pytest_process_current_info, drop_pytest_process_current_info
+from pytest_fly.app.model import PytestProcessInfo, PytestProcessState, upsert_pytest_process_current_info, query_pytest_process_current_info
 
 pytest_process_info = PytestProcessInfo(
     name="test",

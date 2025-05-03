@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 from PySide6.QtWidgets import QApplication
 
-from pytest_fly import drop_pytest_process_current_info
+from pytest_fly.app.model import drop_pytest_process_current_info
 
 pytest_plugins = "pytester"
 

@@ -6,10 +6,10 @@ from PySide6.QtGui import QIntValidator, QDoubleValidator
 
 from tobool import to_bool_strict
 
-from ..preferences import get_pref, scheduler_time_quantum_default, refresh_rate_default, utilization_high_threshold_default, utilization_low_threshold_default
+from ..model.preferences import get_pref, scheduler_time_quantum_default, refresh_rate_default, utilization_high_threshold_default, utilization_low_threshold_default
+from ..model.platform_info import get_performance_core_count
+from ..logger import get_logger
 from .gui_util import get_text_dimensions
-from pytest_fly.common.platform_info import get_performance_core_count
-from ..logging import get_logger
 
 log = get_logger()
 

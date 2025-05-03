@@ -6,8 +6,30 @@ from msqlite import MSQLite
 from balsa import get_logger
 from pytest import ExitCode
 
-from ..__version__ import application_name
-from ..common import PytestProcessInfo, PytestProcessState, state_order
+from ...__version__ import application_name
+from .interfaces import PytestProcessInfo, PytestProcessState, state_order
+
+_db_path = Path(f".{application_name}", f"{application_name}.db")
+
+
+def get_db_path() -> Path:
+    """
+    Get the path to the database.
+
+    :return: the path to the database
+    """
+    return _db_path
+
+
+def set_db_path(path: Path) -> None:
+    """
+    Set the path to the database.
+
+    :param path: the path to the database
+    """
+    global _db_path
+    _db_path = path
+    _db_path.parent.mkdir(parents=True, exist_ok=True)
 
 
 def _calculate_schema() -> dict[str, type]:
@@ -43,10 +65,9 @@ def _get_parameters(pytest_process_info: PytestProcessInfo) -> list:
 class PytestProcessInfoDB(MSQLite):
 
     def __init__(self, table_name: str):
-        db_dir = Path(f".{application_name}")
-        db_dir.mkdir(exist_ok=True)
-        db_path = Path(db_dir, f"{application_name}.db")
-        super().__init__(db_path, table_name, _schema)
+        db_path = get_db_path()
+        db_path.parent.mkdir(exist_ok=True)
+        super().__init__(_db_path, table_name, _schema)
 
 
 class PytestProcessCurrentInfoDB(PytestProcessInfoDB):
@@ -59,18 +80,18 @@ class PytestProcessCurrentInfoDB(PytestProcessInfoDB):
 log = get_logger(application_name)
 
 
-def save_pytest_process_current_info(pytest_process_info: PytestProcessInfo) -> None:
-    """
-    Save the pytest process info to the database.
-
-    :param pytest_process_info: the pytest process info to save
-    """
-
-    with PytestProcessCurrentInfoDB() as db:
-        statement = f"INSERT INTO {db.table_name} ({', '.join(_columns)}) VALUES ({', '.join(['?'] * len(_columns))})"
-        parameters = _get_parameters(pytest_process_info)
-        log.info(f"{statement=}, {parameters=}")
-        db.execute(statement, parameters)
+# def save_pytest_process_current_info(pytest_process_info: PytestProcessInfo) -> None:
+#     """
+#     Save the pytest process info to the database.
+#
+#     :param pytest_process_info: the pytest process info to save
+#     """
+#
+#     with PytestProcessCurrentInfoDB() as db:
+#         statement = f"INSERT INTO {db.table_name} ({', '.join(_columns)}) VALUES ({', '.join(['?'] * len(_columns))})"
+#         parameters = _get_parameters(pytest_process_info)
+#         log.info(f"{statement=}, {parameters=}")
+#         db.execute(statement, parameters)
 
 
 def upsert_pytest_process_current_info(pytest_process_info: PytestProcessInfo) -> None:
@@ -85,10 +106,11 @@ def upsert_pytest_process_current_info(pytest_process_info: PytestProcessInfo) -
         set_clause = ", ".join([f"{col} = ?" for col in _columns])
         update_statement = f"UPDATE {db.table_name} SET {set_clause} WHERE name = ?"
         parameters = _get_parameters(pytest_process_info)
-        parameters.append(name)
+        parameters.append(name)  # value associated with the WHERE clause
         log.info(f"{update_statement=},{name=},{parameters=}")
         cursor = db.execute(update_statement, parameters)
         if cursor.rowcount == 0:
+            # no entry exists for this test, so insert it
             insert_statement = f"INSERT INTO {db.table_name} ({', '.join(_columns)}) VALUES ({', '.join(['?'] * len(_columns))})"
             insert_parameters = _get_parameters(pytest_process_info)
             log.info(f"{insert_statement=}, {insert_parameters=}")
@@ -97,7 +119,7 @@ def upsert_pytest_process_current_info(pytest_process_info: PytestProcessInfo) -
 
 def delete_pytest_process_current_info(name: str):
     """
-    Delete the pytest process info from the database.
+    Delete the pytest process info from the database for a particular test.
 
     :param name: delete all rows with this test name
     """
@@ -135,7 +157,7 @@ def query_pytest_process_current_info(**parameters) -> list[PytestProcessInfo]:
             pytest_process_info = PytestProcessInfo(*row)
             rows.append(pytest_process_info)
 
-        rows.sort(key=lambda x: (state_order(x.state), x.time_stamp))
+        rows.sort(key=lambda x: (state_order(x.state), x.time_stamp))  # first sort by state, then by timestamp
 
     return rows
 

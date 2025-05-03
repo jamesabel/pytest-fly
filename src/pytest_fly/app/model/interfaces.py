@@ -5,7 +5,7 @@ from typing import Iterable
 
 from pytest import ExitCode
 from balsa import get_logger
-from ..__version__ import application_name
+from ...__version__ import application_name
 
 log = get_logger(application_name)
 

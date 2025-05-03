@@ -15,8 +15,8 @@ from psutil import Process as PsutilProcess
 from psutil import NoSuchProcess
 import appdirs
 
-from ..logging import get_logger
-from ...common import (
+from ..logger import get_logger
+from ..model import (
     get_guid,
     PytestProcessInfo,
     PytestProcessState,
@@ -26,8 +26,8 @@ from ...common import (
     RunMode,
     delete_pytest_process_current_info,
 )
-from ..preferences import get_pref
-from ..test_list import get_tests
+from ..model.preferences import get_pref
+from ..model.test_list import get_tests
 from ...__version__ import application_name, author
 
 
@@ -155,7 +155,7 @@ class PytestRunnerWorker(QObject):
         self.request_exit_signal.emit()
 
     @typechecked()
-    def __init__(self, tests: list[str] | None = None) -> None:
+    def __init__(self, tests: dict[str, bool] | None = None) -> None:
         """
         Pytest runner worker.
 

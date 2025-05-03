@@ -1,5 +1,5 @@
 from PySide6.QtWidgets import QGroupBox, QVBoxLayout, QRadioButton, QButtonGroup
-from ....preferences import get_pref, RunMode
+from ....model.preferences import get_pref, RunMode
 
 
 class RunModeControlBox(QGroupBox):

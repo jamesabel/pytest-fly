@@ -3,8 +3,8 @@ import humanize
 from PySide6.QtCore import QObject, QThread, Signal
 from PySide6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout
 from .gui_util import PlainTextWidget
-from ..project_info import get_project_info
-from pytest_fly.common.platform_info import get_platform_info, get_performance_core_count
+from ..model.project_info import get_project_info
+from ..model.platform_info import get_platform_info, get_performance_core_count
 
 
 class AboutDataWorker(QObject):

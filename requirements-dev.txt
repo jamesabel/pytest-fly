@@ -1,3 +1,4 @@
+# application
 platformdirs
 msqlite
 ismain
@@ -31,3 +32,4 @@ requests
 # distribution
 flit
 hatch
+pip-tools

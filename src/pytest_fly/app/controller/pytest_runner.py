@@ -25,7 +25,7 @@ from ..model import (
     query_pytest_process_current_info,
     RunMode,
     delete_pytest_process_current_info,
-    ScheduledTest,
+    ScheduledTests,
 )
 from ..model.preferences import get_pref
 from ..model.test_list import get_tests
@@ -159,7 +159,7 @@ class PytestRunnerWorker(QObject):
         self.request_exit_signal.emit()
 
     @typechecked()
-    def __init__(self, tests: list[ScheduledTest] | None = None) -> None:
+    def __init__(self, tests: ScheduledTests | None = None) -> None:
         """
         Pytest runner worker.
 
@@ -208,7 +208,7 @@ class PytestRunnerWorker(QObject):
             if mode == RunMode.RESTART:
                 add_test = True
             else:
-                pytest_process_infos = query_pytest_process_current_info(name=test)
+                pytest_process_infos = query_pytest_process_current_info(name=test.node_id)
                 if len(pytest_process_infos) > 0:
                     pytest_process_info = pytest_process_infos[-1]
                     add_test = pytest_process_info.state != PytestProcessState.FINISHED or pytest_process_info.exit_code != ExitCode.OK

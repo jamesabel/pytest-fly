@@ -4,7 +4,7 @@ import time
 from PySide6.QtCore import QThread
 from pytest import ExitCode
 from pytest_fly.app.controller import PytestRunnerWorker
-from pytest_fly.app.model import PytestProcessState, get_performance_core_count, get_guid, RunParameters, RunMode, ScheduledTest
+from pytest_fly.app.model import PytestProcessState, get_performance_core_count, get_guid, RunParameters, RunMode, ScheduledTest, ScheduledTests
 
 
 def test_pytest_runner(app):
@@ -18,8 +18,12 @@ def test_pytest_runner(app):
     for run_count in range(2):
         test = ["tests", "test_sleep.py"]
         test_path = Path(*test)  # an "easy" test
+
+        scheduled_tests = ScheduledTests()
         scheduled_test = ScheduledTest(str(test_path), False, None, None)
-        worker = PytestRunnerWorker([scheduled_test])
+        scheduled_tests.add(scheduled_test)
+        worker = PytestRunnerWorker(scheduled_tests)
+
         thread = QThread()
         worker.moveToThread(thread)
 

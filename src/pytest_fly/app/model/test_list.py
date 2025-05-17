@@ -6,13 +6,13 @@ import pytest
 from typeguard import typechecked
 
 from ..logger import get_logger
-from ..model import ScheduledTest
+from ..model import ScheduledTest, ScheduledTests
 
 log = get_logger()
 
 
 @typechecked
-def get_tests(test_dir: Path = Path(".").resolve()) -> list[ScheduledTest]:
+def get_tests(test_dir: Path = Path(".").resolve()) -> ScheduledTests:
     """
     Collects all pytest tests within the given directory (recursively)
     and returns their node IDs as a list of strings.
@@ -63,10 +63,10 @@ def get_tests(test_dir: Path = Path(".").resolve()) -> list[ScheduledTest]:
         sys.stdout = original_stdout
 
     # todo: add test execution time and coverage to enable proper sorting
-    scheduled_tests = []
+    scheduled_tests = ScheduledTests()
     for node_id, singleton in pytest_tests.items():
-        scheduled_tests.append(ScheduledTest(node_id, singleton, None, None))
-    scheduled_tests.sort()
+        scheduled_tests.add(ScheduledTest(node_id, singleton, None, None))
+    scheduled_tests.schedule()
 
     log.info(f'Discovered {len(scheduled_tests)} pytest tests in "{test_dir}"')
 

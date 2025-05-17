@@ -55,4 +55,4 @@ code, it is more likely to be found earlier in the test run.
 3. Tests are scheduled for maximum parallelism. Long-running tests are started earlier to minimize overall runtime. 
 Also, tests that consume large amounts of particular resources (e.g., memory, file system, etc.) tend to be paired 
 with other tests that do not use as much of those resources.
-4. `singleton` tests are run last. This is to attempt to get the high coverage early in the test run.
+4. `singleton` tests are run last. This is to attempt to get higher coverage earlier in the test run.

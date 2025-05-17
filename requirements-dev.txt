@@ -27,8 +27,6 @@ pytest-xdist
 pytest-benchmark
 pytest-rerunfailures
 pytest-randomly
-flask
-requests
 # distribution
 flit
 hatch

@@ -145,13 +145,13 @@ class _PytestProcess(Process):
         output: str = buf.getvalue()
         end = time.time()
 
+        coverage = calculate_coverage(self.coverage_parent_directory)
+
         # stop the process monitor
         self._process_monitor_process.request_stop()
         self._process_monitor_process.join(100.0)  # plenty of time for the monitor to stop
         if self._process_monitor_process.is_alive():
             log.error(f"{self._process_monitor_process} is alive")
-
-        coverage = calculate_coverage(self.coverage_parent_directory)
 
         # update the pytest process info to show that the test has finished
         pytest_process_info = PytestProcessInfo(self.name, self.singleton, PytestProcessState.FINISHED, self.pid, exit_code, output, end=end, coverage=coverage)

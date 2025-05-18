@@ -16,7 +16,7 @@ log = get_logger(application_name)
 class PytestFlyCoverage(Coverage):
 
     def __init__(self, data_file: Path) -> None:
-        super().__init__(data_file, timid=True, concurrency=["thread", "process"])
+        super().__init__(data_file, timid=True, concurrency=["thread", "process"], check_preimported=True)
         # avoid: "CoverageWarning: Couldn't parse '...': No source for code: '...'. (couldnt-parse)"
         self._no_warn_slugs.add("couldnt-parse")
 
@@ -24,6 +24,9 @@ class PytestFlyCoverage(Coverage):
 def calculate_coverage(coverage_parent_directory: Path) -> float | None:
     """
     Load a collection of coverage files from a directory and calculate the overall coverage.
+
+    :param coverage_parent_directory: The directory containing the coverage files.
+    :return: The overall coverage as a value between 0.0 and 1.0, or None if no coverage files were found.
     """
 
     coverage_value = None
@@ -56,7 +59,7 @@ def calculate_coverage(coverage_parent_directory: Path) -> float | None:
             cov.save()
 
             output_buffer = io.StringIO()  # unused but required by the API
-            coverage_value = cov.report(ignore_errors=True, output_format="total", file=output_buffer)
+            coverage_value = cov.report(ignore_errors=True, output_format="total", file=output_buffer) / 100.0  # report returns coverage as a percentage
 
         except NoDataError:
             # when we start, we may not have any coverage data

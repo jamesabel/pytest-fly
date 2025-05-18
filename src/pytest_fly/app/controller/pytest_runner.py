@@ -38,17 +38,20 @@ log = get_logger()
 
 class _PytestProcessMonitor(Process):
 
-    def __init__(self, name: str, singleton: bool, pid: int, update_rate: float, process_monitor_queue: Queue):
+    @typechecked()
+    def __init__(self, name: str, coverage_parent_directory: Path, singleton: bool, pid: int, update_rate: float, process_monitor_queue: Queue):
         """
         Monitor a process for things like CPU and memory usage.
 
         :param name: the name of the process to monitor
+        :param coverage_parent_directory: the directory to store coverage data in
         :param pid: the process ID of the process to monitor
         :param update_rate: the rate at which to send back updates
         :param process_monitor_queue: the queue to send updates to
         """
         super().__init__()
         self._name = name
+        self.coverage_parent_directory = coverage_parent_directory
         self._singleton = singleton
         self._pid = pid
         self._update_rate = update_rate
@@ -68,7 +71,8 @@ class _PytestProcessMonitor(Process):
                     cpu_percent = None
                     memory_percent = None
                 if cpu_percent is not None and memory_percent is not None:
-                    pytest_process_info = PytestProcessInfo(self._name, self._singleton, pid=self._pid, cpu_percent=cpu_percent, memory_percent=memory_percent)
+                    coverage = calculate_coverage(self.coverage_parent_directory)
+                    pytest_process_info = PytestProcessInfo(self._name, self._singleton, pid=self._pid, cpu_percent=cpu_percent, memory_percent=memory_percent, coverage=coverage)
                     self._process_monitor_queue.put(pytest_process_info)
 
         self._psutil_process = PsutilProcess(self._pid)
@@ -108,7 +112,7 @@ class _PytestProcess(Process):
     def run(self) -> None:
 
         # start the process monitor to monitor things like CPU and memory usage
-        self._process_monitor_process = _PytestProcessMonitor(self.name, self.singleton, self.pid, self.update_rate, self.pytest_monitor_queue)
+        self._process_monitor_process = _PytestProcessMonitor(self.name, self.coverage_parent_directory, self.singleton, self.pid, self.update_rate, self.pytest_monitor_queue)
         self._process_monitor_process.start()
 
         # update the pytest process info to show that the test is running

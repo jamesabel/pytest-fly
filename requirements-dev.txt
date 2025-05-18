@@ -27,6 +27,7 @@ pytest-xdist
 pytest-benchmark
 pytest-rerunfailures
 pytest-randomly
+coverage
 # distribution
 flit
 hatch

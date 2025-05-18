@@ -1,3 +1,4 @@
+import shutil
 from multiprocessing import Process, Queue, Event
 import io
 import contextlib
@@ -10,10 +11,10 @@ import psutil
 import pytest
 from pytest import ExitCode
 from PySide6.QtCore import QObject, Signal, Slot, QTimer, QCoreApplication
+from coverage import Coverage
 from typeguard import typechecked
 from psutil import Process as PsutilProcess
 from psutil import NoSuchProcess
-import appdirs
 
 from ..logger import get_logger
 from ..model import (
@@ -28,8 +29,8 @@ from ..model import (
     ScheduledTests,
 )
 from ..model.preferences import get_pref
-from ..model.test_list import get_tests
-from ...__version__ import application_name, author
+from ..model.os import mk_dirs
+from .coverage import calculate_coverage
 
 
 log = get_logger()
@@ -88,14 +89,16 @@ class _PytestProcess(Process):
     """
 
     @typechecked()
-    def __init__(self, test: Path | str, singleton: bool, update_rate: float, pytest_monitor_queue: Queue) -> None:
+    def __init__(self, test: Path | str, coverage_parent_directory: Path, singleton: bool, update_rate: float, pytest_monitor_queue: Queue) -> None:
         """
+        :param coverage_parent_directory: the directory to store coverage data in
         :param test: the test to run
         :param singleton: True if the test is a singleton, False otherwise
         :param update_rate: the rate at which to update the monitor
         :param pytest_monitor_queue: the queue to send pytest updates to
         """
         super().__init__(name=str(test))
+        self.coverage_parent_directory = coverage_parent_directory
         self.singleton = singleton
         self.update_rate = update_rate
         self.pytest_monitor_queue = pytest_monitor_queue
@@ -112,11 +115,29 @@ class _PytestProcess(Process):
         pytest_process_info = PytestProcessInfo(self.name, self.singleton, PytestProcessState.RUNNING, self.pid, start=time.time())
         self.pytest_monitor_queue.put(pytest_process_info)
 
+        coverage_data_directory = Path(self.coverage_parent_directory, "coverage")
+        coverage_data_directory.mkdir(parents=True, exist_ok=True)
+
         # Finally, actually run pytest!
         # Redirect stdout and stderr so nothing goes to the console.
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
+
+            # create a temp coverage file and then move it so if the file exists, the content is complete (the save is not necessarily instantaneous and atomic)
+            coverage_file_path = Path(coverage_data_directory, f"{self.name}.coverage")
+            coverage_temp_file_path = Path(coverage_data_directory, f"{self.name}.temp")
+            coverage_temp_file_path.unlink(missing_ok=True)
+            coverage = Coverage(coverage_temp_file_path)
+            coverage.start()
+
             exit_code = pytest.main([self.name])
+
+            coverage.stop()
+            coverage.save()
+
+            coverage_file_path.unlink(missing_ok=True)
+            shutil.move(coverage_temp_file_path, coverage_file_path)
+
         output: str = buf.getvalue()
         end = time.time()
 
@@ -126,8 +147,10 @@ class _PytestProcess(Process):
         if self._process_monitor_process.is_alive():
             log.error(f"{self._process_monitor_process} is alive")
 
+        coverage = calculate_coverage(self.coverage_parent_directory)
+
         # update the pytest process info to show that the test has finished
-        pytest_process_info = PytestProcessInfo(self.name, self.singleton, PytestProcessState.FINISHED, self.pid, exit_code, output, end=end)
+        pytest_process_info = PytestProcessInfo(self.name, self.singleton, PytestProcessState.FINISHED, self.pid, exit_code, output, end=end, coverage=coverage)
         self.pytest_monitor_queue.put(pytest_process_info)
 
         log.debug(f"{self.name=},{self.name},{exit_code=},{output=}")
@@ -159,7 +182,7 @@ class PytestRunnerWorker(QObject):
         self.request_exit_signal.emit()
 
     @typechecked()
-    def __init__(self, tests: ScheduledTests | None = None) -> None:
+    def __init__(self, tests: ScheduledTests, coverage_parent_directory: Path) -> None:
         """
         Pytest runner worker.
 
@@ -167,12 +190,8 @@ class PytestRunnerWorker(QObject):
         """
         super().__init__()
 
-        self.pytest_process_dict_save_path = Path(appdirs.user_data_dir(application_name, author), "pytest_process_dict.pickle")
-
-        if tests is None:
-            self.tests = get_tests()
-        else:
-            self.tests = tests
+        self.tests = tests
+        self.coverage_parent_directory = coverage_parent_directory
 
         self.pytest_monitor_queue = Queue()  # monitor data for the pytest processes
 
@@ -203,6 +222,8 @@ class PytestRunnerWorker(QObject):
 
         pref = get_pref()
         mode = pref.run_mode
+
+        mk_dirs(self.coverage_parent_directory, True)
 
         for test in self.tests:
             if mode == RunMode.RESTART:
@@ -286,7 +307,7 @@ class PytestRunnerWorker(QObject):
                 self.update_pytest_process_info(pytest_process_info, False)
 
                 # we don't generally access self.processes, but we need to keep a reference to the process and ensure it stays alive
-                self._processes[test] = _PytestProcess(test.node_id, test.singleton, refresh_rate, self.pytest_monitor_queue)
+                self._processes[test] = _PytestProcess(test.node_id, self.coverage_parent_directory, test.singleton, refresh_rate, self.pytest_monitor_queue)
                 self._processes[test].start()
 
         # update UI

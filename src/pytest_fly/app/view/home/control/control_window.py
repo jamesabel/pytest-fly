@@ -1,10 +1,11 @@
 from typing import Callable
+from pathlib import Path
 
 from PySide6.QtWidgets import QGroupBox, QVBoxLayout, QSizePolicy
 from PySide6.QtCore import QThread
 
 from ....controller.pytest_runner import PytestRunnerWorker
-from ....model import PytestProcessState, PytestProcessInfo, get_guid, RunParameters
+from ....model import PytestProcessState, PytestProcessInfo, get_guid, RunParameters, get_tests
 from ....model.preferences import get_pref, ParallelismControl, RunMode
 from ....logger import get_logger
 
@@ -48,19 +49,9 @@ class ControlWindow(QGroupBox):
         self.pytest_runner_worker = None
         self.most_recent_statuses = {}
 
-        self.pytest_runner_thread = QThread(self)  # work will be done in this thread
-        # I'd like the thread to have some name, so use the name of the worker it'll be moved to
-        self.pytest_runner_thread.setObjectName(PytestRunnerWorker.__class__.__name__)
-        self.pytest_runner_worker = PytestRunnerWorker()
-        self.pytest_runner_worker.moveToThread(self.pytest_runner_thread)  # move worker to thread
-        self.pytest_runner_worker.request_exit_signal.connect(self.pytest_runner_thread.quit)  # required to stop the thread
-        self.pytest_runner_worker.update_signal.connect(self.pytest_update)
-        self.pytest_runner_thread.start()
-
         self.update_processes_configuration()
 
-        # Calculate and set the fixed width
-        self.set_fixed_width()
+        self.set_fixed_width()  # calculate and set the widget width
 
     def set_fixed_width(self):
         # Calculate the maximum width required by the child widgets
@@ -77,6 +68,15 @@ class ControlWindow(QGroupBox):
         run_parameters = RunParameters(self.run_guid, pref.run_mode, pref.processes)
         if pref.parallelism == ParallelismControl.SERIAL:
             run_parameters.max_processes = 1
+
+        self.pytest_runner_thread = QThread(self)  # work will be done in this thread
+        # I'd like the thread to have some name, so use the name of the worker it'll be moved to
+        self.pytest_runner_thread.setObjectName(PytestRunnerWorker.__class__.__name__)
+        self.pytest_runner_worker = PytestRunnerWorker(get_tests(), coverage_parent_directory=Path(pref.data_directory, "coverage"))
+        self.pytest_runner_worker.moveToThread(self.pytest_runner_thread)  # move worker to thread
+        self.pytest_runner_worker.request_exit_signal.connect(self.pytest_runner_thread.quit)  # required to stop the thread
+        self.pytest_runner_worker.update_signal.connect(self.pytest_update)
+        self.pytest_runner_thread.start()
         self.pytest_runner_worker.request_run(run_parameters)
 
     def stop(self):

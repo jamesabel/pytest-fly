@@ -9,7 +9,11 @@ from pytest_fly.app.model import PytestProcessState, get_performance_core_count,
 
 def test_pytest_runner(app):
 
+    test_name = "test_pytest_runner"
+
     statuses = []
+
+    data_directory = Path("temp", test_name)
 
     def append_to_worker_statuses(_status):
         statuses.append(_status)
@@ -22,7 +26,7 @@ def test_pytest_runner(app):
         scheduled_tests = ScheduledTests()
         scheduled_test = ScheduledTest(str(test_path), False, None, None)
         scheduled_tests.add(scheduled_test)
-        worker = PytestRunnerWorker(scheduled_tests)
+        worker = PytestRunnerWorker(scheduled_tests, data_directory)
 
         thread = QThread()
         worker.moveToThread(thread)

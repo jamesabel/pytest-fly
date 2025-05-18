@@ -38,7 +38,8 @@ dependencies = [
     "py-cpuinfo",
     "humanize",
     "tobool",
-    "uuid6"
+    "uuid6",
+    "coverage"
 ]
 keywords = ["pytest", "observer", "testing"]
 

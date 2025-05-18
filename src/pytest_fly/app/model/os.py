@@ -6,10 +6,15 @@ from typing import Union
 from logging import getLogger
 import sys
 from functools import cache
+import shutil
 
 from typeguard import typechecked
 
 log = getLogger(__file__)
+
+
+class RemoveDirectoryException(Exception):
+    pass
 
 
 @cache
@@ -111,3 +116,62 @@ def is_read_write(path: Path) -> bool:
     else:  # Unix-like systems
         path_stat = path.stat()
         return bool(path_stat.st_mode & stat.S_IWRITE and path_stat.st_mode & stat.S_IREAD)
+
+
+@typechecked()
+def rm_dir(p: Union[Path, str], log_function=log.warning, attempt_limit: int = 20, delay: float = 0.1) -> bool:
+    """
+    Remove a directory and all its contents. Retry if there are errors.
+
+    :param p: the directory to remove
+    :param log_function: the function to log messages
+    :param attempt_limit: the number of times to attempt to remove the directory
+    :param delay: the delay between retries
+    """
+
+    start = time.time()
+    if isinstance(p, str):
+        p = Path(p)
+    attempt_count = 0
+    reason = None  # type: FileNotFoundError | PermissionError | OSError | None
+    while p.exists() and attempt_count < attempt_limit:
+        attempt_count += 1
+        try:
+            shutil.rmtree(p, onerror=remove_readonly_onerror)
+        except FileNotFoundError as e:
+            reason = e  # assign error to a variable so we can use it later in this function
+            log.debug(f"{p} ({attempt_count=}, {reason=})")  # this can happen when first doing the shutil.rmtree()
+        except (PermissionError, OSError) as e:
+            reason = e  # assign error to a variable so we can use it later in this function
+            log.info(f"{p} ({attempt_count=}, {reason=})")
+        if p.exists():
+            time.sleep(delay)
+    if p.exists():
+        duration = time.time() - start
+        delete_ok = False
+        log_function(f'could not remove "{p}",{delete_ok=},{attempt_count=},{duration=},{reason=},{attempt_limit=},{delay=}')
+    else:
+        delete_ok = True
+    duration = time.time() - start
+    log.info(f'"{p}",{delete_ok=},{attempt_count=},{duration=},{reason=},{attempt_limit=},{delay=}')
+    if not delete_ok:
+        raise RemoveDirectoryException(f'Could not remove "{p}"')
+    return delete_ok
+
+
+def mk_dirs(d, remove_first=False, log_function=log.error):
+    if remove_first:
+        rm_dir(d, log_function)
+    # sometimes when os.makedirs exits the dir is not actually there
+    count = 600
+    while count > 0 and not os.path.exists(d):
+        try:
+            # for some reason we can get the FileNotFoundError exception
+            os.makedirs(d, exist_ok=True)
+        except FileNotFoundError:
+            pass
+        if not os.path.exists(d):
+            time.sleep(0.1)
+        count -= 1
+    if not os.path.exists(d):
+        log_function(f'could not mkdirs "{d}" ({os.path.abspath(d)})')

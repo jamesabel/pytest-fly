@@ -22,6 +22,14 @@ class ParallelismControl(IntEnum):
     DYNAMIC = 2  # automatically dynamically determine max number of processes to run in parallel, while trying to avoid high utilization thresholds (see utilization_high_threshold)
 
 
+def get_default_data_directory() -> Path:
+    """
+    Get the default data directory for the application. May be used to reset preference back to default.
+    """
+    default_user_data_directory = Path(user_data_dir(application_name, author))
+    return default_user_data_directory
+
+
 @attrs
 class FlyPreferences(Pref):
 
@@ -40,8 +48,9 @@ class FlyPreferences(Pref):
     utilization_high_threshold: float = attrib(default=utilization_high_threshold_default)  # above this threshold is considered high utilization
     utilization_low_threshold: float = attrib(default=utilization_low_threshold_default)  # below this threshold is considered low utilization
 
-    run_mode: RunMode = attrib(default=RunMode.CHECK)  # 0=restart all tests, 1=resume, 2=resume if possible (i.e. program version under test has not changed)
-    csv_dump_path: str = attrib(default=str(Path(user_data_dir(application_name, author), f"{application_name}.csv")))
+    run_mode: RunMode = attrib(default=RunMode.CHECK)  # 0=restart all tests, 1=resume, 2=resume if possible (i.e., the program version under test has not changed)
+
+    data_directory = attrib(default=str(get_default_data_directory()))
 
 
 def get_pref() -> FlyPreferences:

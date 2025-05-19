@@ -12,6 +12,7 @@ from ....logger import get_logger
 from .control_pushbutton import ControlButton
 from .parallelism_control_box import ParallelismControlBox
 from .run_mode_control_box import RunModeControlBox
+from .view_coverage import ViewCoverage
 
 log = get_logger()
 
@@ -24,6 +25,8 @@ class ControlWindow(QGroupBox):
         self.update_callback = update_callback
         self.setTitle("Control")
 
+        self.coverage_parent_directory = Path(get_pref().data_directory, "coverage")
+
         layout = QVBoxLayout()
         self.setLayout(layout)
 
@@ -31,8 +34,12 @@ class ControlWindow(QGroupBox):
 
         self.run_button = ControlButton(self, "Run", True)
         layout.addWidget(self.run_button)
+        self.run_button.clicked.connect(self.run)
+
         self.stop_button = ControlButton(self, "Stop", False)
         layout.addWidget(self.stop_button)
+        self.stop_button.clicked.connect(self.stop)
+
         layout.addStretch()
 
         self.parallelism_box = ParallelismControlBox(self)
@@ -41,8 +48,10 @@ class ControlWindow(QGroupBox):
         self.run_mode_box = RunModeControlBox(self)
         layout.addWidget(self.run_mode_box)
 
-        self.run_button.clicked.connect(self.run)
-        self.stop_button.clicked.connect(self.stop)
+        self.view_coverage_button = ControlButton(self, "View Coverage", True)
+        self.view_coverage = ViewCoverage(self.coverage_parent_directory)
+        self.view_coverage_button.clicked.connect(self.view_coverage.view)
+        layout.addWidget(self.view_coverage_button)
 
         self.run_guid = None
         self.pytest_runner_thread = None
@@ -72,7 +81,7 @@ class ControlWindow(QGroupBox):
         self.pytest_runner_thread = QThread(self)  # work will be done in this thread
         # I'd like the thread to have some name, so use the name of the worker it'll be moved to
         self.pytest_runner_thread.setObjectName(PytestRunnerWorker.__class__.__name__)
-        self.pytest_runner_worker = PytestRunnerWorker(get_tests(), coverage_parent_directory=Path(pref.data_directory, "coverage"))
+        self.pytest_runner_worker = PytestRunnerWorker(get_tests(), self.coverage_parent_directory)
         self.pytest_runner_worker.moveToThread(self.pytest_runner_thread)  # move worker to thread
         self.pytest_runner_worker.request_exit_signal.connect(self.pytest_runner_thread.quit)  # required to stop the thread
         self.pytest_runner_worker.update_signal.connect(self.pytest_update)

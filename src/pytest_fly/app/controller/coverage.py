@@ -12,6 +12,19 @@ from ..model.os import rm_file
 
 log = get_logger(application_name)
 
+_combined_coverage_file_name = "combined.coverage"
+_combined_lock_file_name = "combined.lock"
+
+
+def get_combined_coverage_file_path(coverage_parent_directory: Path) -> Path:
+    """
+    Get the path to the combined coverage file.
+
+    :param coverage_parent_directory: The directory containing the coverage files.
+    :return: The path to the combined coverage file.
+    """
+    return Path(coverage_parent_directory, _combined_coverage_file_name)
+
 
 class PytestFlyCoverage(Coverage):
 
@@ -35,8 +48,8 @@ def calculate_coverage(coverage_parent_directory: Path) -> float | None:
     coverage_file_paths = sorted(p for p in coverage_directory.rglob("*.coverage", case_sensitive=False))
     coverage_files_as_strings = [str(p) for p in coverage_file_paths]
 
-    combined_path = coverage_parent_directory / "combined.coverage"
-    combined_lock_path = coverage_parent_directory / "combined.lock"
+    combined_path = get_combined_coverage_file_path(coverage_parent_directory)
+    combined_lock_path = coverage_parent_directory / _combined_lock_file_name
 
     # shared files are written to the parent directory, so we need a lock
     timeout = 100.0  # seconds
@@ -60,6 +73,8 @@ def calculate_coverage(coverage_parent_directory: Path) -> float | None:
 
             output_buffer = io.StringIO()  # unused but required by the API
             coverage_value = cov.report(ignore_errors=True, output_format="total", file=output_buffer) / 100.0  # report returns coverage as a percentage
+            html_directory = Path(coverage_parent_directory, "html")
+            cov.html_report(directory=str(html_directory), ignore_errors=True)
 
         except NoDataError:
             # when we start, we may not have any coverage data

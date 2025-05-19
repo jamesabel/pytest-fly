@@ -4,6 +4,7 @@ from enum import IntEnum
 from attr import attrib, attrs
 from pref import Pref, PrefOrderedSet
 from platformdirs import user_data_dir
+from tobool import to_bool_strict
 
 from ...__version__ import application_name, author
 from ..model import RunMode, get_performance_core_count
@@ -14,6 +15,7 @@ scheduler_time_quantum_default = 1.0
 refresh_rate_default = 3.0
 utilization_high_threshold_default = 0.8
 utilization_low_threshold_default = 0.5
+run_with_coverage_default = True
 
 
 class ParallelismControl(IntEnum):
@@ -50,7 +52,12 @@ class FlyPreferences(Pref):
 
     run_mode: RunMode = attrib(default=RunMode.CHECK)  # 0=restart all tests, 1=resume, 2=resume if possible (i.e., the program version under test has not changed)
 
+    run_with_coverage: bool = attrib(default=run_with_coverage_default)  # run with coverage
+
     data_directory = attrib(default=str(get_default_data_directory()))
+
+    def get_run_with_coverage(self) -> bool:
+        return to_bool_strict(self.run_with_coverage)
 
 
 def get_pref() -> FlyPreferences:

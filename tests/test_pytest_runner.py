@@ -26,7 +26,7 @@ def test_pytest_runner(app):
         scheduled_tests = ScheduledTests()
         scheduled_test = ScheduledTest(str(test_path), False, None, None)
         scheduled_tests.add(scheduled_test)
-        worker = PytestRunnerWorker(scheduled_tests, data_directory)
+        worker = PytestRunnerWorker(scheduled_tests, data_directory, True)
 
         thread = QThread()
         worker.moveToThread(thread)

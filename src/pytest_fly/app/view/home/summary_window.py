@@ -25,7 +25,7 @@ class SummaryWindow(QGroupBox):
         layout.addStretch()
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self.setFixedSize(self.status_widget.size())
-        self.coverage = None
+        self.test_coverage = None  # 0.0 to 1.0
 
     def update_summary(self, status: PytestProcessInfo):
         """
@@ -65,10 +65,10 @@ class SummaryWindow(QGroupBox):
 
         lines.append(f"Total time: {humanize.precisedelta(timedelta(seconds=overall_time))}")
 
-        if (coverage := status.coverage) is not None:
-            self.coverage = coverage
-        if self.coverage is not None:
-            lines.append(f"Coverage: {self.coverage:.2%}")
+        if (test_coverage := status.test_coverage) is not None:
+            self.test_coverage = test_coverage
+        if self.test_coverage is not None:
+            lines.append(f"Coverage: {self.test_coverage:.2%}")
 
         text = "\n".join(lines)
 

@@ -71,8 +71,8 @@ class _PytestProcessMonitor(Process):
                     cpu_percent = None
                     memory_percent = None
                 if cpu_percent is not None and memory_percent is not None:
-                    coverage = calculate_coverage(self.coverage_parent_directory)
-                    pytest_process_info = PytestProcessInfo(self._name, self._singleton, pid=self._pid, cpu_percent=cpu_percent, memory_percent=memory_percent, coverage=coverage)
+                    test_coverage = calculate_coverage(self.coverage_parent_directory)
+                    pytest_process_info = PytestProcessInfo(self._name, self._singleton, pid=self._pid, cpu_percent=cpu_percent, memory_percent=memory_percent, test_coverage=test_coverage)
                     self._process_monitor_queue.put(pytest_process_info)
 
         self._psutil_process = PsutilProcess(self._pid)
@@ -93,19 +93,21 @@ class _PytestProcess(Process):
     """
 
     @typechecked()
-    def __init__(self, test: Path | str, coverage_parent_directory: Path, singleton: bool, update_rate: float, pytest_monitor_queue: Queue) -> None:
+    def __init__(self, test: Path | str, coverage_parent_directory: Path, singleton: bool, update_rate: float, pytest_monitor_queue: Queue, run_with_coverage: bool) -> None:
         """
         :param coverage_parent_directory: the directory to store coverage data in
         :param test: the test to run
         :param singleton: True if the test is a singleton, False otherwise
         :param update_rate: the rate at which to update the monitor
         :param pytest_monitor_queue: the queue to send pytest updates to
+        :param run_with_coverage: True if the test should be run with coverage, False otherwise
         """
         super().__init__(name=str(test))
         self.coverage_parent_directory = coverage_parent_directory
         self.singleton = singleton
         self.update_rate = update_rate
         self.pytest_monitor_queue = pytest_monitor_queue
+        self.run_with_coverage = run_with_coverage
 
         self._process_monitor_process = None
 
@@ -127,25 +129,29 @@ class _PytestProcess(Process):
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
 
-            # create a temp coverage file and then move it so if the file exists, the content is complete (the save is not necessarily instantaneous and atomic)
-            coverage_file_path = Path(coverage_data_directory, f"{self.name}.coverage")
-            coverage_temp_file_path = Path(coverage_data_directory, f"{self.name}.temp")
-            coverage_temp_file_path.unlink(missing_ok=True)
-            coverage = Coverage(coverage_temp_file_path)
-            coverage.start()
+            if self.run_with_coverage:
+                # create a temp coverage file and then move it so if the file exists, the content is complete (the save is not necessarily instantaneous and atomic)
+                coverage_file_path = Path(coverage_data_directory, f"{self.name}.coverage")
+                coverage_temp_file_path = Path(coverage_data_directory, f"{self.name}.temp")
+                coverage_temp_file_path.unlink(missing_ok=True)
+                coverage = Coverage(coverage_temp_file_path)
+                coverage.start()
 
             exit_code = pytest.main([self.name])
 
-            coverage.stop()
-            coverage.save()
-
-            coverage_file_path.unlink(missing_ok=True)
-            shutil.move(coverage_temp_file_path, coverage_file_path)
+            if self.run_with_coverage:
+                coverage.stop()
+                coverage.save()
+                coverage_file_path.unlink(missing_ok=True)
+                shutil.move(coverage_temp_file_path, coverage_file_path)
 
         output: str = buf.getvalue()
         end = time.time()
 
-        coverage = calculate_coverage(self.coverage_parent_directory)
+        if self.run_with_coverage:
+            test_coverage = calculate_coverage(self.coverage_parent_directory)
+        else:
+            test_coverage = None
 
         # stop the process monitor
         self._process_monitor_process.request_stop()
@@ -154,7 +160,7 @@ class _PytestProcess(Process):
             log.error(f"{self._process_monitor_process} is alive")
 
         # update the pytest process info to show that the test has finished
-        pytest_process_info = PytestProcessInfo(self.name, self.singleton, PytestProcessState.FINISHED, self.pid, exit_code, output, end=end, coverage=coverage)
+        pytest_process_info = PytestProcessInfo(self.name, self.singleton, PytestProcessState.FINISHED, self.pid, exit_code, output, end=end, test_coverage=test_coverage)
         self.pytest_monitor_queue.put(pytest_process_info)
 
         log.debug(f"{self.name=},{self.name},{exit_code=},{output=}")
@@ -186,16 +192,19 @@ class PytestRunnerWorker(QObject):
         self.request_exit_signal.emit()
 
     @typechecked()
-    def __init__(self, tests: ScheduledTests, coverage_parent_directory: Path) -> None:
+    def __init__(self, tests: ScheduledTests, coverage_parent_directory: Path, run_with_coverage: bool) -> None:
         """
         Pytest runner worker.
 
         :param tests: the tests to run
+        :param coverage_parent_directory: the directory to store coverage data in
+        :param run_with_coverage: True if the tests should be run with coverage, False otherwise
         """
         super().__init__()
 
         self.tests = tests
         self.coverage_parent_directory = coverage_parent_directory
+        self.run_with_coverage = run_with_coverage
 
         self.pytest_monitor_queue = Queue()  # monitor data for the pytest processes
 
@@ -226,6 +235,7 @@ class PytestRunnerWorker(QObject):
 
         pref = get_pref()
         mode = pref.run_mode
+        run_with_coverage = pref.get_run_with_coverage()
 
         mk_dirs(self.coverage_parent_directory, True)
 
@@ -242,7 +252,7 @@ class PytestRunnerWorker(QObject):
                     add_test = True
             if add_test:
                 # start over for this test
-                pytest_process_info = PytestProcessInfo(name=test.node_id, singleton=test.singleton, state=PytestProcessState.QUEUED)
+                pytest_process_info = PytestProcessInfo(name=test.node_id, singleton=test.singleton, state=PytestProcessState.QUEUED, run_with_coverage=run_with_coverage)
                 self.update_pytest_process_info(pytest_process_info, True)
 
     @Slot()
@@ -271,7 +281,7 @@ class PytestRunnerWorker(QObject):
                                 log.warning(f"PermissionError joining {test}")
                         except NoSuchProcess:
                             pass
-                        new_pytest_process_info = PytestProcessInfo(name=test.node_id, singleton=test.singleton, state=PytestProcessState.TERMINATED)
+                        new_pytest_process_info = PytestProcessInfo(name=test.node_id, singleton=test.singleton, state=PytestProcessState.TERMINATED, run_with_coverage=self.run_with_coverage)
                         self.update_pytest_process_info(new_pytest_process_info, False)
         self._processes.clear()
 
@@ -307,11 +317,11 @@ class PytestRunnerWorker(QObject):
                 log.debug(f"{test} is queued - starting")
 
                 log.debug(f"starting {test}")
-                pytest_process_info = PytestProcessInfo(name=test.node_id, singleton=test.singleton, state=PytestProcessState.RUNNING)
+                pytest_process_info = PytestProcessInfo(name=test.node_id, singleton=test.singleton, state=PytestProcessState.RUNNING, run_with_coverage=self.run_with_coverage)
                 self.update_pytest_process_info(pytest_process_info, False)
 
                 # we don't generally access self.processes, but we need to keep a reference to the process and ensure it stays alive
-                self._processes[test] = _PytestProcess(test.node_id, self.coverage_parent_directory, test.singleton, refresh_rate, self.pytest_monitor_queue)
+                self._processes[test] = _PytestProcess(test.node_id, self.coverage_parent_directory, test.singleton, refresh_rate, self.pytest_monitor_queue, self.run_with_coverage)
                 self._processes[test].start()
 
         # update UI

@@ -4,7 +4,7 @@ from pathlib import Path
 import io
 
 from coverage import Coverage
-from coverage.exceptions import NoDataError
+from coverage.exceptions import NoDataError, DataError
 
 from ..logger import get_logger
 from ...__version__ import application_name
@@ -79,6 +79,8 @@ def calculate_coverage(coverage_parent_directory: Path) -> float | None:
         except NoDataError:
             # when we start, we may not have any coverage data
             pass
+        except DataError as e:
+            log.info(f'DataError: "{combined_path}",{e}')
     else:
         log.warning(f"Failed to acquire lock on {combined_lock_path} within {timeout} seconds.")
 

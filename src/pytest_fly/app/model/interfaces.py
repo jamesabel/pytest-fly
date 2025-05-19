@@ -151,6 +151,8 @@ class PytestProcessInfo:
     end: float | None = None  # epoch when the test ended
     cpu_percent: float | None = None  # CPU utilization as a percentage (100.0 = 1 CPU)
     memory_percent: float | None = None  # memory utilization as a percentage (100.0 = 100% of RSS memory)
+    run_with_coverage: bool = False  # True to run with test coverage
+    test_coverage: float | None = None  # current coverage of the test (0.0 = no coverage, 1.0 = full coverage)
     time_stamp: float = time.time()  # timestamp when the data was last updated
 
 

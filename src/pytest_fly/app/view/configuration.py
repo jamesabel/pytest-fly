@@ -96,6 +96,17 @@ class Configuration(QWidget):
         self.utilization_low_threshold_lineedit.textChanged.connect(self.update_utilization_low_threshold)
         layout.addWidget(self.utilization_low_threshold_lineedit)
 
+        # coverage option
+        self.run_with_coverage_checkbox = QCheckBox("Run with Coverage")
+        self.run_with_coverage_checkbox.setChecked(to_bool_strict(pref.get_run_with_coverage()))
+        self.run_with_coverage_checkbox.stateChanged.connect(self.update_run_with_coverage)
+        layout.addWidget(self.run_with_coverage_checkbox)
+
+    def update_run_with_coverage(self):
+        pref = get_pref()
+        pref.run_with_coverage = self.run_with_coverage_checkbox.isChecked()
+        self.configuration_update_callback()
+
     def update_verbose(self):
         pref = get_pref()
         pref.verbose = self.verbose_checkbox.isChecked()

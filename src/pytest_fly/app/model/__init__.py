@@ -11,3 +11,4 @@ from .db import (
 from .guid import get_guid
 from .interfaces import RunMode, RunParameters, PytestProcessState, state_order, PytestProcessInfo, exit_code_to_string, ScheduledTest, ScheduledTests
 from .platform_info import get_computer_name, get_user_name, get_performance_core_count, get_efficiency_core_count, get_platform_info
+from .test_list import get_tests

@@ -1,6 +1,7 @@
 from pathlib import Path
 from dataclasses import asdict
 from enum import IntEnum, StrEnum
+import sqlite3
 
 from msqlite import MSQLite
 from balsa import get_logger
@@ -86,20 +87,6 @@ class PytestProcessCurrentInfoDB(PytestProcessInfoDB):
 log = get_logger(application_name)
 
 
-# def save_pytest_process_current_info(pytest_process_info: PytestProcessInfo) -> None:
-#     """
-#     Save the pytest process info to the database.
-#
-#     :param pytest_process_info: the pytest process info to save
-#     """
-#
-#     with PytestProcessCurrentInfoDB() as db:
-#         statement = f"INSERT INTO {db.table_name} ({', '.join(_columns)}) VALUES ({', '.join(['?'] * len(_columns))})"
-#         parameters = _get_parameters(pytest_process_info)
-#         log.info(f"{statement=}, {parameters=}")
-#         db.execute(statement, parameters)
-
-
 @typechecked
 def upsert_pytest_process_current_info(pytest_process_info: PytestProcessInfo) -> None:
     """
@@ -115,13 +102,16 @@ def upsert_pytest_process_current_info(pytest_process_info: PytestProcessInfo) -
         parameters = _get_parameters(pytest_process_info)
         parameters.append(name)  # value associated with the WHERE clause
         log.info(f"{update_statement=},{name=},{parameters=}")
-        cursor = db.execute(update_statement, parameters)
-        if cursor.rowcount == 0:
-            # no entry exists for this test, so insert it
-            insert_statement = f"INSERT INTO {db.table_name} ({', '.join(_columns)}) VALUES ({', '.join(['?'] * len(_columns))})"
-            insert_parameters = _get_parameters(pytest_process_info)
-            log.info(f"{insert_statement=}, {insert_parameters=}")
-            db.execute(insert_statement, insert_parameters)
+        try:
+            cursor = db.execute(update_statement, parameters)
+            if cursor.rowcount == 0:
+                # no entry exists for this test, so insert it
+                insert_statement = f"INSERT INTO {db.table_name} ({', '.join(_columns)}) VALUES ({', '.join(['?'] * len(_columns))})"
+                insert_parameters = _get_parameters(pytest_process_info)
+                log.info(f"{insert_statement=}, {insert_parameters=}")
+                db.execute(insert_statement, insert_parameters)
+        except sqlite3.OperationalError as e:
+            log.error(f'{e},{db.table_name=},"{db.db_path}"')
 
 
 @typechecked

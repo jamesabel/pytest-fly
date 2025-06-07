@@ -71,7 +71,7 @@ class _PytestProcessMonitor(Process):
                     cpu_percent = None
                     memory_percent = None
                 if cpu_percent is not None and memory_percent is not None:
-                    test_coverage = calculate_coverage(self.coverage_parent_directory)
+                    test_coverage = calculate_coverage(self._name, self.coverage_parent_directory)
                     pytest_process_info = PytestProcessInfo(self._name, self._singleton, pid=self._pid, cpu_percent=cpu_percent, memory_percent=memory_percent, test_coverage=test_coverage)
                     self._process_monitor_queue.put(pytest_process_info)
 
@@ -149,7 +149,7 @@ class _PytestProcess(Process):
         end = time.time()
 
         if self.run_with_coverage:
-            test_coverage = calculate_coverage(self.coverage_parent_directory)
+            test_coverage = calculate_coverage(self.name, self.coverage_parent_directory)
         else:
             test_coverage = None
 

@@ -14,6 +14,7 @@ py-cpuinfo
 humanize
 tobool
 uuid6
+hashy
 # linters
 black
 flake8

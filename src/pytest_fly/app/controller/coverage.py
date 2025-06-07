@@ -1,29 +1,16 @@
-import time
-import random
 from pathlib import Path
 import io
+
+from hashy import get_string_sha256
 
 from coverage import Coverage
 from coverage.exceptions import NoDataError, DataError
 
 from ..logger import get_logger
 from ...__version__ import application_name
-from ..model.os import rm_file
+
 
 log = get_logger(application_name)
-
-_combined_coverage_file_name = "combined.coverage"
-_combined_lock_file_name = "combined.lock"
-
-
-def get_combined_coverage_file_path(coverage_parent_directory: Path) -> Path:
-    """
-    Get the path to the combined coverage file.
-
-    :param coverage_parent_directory: The directory containing the coverage files.
-    :return: The path to the combined coverage file.
-    """
-    return Path(coverage_parent_directory, _combined_coverage_file_name)
 
 
 class PytestFlyCoverage(Coverage):
@@ -34,10 +21,11 @@ class PytestFlyCoverage(Coverage):
         self._no_warn_slugs.add("couldnt-parse")
 
 
-def calculate_coverage(coverage_parent_directory: Path) -> float | None:
+def calculate_coverage(test_identifier: str, coverage_parent_directory: Path) -> float | None:
     """
     Load a collection of coverage files from a directory and calculate the overall coverage.
 
+    :param test_identifier: Test identifier.
     :param coverage_parent_directory: The directory containing the coverage files.
     :return: The overall coverage as a value between 0.0 and 1.0, or None if no coverage files were found.
     """
@@ -48,43 +36,25 @@ def calculate_coverage(coverage_parent_directory: Path) -> float | None:
     coverage_file_paths = sorted(p for p in coverage_directory.rglob("*.coverage", case_sensitive=False))
     coverage_files_as_strings = [str(p) for p in coverage_file_paths]
 
-    combined_path = get_combined_coverage_file_path(coverage_parent_directory)
-    combined_lock_path = coverage_parent_directory / _combined_lock_file_name
+    combined_parent_directory = Path(coverage_parent_directory, "combined")
 
-    # shared files are written to the parent directory, so we need a lock
-    timeout = 100.0  # seconds
-    start = time.time()
-    lock_acquired = False
-    while not lock_acquired and time.time() - start < timeout:
-        try:
-            combined_lock_path.touch(exist_ok=False)
-            lock_acquired = True
-        except (FileExistsError, PermissionError):
-            wait_time = 0.5 + random.random()
-            log.info(f'"{combined_lock_path}" is locked, waiting {wait_time} seconds')
-            time.sleep(wait_time)
+    test_identifier_hash = get_string_sha256(test_identifier)
+    combined_file_name = f"{get_string_sha256(test_identifier_hash)}.combined"
+    combined_file_path = Path(combined_parent_directory, combined_file_name)
+    combined_directory = Path(combined_parent_directory, test_identifier_hash)  # HTML report directory
 
-    if lock_acquired:
-        rm_file(combined_path)
-        try:
-            cov = PytestFlyCoverage(combined_path)
-            cov.combine(coverage_files_as_strings, keep=True)
-            cov.save()
+    try:
+        cov = PytestFlyCoverage(combined_file_path)
+        cov.combine(coverage_files_as_strings, keep=True)
+        cov.save()
 
-            output_buffer = io.StringIO()  # unused but required by the API
-            coverage_value = cov.report(ignore_errors=True, output_format="total", file=output_buffer) / 100.0  # report returns coverage as a percentage
-            html_directory = Path(coverage_parent_directory, "html")
-            cov.html_report(directory=str(html_directory), ignore_errors=True)
-
-        except NoDataError:
-            # when we start, we may not have any coverage data
-            pass
-        except DataError as e:
-            log.info(f'DataError: "{combined_path}",{e}')
-    else:
-        log.warning(f"Failed to acquire lock on {combined_lock_path} within {timeout} seconds.")
-
-    # remove the lock file
-    combined_lock_path.unlink(missing_ok=True)
+        output_buffer = io.StringIO()  # unused but required by the API
+        coverage_value = cov.report(ignore_errors=True, output_format="total", file=output_buffer) / 100.0  # report returns coverage as a percentage
+        cov.html_report(directory=str(combined_directory), ignore_errors=True)
+    except NoDataError:
+        # when we start, we may not have any coverage data
+        pass
+    except DataError as e:
+        log.info(f"{e}")
 
     return coverage_value

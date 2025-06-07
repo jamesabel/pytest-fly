@@ -30,7 +30,7 @@ from ..model import (
 )
 from ..model.preferences import get_pref
 from ..model.os import mk_dirs
-from .coverage import calculate_coverage
+from .coverage import calculate_coverage, read_most_recent_coverage_summary_file
 
 
 log = get_logger()
@@ -71,7 +71,7 @@ class _PytestProcessMonitor(Process):
                     cpu_percent = None
                     memory_percent = None
                 if cpu_percent is not None and memory_percent is not None:
-                    test_coverage = calculate_coverage(self._name, self.coverage_parent_directory)
+                    test_coverage = read_most_recent_coverage_summary_file(self.coverage_parent_directory)
                     pytest_process_info = PytestProcessInfo(self._name, self._singleton, pid=self._pid, cpu_percent=cpu_percent, memory_percent=memory_percent, test_coverage=test_coverage)
                     self._process_monitor_queue.put(pytest_process_info)
 
@@ -148,16 +148,16 @@ class _PytestProcess(Process):
         output: str = buf.getvalue()
         end = time.time()
 
-        if self.run_with_coverage:
-            test_coverage = calculate_coverage(self.name, self.coverage_parent_directory)
-        else:
-            test_coverage = None
-
         # stop the process monitor
         self._process_monitor_process.request_stop()
         self._process_monitor_process.join(100.0)  # plenty of time for the monitor to stop
         if self._process_monitor_process.is_alive():
             log.error(f"{self._process_monitor_process} is alive")
+
+        if self.run_with_coverage:
+            test_coverage = calculate_coverage(self.name, self.coverage_parent_directory, True)  # since the test is complete, write the coverage report
+        else:
+            test_coverage = None
 
         # update the pytest process info to show that the test has finished
         pytest_process_info = PytestProcessInfo(self.name, self.singleton, PytestProcessState.FINISHED, self.pid, exit_code, output, end=end, test_coverage=test_coverage)

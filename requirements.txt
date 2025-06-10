@@ -192,7 +192,7 @@ python-dateutil==2.9.0.post0
     # via balsa
 pywin32-ctypes==0.2.3
     # via keyring
-requests==2.32.3
+requests==2.32.4
     # via flit
 rich==14.0.0
     # via hatch

@@ -227,7 +227,7 @@ typing-extensions==4.13.2
     # via
     #   mypy
     #   typeguard
-urllib3==2.4.0
+urllib3==2.5.0
     # via requests
 userpath==1.9.2
     # via hatch

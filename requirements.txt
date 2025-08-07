@@ -233,7 +233,7 @@ userpath==1.9.2
     # via hatch
 uuid6==2024.7.10
     # via -r requirements-dev.txt
-uv==0.7.4
+uv==0.8.6
     # via hatch
 virtualenv==20.31.2
     # via hatch

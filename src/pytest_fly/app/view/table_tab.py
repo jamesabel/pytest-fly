@@ -10,6 +10,7 @@ from pytest import ExitCode
 
 from ..model.preferences import get_pref
 from ..model import PytestProcessInfo, PytestProcessState, get_performance_core_count, exit_code_to_string
+from ..view.home.summary_window import SummaryWindow
 
 
 class Columns(Enum):
@@ -31,9 +32,10 @@ def set_utilization_color(item: QTableWidgetItem, value: float):
         return
 
 
-class Status(QGroupBox):
+class TableTab(QGroupBox):
 
-    def __init__(self):
+    def __init__(self, summary_window: SummaryWindow):
+        self.summary_window = summary_window
         super().__init__()
 
         self.statuses = {}
@@ -57,6 +59,7 @@ class Status(QGroupBox):
 
         scroll_area.setWidget(self.table_widget)
         layout.addWidget(scroll_area)
+        layout.addWidget(self.summary_window)
         self.setLayout(layout)
 
     def show_context_menu(self, position: QPoint):

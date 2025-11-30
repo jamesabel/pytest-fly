@@ -6,12 +6,13 @@ from PySide6.QtCore import QCoreApplication, QRect
 
 from .gui_util import get_font, get_text_dimensions
 from ..logger import get_logger
-from .home import Home
-from .status import Status
+from .home import GraphTab
+from .table_tab import TableTab
 from .configuration import Configuration
 from .about import About
 from ..model.preferences import get_pref
 from ..model.db import set_db_path
+from ..view.home.summary_window import SummaryWindow
 from ...__version__ import application_name
 
 log = get_logger()
@@ -48,15 +49,16 @@ class FlyAppMainWindow(QMainWindow):
         self.setWindowTitle(application_name)
 
         # add tab windows
+        self.summary_window = SummaryWindow()
         self.tab_widget = QTabWidget()
-        self.status = Status()
-        self.home = Home(self, self.reset, self.status.update_status)
+        self.table_tab = TableTab(self.summary_window)
+        self.graph_tab = GraphTab(self, self.reset, self.table_tab.update_status, self.summary_window)
         # self.history = History()  # no history yet
         # configuration update also updates processes count in control window
-        self.configuration = Configuration(self.home.control_window.update_processes_configuration)
+        self.configuration = Configuration(self.graph_tab.control_window.update_processes_configuration)
         self.about = About()
-        self.tab_widget.addTab(self.home, "Home")
-        self.tab_widget.addTab(self.status, "Status")
+        self.tab_widget.addTab(self.graph_tab, "Graph")
+        self.tab_widget.addTab(self.table_tab, "Table")
         # self.tab_widget.addTab(self.history, "History")
         self.tab_widget.addTab(self.configuration, "Configuration")
         self.tab_widget.addTab(self.about, "About")
@@ -64,7 +66,7 @@ class FlyAppMainWindow(QMainWindow):
         self.setCentralWidget(self.tab_widget)
 
     def reset(self):
-        self.status.reset()
+        self.table_tab.reset()
 
     def closeEvent(self, event, /):
 
@@ -79,16 +81,16 @@ class FlyAppMainWindow(QMainWindow):
         pref.window_width = self.width()
         pref.window_height = self.height()
 
-        if self.home.control_window.pytest_runner_worker is not None:
+        if self.graph_tab.control_window.pytest_runner_worker is not None:
             log.info(f"{__class__.__name__}.closeEvent() - request_exit_signal.emit()")
-            self.home.control_window.pytest_runner_worker.request_stop()
+            self.graph_tab.control_window.pytest_runner_worker.request_stop()
             QCoreApplication.processEvents()
-            self.home.control_window.pytest_runner_worker.request_exit()
+            self.graph_tab.control_window.pytest_runner_worker.request_exit()
             QCoreApplication.processEvents()
-            while self.home.control_window.pytest_runner_thread.isRunning():
+            while self.graph_tab.control_window.pytest_runner_thread.isRunning():
                 QCoreApplication.processEvents()
                 log.info(f"{__class__.__name__}.closeEvent() - waiting for worker thread to finish")
-                self.home.control_window.pytest_runner_thread.wait(1000)
+                self.graph_tab.control_window.pytest_runner_thread.wait(1000)
 
         log.info(f"{__class__.__name__}.closeEvent() - doing event.accept()")
 

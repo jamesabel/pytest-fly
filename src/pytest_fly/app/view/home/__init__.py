@@ -1,1 +1,1 @@
-from .home import Home
+from .graph_tab import GraphTab

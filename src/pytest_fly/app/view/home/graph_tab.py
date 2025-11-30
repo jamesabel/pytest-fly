@@ -1,3 +1,5 @@
+from typing import Callable
+
 from PySide6.QtWidgets import QWidget, QHBoxLayout, QSplitter, QScrollArea
 
 from .control import ControlWindow
@@ -10,8 +12,8 @@ from ...logger import get_logger
 log = get_logger()
 
 
-class Home(QWidget):
-    def __init__(self, parent, reset_callback, update_callback):
+class GraphTab(QWidget):
+    def __init__(self, parent, reset_callback: Callable, update_callback: Callable, summary_window: SummaryWindow):
         super().__init__(parent)
         self.reset_callback = reset_callback
         self.update_callback = update_callback
@@ -19,7 +21,7 @@ class Home(QWidget):
         layout = QHBoxLayout()
         self.splitter = QSplitter()
 
-        self.summary_window = SummaryWindow()
+        self.summary_window = summary_window
         self.progress_window = ProgressWindow()
         self.control_window = ControlWindow(self, self.reset, self.update_status)
 

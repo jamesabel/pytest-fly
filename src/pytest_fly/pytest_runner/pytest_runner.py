@@ -9,7 +9,8 @@ from typeguard import typechecked
 
 from ..logger import get_logger
 from ..interfaces import ScheduledTests
-from .pytest_process import PytestProcess
+from .pytest_process import PytestProcess, PytestProcessInfo
+from ..db import PytestProcessInfoDB
 from .const import TIMEOUT
 
 log = get_logger()
@@ -35,8 +36,11 @@ class PytestRunner(Thread):
     def run(self):
 
         test_queue = Queue()
-        for test in self.tests:
-            test_queue.put(test.node_id)
+        with PytestProcessInfoDB(self.data_dir) as db:
+            for test in self.tests:
+                test_queue.put(test.node_id)
+                pytest_process_info = PytestProcessInfo(self.run_guid, test.node_id, None, None, None, time_stamp=time.time())  # queued
+                db.write(pytest_process_info)
 
         for thread_number in range(self.number_of_processes):
             pytest_runner_thread = _PytestRunnerThread(self.run_guid, test_queue, self.data_dir, self.update_rate)

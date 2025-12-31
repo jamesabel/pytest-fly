@@ -101,11 +101,19 @@ class TableTab(QGroupBox):
             self.table_widget.setItem(row_number, Columns.NAME.value, QTableWidgetItem(process_info.name))
 
             state_item = QTableWidgetItem()
-            if process_info.exit_code == ExitCode.OK or process_info.exit_code is None:
+            if process_info.pid is None:
+                state_item.setText("Queued")
+                state_item.setForeground(QColor("gray"))
+            elif process_info.exit_code is None:
+                state_item.setText("Running")
+                state_item.setForeground(QColor("blue"))
+            elif process_info.exit_code == ExitCode.OK:
+                state_item.setText("Pass")
                 state_item.setForeground(QColor("green"))
             else:
+                exit_code_string = exit_code_to_string(process_info.exit_code)
+                state_item.setText(f"Fail ({exit_code_string})")
                 state_item.setForeground(QColor("red"))
-            state_item.setText(exit_code_to_string(process_info.exit_code))
             self.table_widget.setItem(row_number, Columns.STATE.value, state_item)
 
         # Resize columns to fit contents

@@ -131,7 +131,7 @@ class PytestProcessInfo:
 
     run_guid: str  # the pytest run GUID this process is associated with
     name: str  # process name (usually the test name)
-    pid: int | None  # process ID from the OS
+    pid: int | None  # process ID from the OS (if None the process has not started yet)
     exit_code: ExitCode | None  # exit code from pytest, None if the test is still running
     output: str | None  # output from the pytest run, None if the test is still running
     time_stamp: float  # time stamp of the info update

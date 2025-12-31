@@ -48,7 +48,7 @@ class PytestProcess(Process):
 
         # update the pytest process info to show that the test is running
         with PytestProcessInfoDB(self.data_dir) as db:
-            pytest_process_info = PytestProcessInfo(self.run_guid, self.name, self.pid, exit_code=None, output=None, time_stamp=time.time())
+            pytest_process_info = PytestProcessInfo(self.run_guid, self.name, self.pid, None, None, time_stamp=time.time())
             db.write(pytest_process_info)
 
         # Finally, actually run pytest!
@@ -80,7 +80,7 @@ class PytestProcess(Process):
 
         # update the pytest process info to show that the test has finished
         with PytestProcessInfoDB(self.data_dir) as db:
-            pytest_process_info = PytestProcessInfo(self.run_guid, self.name, self.pid, exit_code, output, time_stamp=time.time())
+            pytest_process_info = PytestProcessInfo(self.run_guid, self.name, self.pid, exit_code, output, time.time())
             db.write(pytest_process_info)
 
         log.debug(f"{self.name=},{self.name},{exit_code=},{output=}")

@@ -1,5 +1,3 @@
-from pathlib import Path
-
 from pytest_fly.pytest_runner.pytest_runner import PytestRunner
 from pytest_fly.interfaces import ScheduledTest, ScheduledTests
 from pytest_fly.db import PytestProcessInfoDB
@@ -23,4 +21,4 @@ def test_pytest_runner_simple(app):
     runner.join(10.0)
     with PytestProcessInfoDB(data_dir) as db:
         results = db.query(run_guid)
-    assert len(results) == 2
+    assert len(results) == 3

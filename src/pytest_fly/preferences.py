@@ -32,7 +32,6 @@ class FlyPreferences(Pref):
     window_height: int = attrib(default=-1)
 
     verbose: bool = attrib(default=False)
-    scheduler_time_quantum: float = attrib(default=scheduler_time_quantum_default)  # scheduler time quantum in seconds
     refresh_rate: float = attrib(default=refresh_rate_default)  # display minimum refresh rate in seconds
 
     parallelism: ParallelismControl = attrib(default=ParallelismControl.SERIAL)  # 0=serial, 1=parallel, 2=dynamic

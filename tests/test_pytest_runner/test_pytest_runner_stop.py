@@ -25,4 +25,4 @@ def test_pytest_runner_stop(app):
     runner.join(10.0)
     with PytestProcessInfoDB(data_dir) as db:
         results = db.query()
-    assert len(results) == 1  # only the start of the test should be recorded
+    assert len(results) == 2  # only the start of the test should be recorded

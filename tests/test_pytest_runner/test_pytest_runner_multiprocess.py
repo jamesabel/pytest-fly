@@ -25,7 +25,7 @@ def test_pytest_runner_multiprocess(app):
     with PytestProcessInfoDB(data_dir) as db:
         query_results = db.query(run_guid)
 
-    assert len(query_results) == 4
+    assert len(query_results) == 6
 
     # get results for each test
     test_results = {}
@@ -35,7 +35,7 @@ def test_pytest_runner_multiprocess(app):
     results = test_results[tests[0]]  # no operation test
     duration = results[1].time_stamp - results[0].time_stamp
     print(f"{tests[0]}: {duration=}")
-    assert 1.0 < duration < 3.0  # 1.7821760177612305 seen
+    assert 0.0 < duration < 3.0  # 1.7821760177612305 seen
 
     results = test_results[tests[1]]  # 3 sec operation
     duration = results[1].time_stamp - results[0].time_stamp

@@ -8,8 +8,7 @@ import time
 from typeguard import typechecked
 
 from ..logger import get_logger
-from ..interfaces import ScheduledTests, PytestProcessInfo
-from ..guid import generate_uuid
+from ..interfaces import ScheduledTests
 from .pytest_process import PytestProcess
 from .const import TIMEOUT
 
@@ -17,7 +16,10 @@ log = get_logger()
 
 
 class PytestRunner(Thread):
-    def __init__(self, tests: ScheduledTests, number_of_processes: int, data_dir: Path, update_rate: float):
+
+    @typechecked()
+    def __init__(self, run_guid: str, tests: ScheduledTests, number_of_processes: int, data_dir: Path, update_rate: float):
+        self.run_guid = run_guid
         self.tests = tests
         self.number_of_processes = number_of_processes
         self.data_dir = data_dir
@@ -36,10 +38,8 @@ class PytestRunner(Thread):
         for test in self.tests:
             test_queue.put(test.node_id)
 
-        run_guid = generate_uuid()
-
         for thread_number in range(self.number_of_processes):
-            pytest_runner_thread = _PytestRunnerThread(run_guid, test_queue, self.data_dir, self.update_rate)
+            pytest_runner_thread = _PytestRunnerThread(self.run_guid, test_queue, self.data_dir, self.update_rate)
             pytest_runner_thread.start()
             self._pytest_runner_threads[thread_number] = pytest_runner_thread
         self._started_event.set()
@@ -51,6 +51,7 @@ class PytestRunner(Thread):
                 running.append(runner_thread.process.is_alive())
         return any(running)
 
+    @typechecked()
     def join(self, timeout_seconds: float | None = None) -> bool:
 
         # in case join is called right after .start(), wait until .run() has started all workers

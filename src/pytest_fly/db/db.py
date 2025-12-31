@@ -9,7 +9,7 @@ from pytest import ExitCode
 from typeguard import typechecked
 
 from ..__version__ import application_name
-from ..interfaces import state_order, PytestProcessInfo
+from ..interfaces import PytestProcessInfo
 
 
 log = get_logger(application_name)
@@ -35,7 +35,7 @@ class PytestProcessInfoDB(MSQLite):
                 self._schema[column] = type(value)
             self._columns.append(column)
 
-        db_path = Path(db_dir, "pytest_fly.sqlite")
+        db_path = Path(db_dir, f"{application_name}.db")
         super().__init__(db_path, table_name, self._schema)
 
     @typechecked
@@ -58,6 +58,7 @@ class PytestProcessInfoDB(MSQLite):
         """
         Query the pytest process info from the database.
 
+        :param run_guid: the run GUID to filter on, or None to get the most recent.
         :return: the pytest process infos
         """
 
@@ -73,7 +74,12 @@ class PytestProcessInfoDB(MSQLite):
             pytest_process_info = PytestProcessInfo(*row)
             rows.append(pytest_process_info)
 
-        rows.sort(key=lambda x: (state_order(x.run_guid), x.time_stamp))
+        # if no run_guid specified, filter to most recent run
+        if run_guid is None:
+            for row in rows:
+                if run_guid is None or row.run_guid > run_guid:
+                    run_guid = row.run_guid
+            rows = [row for row in rows if row.run_guid == run_guid]
 
         return rows
 

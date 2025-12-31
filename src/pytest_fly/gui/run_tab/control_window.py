@@ -25,6 +25,8 @@ class ControlWindow(QGroupBox):
         super().__init__(parent)
         self.data_dir = data_dir
 
+        self.run_guid: str | None = None
+
         self.setTitle("Control")
 
         layout = QVBoxLayout()
@@ -75,8 +77,8 @@ class ControlWindow(QGroupBox):
     def run(self):
         pref = get_pref()
         refresh_rate = pref.refresh_rate
-        run_guid = generate_uuid()
-        run_parameters = RunParameters(run_guid, pref.run_mode, pref.processes)
+        self.run_guid = generate_uuid()
+        run_parameters = RunParameters(self.run_guid, pref.run_mode, pref.processes)
         if pref.parallelism == ParallelismControl.SERIAL:
             run_parameters.max_processes = 1
 
@@ -84,7 +86,7 @@ class ControlWindow(QGroupBox):
         if self.pytest_runner is not None and self.pytest_runner.is_running():
             self.pytest_runner.stop()
             self.pytest_runner.join()
-        self.pytest_runner = PytestRunner(tests, run_parameters.max_processes, self.data_dir, refresh_rate)
+        self.pytest_runner = PytestRunner(self.run_guid, tests, run_parameters.max_processes, self.data_dir, refresh_rate)
         self.pytest_runner.start()
         self.run_button.setEnabled(False)
         self.stop_button.setEnabled(True)
@@ -93,3 +95,4 @@ class ControlWindow(QGroupBox):
         self.pytest_runner.stop()
         self.run_button.setEnabled(True)
         self.stop_button.setEnabled(False)
+        self.run_guid = None

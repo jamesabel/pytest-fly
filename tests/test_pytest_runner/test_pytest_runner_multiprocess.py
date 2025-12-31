@@ -1,4 +1,5 @@
 from pytest_fly.pytest_runner.pytest_runner import PytestRunner
+from pytest_fly.guid import generate_uuid
 from pytest_fly.interfaces import ScheduledTest, ScheduledTests
 from pytest_fly.db import PytestProcessInfoDB
 
@@ -15,13 +16,14 @@ def test_pytest_runner_multiprocess(app):
     for test in tests:
         scheduled_tests.add(ScheduledTest(node_id=test, singleton=False, duration=None, coverage=None))
 
+    run_guid = generate_uuid()
     data_dir = get_temp_dir(test_name)
 
-    runner = PytestRunner(scheduled_tests, number_of_processes=2, data_dir=data_dir, update_rate=3.0)
+    runner = PytestRunner(run_guid, scheduled_tests, number_of_processes=2, data_dir=data_dir, update_rate=3.0)
     runner.start()
     runner.join(10.0)
     with PytestProcessInfoDB(data_dir) as db:
-        query_results = db.query()
+        query_results = db.query(run_guid)
 
     assert len(query_results) == 4
 

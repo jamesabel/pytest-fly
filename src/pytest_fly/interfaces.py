@@ -110,19 +110,6 @@ class RunParameters:
     max_processes: int  # maximum number of processes to run in parallel (ignored if dynamic_processes is True)
 
 
-def state_order(pytest_process_state: PytestProcessState) -> int:
-    # for sorting PytestProcessState, but keeping PytestProcessState as a str
-    orders = {PytestProcessState.UNKNOWN: 0, PytestProcessState.QUEUED: 1, PytestProcessState.RUNNING: 2, PytestProcessState.FINISHED: 3, PytestProcessState.TERMINATED: 4}
-    if pytest_process_state is None:
-        order = orders[PytestProcessState.UNKNOWN]
-    elif pytest_process_state in orders:
-        order = orders[pytest_process_state]
-    else:
-        log.error(f"Unknown pytest_process_state: {pytest_process_state}")
-        order = orders[PytestProcessState.UNKNOWN]
-    return order
-
-
 int_to_exit_code = {exit_code.value: exit_code for exit_code in ExitCode}
 
 
@@ -132,7 +119,7 @@ def exit_code_to_string(exit_code: ExitCode | int | None) -> str:
     if isinstance(exit_code, ExitCode):
         exit_code_string = exit_code.name
     else:
-        exit_code_string = "unknown"
+        exit_code_string = "running"
     return exit_code_string
 
 

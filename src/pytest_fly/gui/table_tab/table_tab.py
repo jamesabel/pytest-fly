@@ -1,17 +1,13 @@
 from collections import defaultdict
 from enum import Enum
-from datetime import timedelta
 
-import humanize
 from PySide6.QtWidgets import QGroupBox, QVBoxLayout, QScrollArea, QTableWidget, QTableWidgetItem, QMenu
 from PySide6.QtCore import Qt, QPoint
 from PySide6.QtGui import QColor, QGuiApplication
 from pytest import ExitCode
 
 from ...preferences import get_pref
-from ...platform import get_performance_core_count
 from ...interfaces import exit_code_to_string, PytestProcessInfo
-from ...pytest_runner.const import PytestProcessState
 
 
 class Columns(Enum):
@@ -89,44 +85,28 @@ class TableTab(QGroupBox):
         self.max_cpu_usage.clear()
         self.max_memory_usage.clear()
 
-    def update_status(self, status: PytestProcessInfo):
-        self.statuses[status.name] = status
+    def update_pytest_process_info(self, pytest_process_infos: list[PytestProcessInfo]):
 
-        row_number = list(self.statuses.keys()).index(status.name)
-        if row_number >= self.table_widget.rowCount():
-            self.table_widget.insertRow(row_number)
+        self.table_widget.clear()
 
-        if status.memory_percent is not None and status.cpu_percent is not None:
-            self.max_memory_usage[status.name] = max(status.memory_percent / 100.0, self.max_memory_usage[status.name])
-            self.max_cpu_usage[status.name] = max(status.cpu_percent / 100.0, self.max_cpu_usage[status.name])
+        # get the most recent state for each test
+        most_recent_process_infos = {}
+        for pytest_process_info in pytest_process_infos:
+            most_recent_process_infos[pytest_process_info.name] = pytest_process_info
 
-        self.table_widget.setItem(row_number, Columns.NAME.value, QTableWidgetItem(status.name))
+        self.table_widget.setRowCount(len(most_recent_process_infos))
 
-        state_item = QTableWidgetItem(status.state)
-        if status.state == PytestProcessState.FINISHED and status.exit_code is not None:
-            if status.exit_code == ExitCode.OK:
+        for row_number, test in enumerate(most_recent_process_infos):
+            process_info = most_recent_process_infos[test]
+            self.table_widget.setItem(row_number, Columns.NAME.value, QTableWidgetItem(process_info.name))
+
+            state_item = QTableWidgetItem()
+            if process_info.exit_code == ExitCode.OK or process_info.exit_code is None:
                 state_item.setForeground(QColor("green"))
             else:
                 state_item.setForeground(QColor("red"))
-            state_item.setText(exit_code_to_string(status.exit_code))
-        self.table_widget.setItem(row_number, Columns.STATE.value, state_item)
-
-        if status.state != PytestProcessState.QUEUED:
-            performance_core_count = get_performance_core_count()
-
-            cpu_usage = self.max_cpu_usage[status.name] / performance_core_count
-            cpu_item = QTableWidgetItem(f"{cpu_usage:.2%}")
-            set_utilization_color(cpu_item, cpu_usage)
-            self.table_widget.setItem(row_number, Columns.CPU.value, cpu_item)
-
-            memory_usage = self.max_memory_usage[status.name]
-            memory_item = QTableWidgetItem(f"{memory_usage:.2%}")
-            set_utilization_color(memory_item, memory_usage)
-            self.table_widget.setItem(row_number, Columns.MEMORY.value, memory_item)
-
-            if status.start is not None and status.end is not None:
-                runtime = status.end - status.start
-                self.table_widget.setItem(row_number, Columns.RUNTIME.value, QTableWidgetItem(humanize.precisedelta(timedelta(seconds=runtime))))
+            state_item.setText(exit_code_to_string(process_info.exit_code))
+            self.table_widget.setItem(row_number, Columns.STATE.value, state_item)
 
         # Resize columns to fit contents
         self.table_widget.resizeColumnsToContents()

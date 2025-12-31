@@ -1,9 +1,11 @@
 from pathlib import Path
+from pprint import pprint
 
 from PySide6.QtWidgets import QMainWindow, QApplication, QTabWidget
-from PySide6.QtCore import QCoreApplication, QRect
+from PySide6.QtCore import QCoreApplication, QRect, QTimer
 from typeguard import typechecked
 
+from ..db import PytestProcessInfoDB
 from ..logger import get_logger
 from ..gui.configuration_tab.configuration import Configuration
 from ..gui.about_tab.about import About
@@ -55,18 +57,19 @@ class FlyAppMainWindow(QMainWindow):
         self.run_tab = RunTab(self, self.data_dir)
         self.graph_tab = GraphTab()
         self.table_tab = TableTab()
-        # self.history = History()  # no history yet
-        # configuration update also updates processes count in control window
         self.configuration = Configuration()
         self.about = About()
         self.tab_widget.addTab(self.run_tab, "Run")
         self.tab_widget.addTab(self.graph_tab, "Graph")
         self.tab_widget.addTab(self.table_tab, "Table")
-        # self.tab_widget.addTab(self.history, "History")
         self.tab_widget.addTab(self.configuration, "Configuration")
         self.tab_widget.addTab(self.about, "About")
 
         self.setCentralWidget(self.tab_widget)
+
+        self.timer = QTimer(self, interval=int(round(pref.refresh_rate * 1000)))
+        self.timer.timeout.connect(self.update_pytest_process_info)
+        self.timer.start()
 
     def reset(self):
         self.table_tab.reset()
@@ -90,6 +93,15 @@ class FlyAppMainWindow(QMainWindow):
             pytest_runner.join(30.0)
 
         event.accept()
+
+    def update_pytest_process_info(self):
+        """
+        Timer event handler to update the GUI.
+        """
+        with PytestProcessInfoDB(self.data_dir) as db:
+            process_infos = db.query(self.run_tab.control_window.run_guid)
+            self.graph_tab.update_pytest_process_info(process_infos)
+            self.table_tab.update_pytest_process_info(process_infos)
 
 
 @typechecked()

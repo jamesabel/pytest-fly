@@ -1,4 +1,4 @@
-from pytest_fly.app.view.gui_util import get_text_dimensions
+from pytest_fly.gui.gui_util import get_text_dimensions
 
 
 def test_get_font(app):

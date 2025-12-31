@@ -1,37 +1,34 @@
 from pathlib import Path
 from queue import Queue, Empty
 from typing import Optional
-from threading import Event
+from threading import Event, Thread
 from collections import defaultdict
+import time
 
-from PySide6.QtCore import QObject, Signal, Slot, QThread
 from typeguard import typechecked
 
 from ..logger import get_logger
-from ..interfaces import ScheduledTests
+from ..interfaces import ScheduledTests, PytestProcessInfo
 from ..guid import generate_uuid
-from ..__version__ import application_name
 from .pytest_process import PytestProcess
 from .const import TIMEOUT
 
 log = get_logger()
 
 
-class PytestRunner(QThread):
-    def __init__(self, tests: ScheduledTests, number_of_processes: int, coverage_parent_directory: Path, update_rate: float):
-        super().__init__()
-
-        self.setObjectName(application_name)
-
+class PytestRunner(Thread):
+    def __init__(self, tests: ScheduledTests, number_of_processes: int, data_dir: Path, update_rate: float):
         self.tests = tests
         self.number_of_processes = number_of_processes
-        self.coverage_parent_directory = coverage_parent_directory
+        self.data_dir = data_dir
         self.update_rate = update_rate
 
-        # parallel dictionaries of threads and workers (index is thread number)
         self._pytest_runner_threads = {}
-        self._pytest_runner_workers = {}
         self._results = defaultdict(list)
+        self._started_event = Event()
+        self._written_to_db = set()
+
+        super().__init__()
 
     def run(self):
 
@@ -42,110 +39,105 @@ class PytestRunner(QThread):
         run_guid = generate_uuid()
 
         for thread_number in range(self.number_of_processes):
-            pytest_runner_thread = QThread()  # work will be done in this thread
-            pytest_runner_thread.setObjectName(f"{application_name}_thread_{thread_number}")
-            pytest_runner_worker = _PytestRunnerWorker(pytest_runner_thread, run_guid, test_queue, self.coverage_parent_directory, self.update_rate)
-            pytest_runner_worker.moveToThread(pytest_runner_thread)  # move worker to thread
-            pytest_runner_thread.started.connect(pytest_runner_worker.run)  # when thread starts, run the worker
-            pytest_runner_thread.finished.connect(pytest_runner_worker.deleteLater)
-            pytest_runner_thread.finished.connect(pytest_runner_thread.deleteLater)
+            pytest_runner_thread = _PytestRunnerThread(run_guid, test_queue, self.data_dir, self.update_rate)
             pytest_runner_thread.start()
             self._pytest_runner_threads[thread_number] = pytest_runner_thread
-            self._pytest_runner_workers[thread_number] = pytest_runner_worker
+        self._started_event.set()
 
     def is_running(self) -> bool:
-        any_running = any(t.isRunning() for t in self._pytest_runner_threads.values())
-        return any_running
+        running = []
+        for runner_thread in self._pytest_runner_threads.values():
+            if runner_thread.process is not None:
+                running.append(runner_thread.process.is_alive())
+        return any(running)
 
-    def join(self, seconds: float | None = None) -> bool:
-        if seconds is None:
-            milliseconds = None
-        else:
-            milliseconds = int(1000.0 * seconds)
+    def join(self, timeout_seconds: float | None = None) -> bool:
+
+        # in case join is called right after .start(), wait until .run() has started all workers
+        start = time.time()
+        while not self._started_event.is_set() and time.time() - start < timeout_seconds:
+            time.sleep(0.1)
+
         finished = []
-        for pytest_runner_thread in self._pytest_runner_threads.values():
-            finished.append(pytest_runner_thread.wait(milliseconds))
+        for runner_thread in self._pytest_runner_threads.values():
+            finished.append(runner_thread.join(timeout_seconds))
         return all(finished)
 
     def stop(self):
-        for worker_number, pytest_runner_worker in self._pytest_runner_workers.items():
-            if pytest_runner_worker.is_running():
-                pytest_runner_worker.stop()
-
-    def get_results(self) -> dict[int, list]:
-        for worker_number, worker in self._pytest_runner_workers.items():
-            if (process := worker.process) is not None:
-                while True:
-                    try:
-                        result = process.pytest_monitor_queue.get(block=False)
-                        self._results[worker_number].append(result)
-                    except Empty:
-                        break
-        return dict(self._results)
+        for pytest_runner_thread in self._pytest_runner_threads.values():
+            pytest_runner_thread.stop()
 
 
-class _PytestRunnerWorker(QObject):
+class _PytestRunnerThread(Thread):
     """
     Worker that runs pytest tests in separate processes.
     """
 
-    _run_signal = Signal()
-    _stop_signal = Signal()
-
     @typechecked()
-    def __init__(self, parent_thread: QThread, run_guid: str, pytest_work_queue: Queue, coverage_parent_directory: Path, update_rate: float) -> None:
+    def __init__(self, run_guid: str, pytest_test_queue: Queue, data_dir: Path, update_rate: float) -> None:
         """
         Pytest runner worker.
         """
         super().__init__()
 
-        self.parent_thread = parent_thread
         self.run_guid = run_guid
-        self.pytest_work_queue = pytest_work_queue
-        self.coverage_parent_directory = coverage_parent_directory
+        self.pytest_test_queue = pytest_test_queue
+        self.data_dir = data_dir
         self.update_rate = update_rate  # for the process monitor
 
         self.process: Optional[PytestProcess] | None = None
         self._stop_event = Event()
 
-        self._run_signal.connect(self._run)
-        self._stop_signal.connect(self._stop)
-
-    def stop(self):
-        self._stop_signal.emit()
-
     def run(self):
-        self._run_signal.emit()
 
-    def is_running(self) -> bool:
-        return not self._stop_event.is_set()
-
-    @Slot()
-    def _run(self):
         while not self._stop_event.is_set():
             try:
-                test = self.pytest_work_queue.get(False)
-                self.process = PytestProcess(self.run_guid, test, self.coverage_parent_directory, self.update_rate)
+                test = self.pytest_test_queue.get(False)
+                self.process = PytestProcess(self.run_guid, test, self.data_dir, self.update_rate)
                 log.info(f'Starting process for test "{test}" ({self.run_guid=})')
                 self.process.start()
             except Empty:
-                self.stop()  # no more work to do
                 break
 
+            # facilitate stopping the process if needed
             while self.process.is_alive():
                 if self._stop_event.is_set():
-                    self.process.terminate()  # force current test to stop
-                self.process.join(self.update_rate)
+                    proc = self.process
+                    proc_name = getattr(proc, "name", "<unknown>")
+
+                    # Try polite shutdown first
+                    try:
+                        proc.terminate()
+                        log.info(f'attempted terminate for process "{proc_name}" ({self.run_guid=})')
+                    except (OSError, RuntimeError) as e:
+                        log.warning(f'error calling terminate on "{proc_name}": {e}')
+
+                    proc.join(max(self.update_rate, 2.0))  # Wait a short grace period for the process to exit
+
+                    if not proc.is_alive():
+                        log.info(f'process for test "{proc_name}" terminated ({self.run_guid=})')
+                    else:
+                        # Ensure we are still operating on the same process object before forcing kill
+                        if self.process is not proc:
+                            log.info(f'process object changed while waiting; skipping kill for "{proc_name}"')
+                        else:
+                            try:
+                                proc.kill()
+                                log.info(f'process for test "{proc_name}" killed ({self.run_guid=})')
+                            except (OSError, RuntimeError) as e:
+                                log.warning(f'error calling kill on "{proc_name}": {e}')
+
+                # Regular join / polling to avoid busy loop
+                if self.process is None:
+                    time.sleep(self.update_rate)
+                else:
+                    self.process.join(self.update_rate)
+
             self.process.join(TIMEOUT)  # should already be done, but just in case
             if self.process.is_alive():
                 log.warning(f'process for test "{self.process.name}" did not terminate')
             else:
                 log.info(f'process for test "{self.process.name}" completed ({self.run_guid=})')
 
-    @Slot()
-    def _stop(self):
-        if self.process is not None and self.process.is_alive():
-            self.process.terminate()  # force current test to stop
-            self.process.join(TIMEOUT)
+    def stop(self):
         self._stop_event.set()
-        self.parent_thread.exit()  # no more work to do

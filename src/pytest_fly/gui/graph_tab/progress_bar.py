@@ -1,5 +1,4 @@
 import time
-from pprint import pprint
 
 from typeguard import typechecked
 from pytest import ExitCode
@@ -65,8 +64,7 @@ class PytestProgressBar(QWidget):
         self.bar_height = name_text_dimensions.height() + 2 * self.bar_margin
         self.setFixedHeight(self.bar_height)
 
-        # schedule a repaint on the GUI thread
-        self.update()
+        self.update()  # schedule a repaint on the GUI thread
 
     def paintEvent(self, event):
         # Draw based on the latest saved state
@@ -77,9 +75,15 @@ class PytestProgressBar(QWidget):
 
             name = self.status_list[0].name
 
-            start_running_time = self.status_list[0].time_stamp
-            end_time = self.status_list[-1].time_stamp
-            exit_code = self.status_list[-1].exit_code
+            if len(self.status_list) < 2:
+                start_running_time = None
+                end_time = None
+                exit_code = None
+            else:
+                start_running_time = self.status_list[1].time_stamp
+                end_time = self.status_list[-1].time_stamp
+                exit_code = self.status_list[-1].exit_code
+
             bar_text = f"{name} - {exit_code}"
 
             outer_rect = self.rect()

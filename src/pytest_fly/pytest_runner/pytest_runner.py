@@ -26,7 +26,7 @@ class PytestRunner(Thread):
         self.data_dir = data_dir
         self.update_rate = update_rate
 
-        self._pytest_runner_threads = {}
+        self._test_runners = {}
         self._results = defaultdict(list)
         self._started_event = Event()
         self._written_to_db = set()
@@ -43,16 +43,16 @@ class PytestRunner(Thread):
                 db.write(pytest_process_info)
 
         for thread_number in range(self.number_of_processes):
-            pytest_runner_thread = _PytestRunnerThread(self.run_guid, test_queue, self.data_dir, self.update_rate)
-            pytest_runner_thread.start()
-            self._pytest_runner_threads[thread_number] = pytest_runner_thread
+            test_runner = _TestRunner(self.run_guid, test_queue, self.data_dir, self.update_rate)
+            test_runner.start()
+            self._test_runners[thread_number] = test_runner
         self._started_event.set()
 
     def is_running(self) -> bool:
         running = []
-        for runner_thread in self._pytest_runner_threads.values():
-            if runner_thread.process is not None:
-                running.append(runner_thread.process.is_alive())
+        for test_runner in self._test_runners.values():
+            if test_runner.process is not None:
+                running.append(test_runner.process.is_alive())
         return any(running)
 
     @typechecked()
@@ -64,16 +64,19 @@ class PytestRunner(Thread):
             time.sleep(0.1)
 
         finished = []
-        for runner_thread in self._pytest_runner_threads.values():
-            finished.append(runner_thread.join(timeout_seconds))
+        for test_runner in self._test_runners.values():
+            finished.append(test_runner.join(timeout_seconds))
         return all(finished)
 
     def stop(self):
-        for pytest_runner_thread in self._pytest_runner_threads.values():
-            pytest_runner_thread.stop()
+        try:
+            for test_runner in self._test_runners.values():
+                test_runner.stop()
+        except (OSError, RuntimeError, PermissionError) as e:
+            log.error(f"error stopping pytest runner,{self.run_guid=},{e}", exc_info=True, stack_info=True)
 
 
-class _PytestRunnerThread(Thread):
+class _TestRunner(Thread):
     """
     Worker that runs pytest tests in separate processes.
     """
@@ -98,11 +101,15 @@ class _PytestRunnerThread(Thread):
         while not self._stop_event.is_set():
             try:
                 test = self.pytest_test_queue.get(False)
-                self.process = PytestProcess(self.run_guid, test, self.data_dir, self.update_rate)
-                log.info(f'Starting process for test "{test}" ({self.run_guid=})')
-                self.process.start()
             except Empty:
+                test = None
+
+            if test is None:
                 break
+
+            self.process = PytestProcess(self.run_guid, test, self.data_dir, self.update_rate)
+            log.info(f'Starting process for test "{test}" ({self.run_guid=})')
+            self.process.start()
 
             # facilitate stopping the process if needed
             while self.process.is_alive():

@@ -107,30 +107,38 @@ class _PytestRunnerThread(Thread):
             # facilitate stopping the process if needed
             while self.process.is_alive():
                 if self._stop_event.is_set():
-                    proc = self.process
-                    proc_name = getattr(proc, "name", "<unknown>")
+                    try:
+                        proc = self.process
+                        proc_name = getattr(proc, "name", "<unknown>")
+                    except (OSError, RuntimeError, PermissionError) as e:
+                        log.warning(f"error accessing process name,{self.run_guid=},{e}")
+                        proc = None
+                        proc_name = None
 
                     # Try polite shutdown first
-                    try:
-                        proc.terminate()
-                        log.info(f'attempted terminate for process "{proc_name}" ({self.run_guid=})')
-                    except (OSError, RuntimeError) as e:
-                        log.warning(f'error calling terminate on "{proc_name}": {e}')
-
-                    proc.join(max(self.update_rate, 2.0))  # Wait a short grace period for the process to exit
-
-                    if not proc.is_alive():
-                        log.info(f'process for test "{proc_name}" terminated ({self.run_guid=})')
+                    if proc is None:
+                        log.info(f"{proc=},cannot terminate or kill ({self.run_guid=})")
                     else:
-                        # Ensure we are still operating on the same process object before forcing kill
-                        if self.process is not proc:
-                            log.info(f'process object changed while waiting; skipping kill for "{proc_name}"')
+                        try:
+                            proc.terminate()
+                            log.info(f'attempted terminate for process "{proc_name}" ({self.run_guid=})')
+                        except (OSError, RuntimeError, PermissionError) as e:
+                            log.info(f'error calling terminate on "{proc_name}",{self.run_guid=},{e}')
+
+                        proc.join(max(self.update_rate, 2.0))  # Wait a short grace period for the process to exit
+
+                        if not proc.is_alive():
+                            log.info(f'process for test "{proc_name}" terminated ({self.run_guid=})')
                         else:
-                            try:
-                                proc.kill()
-                                log.info(f'process for test "{proc_name}" killed ({self.run_guid=})')
-                            except (OSError, RuntimeError) as e:
-                                log.warning(f'error calling kill on "{proc_name}": {e}')
+                            # Ensure we are still operating on the same process object before forcing kill
+                            if self.process is not proc:
+                                log.info(f'process object changed while waiting; skipping kill for "{proc_name}" ({self.run_guid=})')
+                            else:
+                                try:
+                                    proc.kill()
+                                    log.info(f'process for test "{proc_name}" killed ({self.run_guid=})')
+                                except (OSError, RuntimeError, PermissionError) as e:
+                                    log.warning(f'error calling kill on "{proc_name}",{self.run_guid=},{e}')
 
                 # Regular join / polling to avoid busy loop
                 if self.process is None:
@@ -140,7 +148,7 @@ class _PytestRunnerThread(Thread):
 
             self.process.join(TIMEOUT)  # should already be done, but just in case
             if self.process.is_alive():
-                log.warning(f'process for test "{self.process.name}" did not terminate')
+                log.warning(f'process for test "{self.process.name}" did not terminate ({self.run_guid=})')
             else:
                 log.info(f'process for test "{self.process.name}" completed ({self.run_guid=})')
 

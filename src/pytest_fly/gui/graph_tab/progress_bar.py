@@ -70,55 +70,57 @@ class PytestProgressBar(QWidget):
 
     def paintEvent(self, event):
         # Draw based on the latest saved state
-        if not self.status_list:
-            return super().paintEvent(event)
+        if len(self.status_list) > 0:
 
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
+            painter = QPainter(self)
+            painter.setRenderHint(QPainter.Antialiasing)
 
-        name = self.status_list[0].name
+            name = self.status_list[0].name
 
-        start_running_time = self.status_list[0].time_stamp
-        end_time = self.status_list[-1].time_stamp
-        exit_code = self.status_list[-1].exit_code
-        bar_text = f"{name} - {exit_code}"
+            start_running_time = self.status_list[0].time_stamp
+            end_time = self.status_list[-1].time_stamp
+            exit_code = self.status_list[-1].exit_code
+            bar_text = f"{name} - {exit_code}"
 
-        outer_rect = self.rect()
-        overall_time_window = max(max(self.max_time_stamp - self.min_time_stamp, time.time() - self.min_time_stamp), 1)
-        horizontal_pixels_per_second = outer_rect.width() / overall_time_window
+            outer_rect = self.rect()
+            overall_time_window = max(max(self.max_time_stamp - self.min_time_stamp, time.time() - self.min_time_stamp), 1)
+            horizontal_pixels_per_second = outer_rect.width() / overall_time_window
 
-        if exit_code == ExitCode.OK:
-            bar_color = Qt.green
-        else:
-            bar_color = Qt.red
-
-        if start_running_time is None:
-            x1 = outer_rect.x() + self.bar_margin
-            y1 = outer_rect.y() + self.bar_margin
-            if end_time is None:
-                w = 1
+            if exit_code == ExitCode.OK:
+                bar_color = Qt.green
             else:
-                w = (end_time - self.min_time_stamp) * horizontal_pixels_per_second
-            h = self.one_character_dimensions.height()
-            painter.setPen(QPen(bar_color, 1))
-            bar_rect = QRectF(x1, y1, w, h)
+                bar_color = Qt.red
+
+            if start_running_time is None:
+                x1 = outer_rect.x() + self.bar_margin
+                y1 = outer_rect.y() + self.bar_margin
+                if end_time is None:
+                    w = 1
+                else:
+                    w = (end_time - self.min_time_stamp) * horizontal_pixels_per_second
+                h = self.one_character_dimensions.height()
+                painter.setPen(QPen(bar_color, 1))
+                bar_rect = QRectF(x1, y1, w, h)
+            else:
+                seconds_from_start = start_running_time - self.min_time_stamp
+                x1 = (seconds_from_start * horizontal_pixels_per_second) + self.bar_margin
+                y1 = outer_rect.y() + self.bar_margin
+                w = ((end_time - start_running_time) * horizontal_pixels_per_second) - (2 * self.bar_margin)
+                h = self.one_character_dimensions.height()
+                painter.setPen(QPen(bar_color, 1))
+                bar_rect = QRectF(x1, y1, w, h)
+
+            painter.fillRect(bar_rect, QBrush(bar_color))
+
+            text_left_margin = self.one_character_dimensions.width()
+            text_y_margin = int(round((0.5 * self.one_character_dimensions.height() + self.bar_margin + 1)))
+
+            palette = self.palette()
+            text_color = palette.color(QPalette.WindowText)
+            painter.setPen(QPen(text_color, 1))
+            painter.drawText(outer_rect.x() + text_left_margin, outer_rect.y() + text_y_margin, bar_text)
+
+            painter.end()
         else:
-            seconds_from_start = start_running_time - self.min_time_stamp
-            x1 = (seconds_from_start * horizontal_pixels_per_second) + self.bar_margin
-            y1 = outer_rect.y() + self.bar_margin
-            w = ((end_time - start_running_time) * horizontal_pixels_per_second) - (2 * self.bar_margin)
-            h = self.one_character_dimensions.height()
-            painter.setPen(QPen(bar_color, 1))
-            bar_rect = QRectF(x1, y1, w, h)
 
-        painter.fillRect(bar_rect, QBrush(bar_color))
-
-        text_left_margin = self.one_character_dimensions.width()
-        text_y_margin = int(round((0.5 * self.one_character_dimensions.height() + self.bar_margin + 1)))
-
-        palette = self.palette()
-        text_color = palette.color(QPalette.WindowText)
-        painter.setPen(QPen(text_color, 1))
-        painter.drawText(outer_rect.x() + text_left_margin, outer_rect.y() + text_y_margin, bar_text)
-
-        painter.end()
+            super().paintEvent(event)

@@ -1,7 +1,7 @@
 from typing import List, Tuple, Dict
 from collections import defaultdict
 
-from pytest_fly.pytest_runner.process_monitor import PytestProcessInfo
+from .pytest_process import PytestProcessInfo
 
 
 def merge_intervals(intervals: List[Tuple[float, float]]) -> List[Tuple[float, float]]:

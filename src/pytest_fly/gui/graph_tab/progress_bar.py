@@ -93,14 +93,7 @@ class PytestProgressBar(QWidget):
 
             bar_color = pytest_run_state.get_qt_color()
 
-            if pytest_run_state.get_state() == PytestRunnerState.QUEUED:
-                x1 = outer_rect.x() + self.bar_margin
-                y1 = outer_rect.y() + self.bar_margin
-                w = 1
-                h = self.one_character_dimensions.height()
-                painter.setPen(QPen(bar_color, 1))
-                bar_rect = QRectF(x1, y1, w, h)
-            else:
+            if pytest_run_state.get_state() != PytestRunnerState.QUEUED:
                 seconds_from_start = start_running_time - self.min_time_stamp
                 x1 = (seconds_from_start * horizontal_pixels_per_second) + self.bar_margin
                 y1 = outer_rect.y() + self.bar_margin
@@ -108,8 +101,7 @@ class PytestProgressBar(QWidget):
                 h = self.one_character_dimensions.height()
                 painter.setPen(QPen(bar_color, 1))
                 bar_rect = QRectF(x1, y1, w, h)
-
-            painter.fillRect(bar_rect, QBrush(bar_color))
+                painter.fillRect(bar_rect, QBrush(bar_color))
 
             text_left_margin = self.one_character_dimensions.width()
             text_y_margin = int(round((0.5 * self.one_character_dimensions.height() + self.bar_margin + 1)))

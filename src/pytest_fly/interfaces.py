@@ -1,11 +1,11 @@
 from dataclasses import dataclass
-from enum import IntEnum
+from enum import IntEnum, StrEnum
 
 from pytest import ExitCode
 from balsa import get_logger
 
 from .__version__ import application_name
-from .pytest_runner.const import PytestProcessState
+
 
 log = get_logger(application_name)
 
@@ -110,17 +110,12 @@ class RunParameters:
     max_processes: int  # maximum number of processes to run in parallel (ignored if dynamic_processes is True)
 
 
-int_to_exit_code = {exit_code.value: exit_code for exit_code in ExitCode}
-
-
-def exit_code_to_string(exit_code: ExitCode | int | None) -> str:
-    if isinstance(exit_code, int):
-        exit_code = int_to_exit_code[exit_code]
-    if isinstance(exit_code, ExitCode):
-        exit_code_string = exit_code.name
-    else:
-        exit_code_string = "running"
-    return exit_code_string
+class PytestRunnerState(StrEnum):
+    QUEUED = "Queued"
+    RUNNING = "Running"
+    PASS = "Pass"
+    FAIL = "Fail"
+    TERMINATED = "Terminated"
 
 
 @dataclass(frozen=True)

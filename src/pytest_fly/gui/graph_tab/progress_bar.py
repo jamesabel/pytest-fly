@@ -8,6 +8,7 @@ from PySide6.QtGui import QPainter, QPen, QBrush, QPalette
 import humanize
 
 from ...interfaces import PytestProcessInfo
+from ...pytest_runner.pytest_runner import PytestRunState
 from ..gui_util import get_text_dimensions
 from ...logger import get_logger
 
@@ -70,6 +71,8 @@ class PytestProgressBar(QWidget):
         # Draw based on the latest saved state
         if len(self.status_list) > 0:
 
+            pytest_run_state = PytestRunState(self.status_list)
+
             painter = QPainter(self)
             painter.setRenderHint(QPainter.Antialiasing)
 
@@ -90,10 +93,7 @@ class PytestProgressBar(QWidget):
             overall_time_window = max(max(self.max_time_stamp - self.min_time_stamp, time.time() - self.min_time_stamp), 1)
             horizontal_pixels_per_second = outer_rect.width() / overall_time_window
 
-            if exit_code == ExitCode.OK:
-                bar_color = Qt.green
-            else:
-                bar_color = Qt.red
+            bar_color = pytest_run_state.get_color()
 
             if start_running_time is None:
                 x1 = outer_rect.x() + self.bar_margin

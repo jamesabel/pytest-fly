@@ -6,14 +6,66 @@ from collections import defaultdict
 import time
 
 from typeguard import typechecked
+from pytest import ExitCode
+from PySide6.QtGui import QColor
 
 from ..logger import get_logger
-from ..interfaces import ScheduledTests
+from ..interfaces import ScheduledTests, PytestRunnerState
 from .pytest_process import PytestProcess, PytestProcessInfo
 from ..db import PytestProcessInfoDB
 from .const import TIMEOUT
 
 log = get_logger()
+
+
+class PytestRunState:
+    """
+    Convert a list of PytestProcessInfo objects to a PytestRunnerState object.
+    """
+
+    @typechecked()
+    def __init__(self, run_infos: list[PytestProcessInfo]):
+        if len(run_infos) > 1:
+            self.name = run_infos[0].name
+        else:
+            self.name = None
+        if len(run_infos) < 2:
+            self.state = PytestRunnerState.QUEUED  # one entry means queued
+        else:
+            last_run_info = run_infos[-1]
+            if last_run_info.exit_code is None:
+                if last_run_info.pid is None:
+                    self.state = PytestRunnerState.TERMINATED
+                else:
+                    self.state = PytestRunnerState.RUNNING
+            else:
+                if last_run_info.exit_code == ExitCode.OK:
+                    self.state = PytestRunnerState.PASS
+                else:
+                    self.state = PytestRunnerState.FAIL
+
+    @typechecked()
+    def get_state(self) -> PytestRunnerState:
+        return self.state
+
+    @typechecked()
+    def get_string(self) -> str:
+        return self.state.value
+
+    def get_name(self) -> str | None:
+        return self.name
+
+    @typechecked()
+    def get_qt_color(self) -> QColor:
+        state_to_color = {
+            PytestRunnerState.QUEUED: QColor("gray"),
+            PytestRunnerState.RUNNING: QColor("blue"),
+            PytestRunnerState.PASS: QColor("green"),
+            PytestRunnerState.FAIL: QColor("red"),
+            PytestRunnerState.TERMINATED: QColor("orange"),
+        }
+        color = state_to_color[self.state]
+        return color
 
 
 class PytestRunner(Thread):

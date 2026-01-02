@@ -7,7 +7,8 @@ from PySide6.QtGui import QColor, QGuiApplication
 from pytest import ExitCode
 
 from ...preferences import get_pref
-from ...interfaces import exit_code_to_string, PytestProcessInfo
+from ...interfaces import PytestProcessInfo
+from ...pytest_runner.pytest_runner import PytestRunState
 
 
 class Columns(Enum):
@@ -90,15 +91,17 @@ class TableTab(QGroupBox):
         self.table_widget.clear()
 
         # get the most recent state for each test
-        most_recent_process_infos = {}
+        processes_infos = defaultdict(list)
         for pytest_process_info in pytest_process_infos:
-            most_recent_process_infos[pytest_process_info.name] = pytest_process_info
+            processes_infos[pytest_process_info.name].append(pytest_process_info)
 
-        self.table_widget.setRowCount(len(most_recent_process_infos))
+        self.table_widget.setRowCount(len(processes_infos))
 
-        for row_number, test in enumerate(most_recent_process_infos):
-            process_info = most_recent_process_infos[test]
-            self.table_widget.setItem(row_number, Columns.NAME.value, QTableWidgetItem(process_info.name))
+        for row_number, process_infos in enumerate(processes_infos):
+
+            pytest_run_state = PytestRunState(process_infos)
+
+            self.table_widget.setItem(row_number, Columns.NAME.value, QTableWidgetItem(pytest_runner_state.get_name()))
 
             state_item = QTableWidgetItem()
             if process_info.pid is None:

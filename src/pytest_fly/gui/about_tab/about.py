@@ -1,7 +1,7 @@
 from dataclasses import asdict
 import humanize
 from PySide6.QtCore import QObject, QThread, Signal
-from PySide6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QSizePolicy
 from pytest_fly.gui.gui_util import PlainTextWidget
 from pytest_fly.gui.about_tab.project_info import get_project_info
 from pytest_fly.platform.platform_info import get_platform_info, get_performance_core_count
@@ -42,22 +42,18 @@ class About(QWidget):
     A window that shows information about the project and the system.
     """
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, parent):
+        super().__init__(parent)
 
         self.setWindowTitle("About")
 
-        self.about_box = PlainTextWidget()
+        self.about_box = PlainTextWidget(parent)
+        self.about_box.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.about_box.set_text("Loading...")
-
-        horizontal_layout = QHBoxLayout()
-        horizontal_layout.addWidget(self.about_box)
-        horizontal_layout.addStretch()
 
         vertical_layout = QVBoxLayout()
         self.setLayout(vertical_layout)
-        vertical_layout.addLayout(horizontal_layout)
-        vertical_layout.addStretch()
+        vertical_layout.addWidget(self.about_box)
 
         self.worker = AboutDataWorker()
         self.thread = QThread()

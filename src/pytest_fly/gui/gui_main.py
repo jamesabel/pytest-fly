@@ -58,7 +58,7 @@ class FlyAppMainWindow(QMainWindow):
         self.graph_tab = GraphTab()
         self.table_tab = TableTab()
         self.configuration = Configuration()
-        self.about = About()
+        self.about = About(self)
         self.tab_widget.addTab(self.run_tab, "Run")
         self.tab_widget.addTab(self.graph_tab, "Graph")
         self.tab_widget.addTab(self.table_tab, "Table")

@@ -1,6 +1,6 @@
 from functools import lru_cache, cache
 
-from PySide6.QtWidgets import QPlainTextEdit
+from PySide6.QtWidgets import QPlainTextEdit, QSizePolicy
 from PySide6.QtGui import QFont, QFontMetrics
 from PySide6.QtCore import QSize, Qt
 
@@ -37,17 +37,14 @@ def get_text_dimensions(text: str, pad: bool = False) -> QSize:
 
 
 class PlainTextWidget(QPlainTextEdit):
-    """
-    A read-only text widget that displays plain text.
-    """
+    def __init__(self, parent=None):
+        super().__init__(parent)
 
-    def __init__(self):
-        super().__init__()
-        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)  # disable scroll bars
-        # self.setFont(get_font())
         self.setReadOnly(True)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
     def set_text(self, text: str):
-        text_dimensions = get_text_dimensions(text, True)
-        self.setFixedSize(text_dimensions.width(), text_dimensions.height())
         self.setPlainText(text)
+        # Tell layouts the size hint changed
+        self.updateGeometry()
+        self.adjustSize()

@@ -1,32 +1,28 @@
 from datetime import timedelta
 from collections import defaultdict
-import time
 
 from PySide6.QtWidgets import QGroupBox, QVBoxLayout, QSizePolicy
 
 import humanize
 
-from ...gui.gui_util import PlainTextWidget, get_text_dimensions
+from ...gui.gui_util import PlainTextWidget
 from ...interfaces import PytestProcessInfo
 from ...pytest_runner.pytest_runner import PytestRunState
-from ...pytest_runner.const import PytestProcessState
 
 
-class SummaryWindow(QGroupBox):
+class StatusWindow(QGroupBox):
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, parent):
+        super().__init__(parent)
         self.setTitle("Status")
         layout = QVBoxLayout()
+        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self.setLayout(layout)
-        self.status_widget = PlainTextWidget()
+        self.status_widget = PlainTextWidget(self)
         self.status_widget.set_text("")
         layout.addWidget(self.status_widget)
-        layout.addStretch()
-        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        self.setFixedSize(self.status_widget.size())
 
-    def update_summary(self, pytest_process_infos: list[PytestProcessInfo]):
+    def update_status(self, pytest_process_infos: list[PytestProcessInfo]):
         """
         Update the status window with the new status.
 
@@ -60,11 +56,5 @@ class SummaryWindow(QGroupBox):
         overall_time = max_time_stamp - min_time_stamp
 
         lines.append(f"Total time: {humanize.precisedelta(timedelta(seconds=overall_time))}")
-
-        text = "\n".join(lines)
-
-        text_dimensions = get_text_dimensions(text, True)
-        self.setFixedSize(text_dimensions)
-        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
 
         self.status_widget.set_text("\n".join(lines))

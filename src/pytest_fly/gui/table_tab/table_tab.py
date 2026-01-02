@@ -97,26 +97,16 @@ class TableTab(QGroupBox):
 
         self.table_widget.setRowCount(len(processes_infos))
 
-        for row_number, process_infos in enumerate(processes_infos):
+        for row_number, test_name in enumerate(processes_infos):
+            process_infos = processes_infos[test_name]
 
             pytest_run_state = PytestRunState(process_infos)
 
-            self.table_widget.setItem(row_number, Columns.NAME.value, QTableWidgetItem(pytest_runner_state.get_name()))
+            self.table_widget.setItem(row_number, Columns.NAME.value, QTableWidgetItem(pytest_run_state.get_name()))
 
             state_item = QTableWidgetItem()
-            if process_info.pid is None:
-                state_item.setText("Queued")
-                state_item.setForeground(QColor("gray"))
-            elif process_info.exit_code is None:
-                state_item.setText("Running")
-                state_item.setForeground(QColor("blue"))
-            elif process_info.exit_code == ExitCode.OK:
-                state_item.setText("Pass")
-                state_item.setForeground(QColor("green"))
-            else:
-                exit_code_string = exit_code_to_string(process_info.exit_code)
-                state_item.setText(f"Fail ({exit_code_string})")
-                state_item.setForeground(QColor("red"))
+            state_item.setText(pytest_run_state.get_string())
+            state_item.setForeground(pytest_run_state.get_qt_color())
             self.table_widget.setItem(row_number, Columns.STATE.value, state_item)
 
         # Resize columns to fit contents

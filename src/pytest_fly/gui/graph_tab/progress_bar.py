@@ -81,19 +81,17 @@ class PytestProgressBar(QWidget):
             if len(self.status_list) < 2:
                 start_running_time = None
                 end_time = None
-                exit_code = None
             else:
                 start_running_time = self.status_list[1].time_stamp
                 end_time = self.status_list[-1].time_stamp
-                exit_code = self.status_list[-1].exit_code
 
-            bar_text = f"{name} - {exit_code}"
+            bar_text = f"{name} - {pytest_run_state.get_string()}"
 
             outer_rect = self.rect()
             overall_time_window = max(max(self.max_time_stamp - self.min_time_stamp, time.time() - self.min_time_stamp), 1)
             horizontal_pixels_per_second = outer_rect.width() / overall_time_window
 
-            bar_color = pytest_run_state.get_color()
+            bar_color = pytest_run_state.get_qt_color()
 
             if start_running_time is None:
                 x1 = outer_rect.x() + self.bar_margin

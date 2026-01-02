@@ -76,8 +76,6 @@ class PytestProgressBar(QWidget):
             painter = QPainter(self)
             painter.setRenderHint(QPainter.Antialiasing)
 
-            name = self.status_list[0].name
-
             if len(self.status_list) < 2:
                 start_running_time = None
                 end_time = None
@@ -85,7 +83,7 @@ class PytestProgressBar(QWidget):
                 start_running_time = self.status_list[1].time_stamp
                 end_time = self.status_list[-1].time_stamp
 
-            bar_text = f"{name} - {pytest_run_state.get_string()}"
+            bar_text = f"{pytest_run_state.get_name()} - {pytest_run_state.get_string()}"
 
             outer_rect = self.rect()
             overall_time_window = max(max(self.max_time_stamp - self.min_time_stamp, time.time() - self.min_time_stamp), 1)

@@ -25,7 +25,7 @@ class PytestRunState:
 
     @typechecked()
     def __init__(self, run_infos: list[PytestProcessInfo]):
-        if len(run_infos) > 1:
+        if len(run_infos) > 0:
             self.name = run_infos[0].name
         else:
             self.name = None
@@ -58,8 +58,8 @@ class PytestRunState:
     @typechecked()
     def get_qt_color(self) -> QColor:
         state_to_color = {
-            PytestRunnerState.QUEUED: QColor("gray"),
-            PytestRunnerState.RUNNING: QColor("blue"),
+            PytestRunnerState.QUEUED: QColor("blue"),
+            PytestRunnerState.RUNNING: QColor("gray"),
             PytestRunnerState.PASS: QColor("green"),
             PytestRunnerState.FAIL: QColor("red"),
             PytestRunnerState.TERMINATED: QColor("orange"),

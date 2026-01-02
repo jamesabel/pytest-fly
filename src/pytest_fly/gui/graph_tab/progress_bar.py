@@ -1,14 +1,13 @@
 import time
 
 from typeguard import typechecked
-from pytest import ExitCode
 from PySide6.QtWidgets import QWidget, QVBoxLayout
-from PySide6.QtCore import Qt, QRectF
+from PySide6.QtCore import QRectF
 from PySide6.QtGui import QPainter, QPen, QBrush, QPalette
 import humanize
 
 from ...interfaces import PytestProcessInfo
-from ...pytest_runner.pytest_runner import PytestRunState
+from ...pytest_runner.pytest_runner import PytestRunState, PytestRunnerState
 from ..gui_util import get_text_dimensions
 from ...logger import get_logger
 
@@ -76,11 +75,14 @@ class PytestProgressBar(QWidget):
             painter = QPainter(self)
             painter.setRenderHint(QPainter.Antialiasing)
 
-            if len(self.status_list) < 2:
+            if pytest_run_state.get_state() == PytestRunnerState.QUEUED:
                 start_running_time = None
-                end_time = None
             else:
                 start_running_time = self.status_list[1].time_stamp
+
+            if pytest_run_state.get_state() == PytestRunnerState.RUNNING:
+                end_time = time.time()
+            else:
                 end_time = self.status_list[-1].time_stamp
 
             bar_text = f"{pytest_run_state.get_name()} - {pytest_run_state.get_string()}"
@@ -91,13 +93,10 @@ class PytestProgressBar(QWidget):
 
             bar_color = pytest_run_state.get_qt_color()
 
-            if start_running_time is None:
+            if pytest_run_state.get_state() == PytestRunnerState.QUEUED:
                 x1 = outer_rect.x() + self.bar_margin
                 y1 = outer_rect.y() + self.bar_margin
-                if end_time is None:
-                    w = 1
-                else:
-                    w = (end_time - self.min_time_stamp) * horizontal_pixels_per_second
+                w = 1
                 h = self.one_character_dimensions.height()
                 painter.setPen(QPen(bar_color, 1))
                 bar_rect = QRectF(x1, y1, w, h)

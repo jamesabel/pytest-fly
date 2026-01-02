@@ -47,8 +47,21 @@ class StatusWindow(QGroupBox):
                 if max_time_stamp is None or process_info.time_stamp > max_time_stamp:
                     max_time_stamp = process_info.time_stamp
 
-        lines = [f"{len(processes_infos)} tests"]
-        for state in [PytestRunnerState.QUEUED, PytestRunnerState.RUNNING, PytestRunnerState.PASS, PytestRunnerState.FAIL, PytestRunnerState.TERMINATED]:
+        lines = [f"{len(processes_infos)} tests", ""]
+
+        # get current pass rate
+        current_pass_count = counts[PytestRunnerState.PASS]
+        current_fail_count = counts[PytestRunnerState.FAIL]
+        total_completed = current_pass_count + current_fail_count
+        prefix = "Pass rate: "
+        if total_completed > 0:
+            pass_rate = current_pass_count / total_completed
+            lines.append(f"{prefix}{current_pass_count}/{total_completed} ({pass_rate:.2%})")
+        else:
+            lines.append(f"{prefix}(calculating...)")
+        lines.append("")  # space
+
+        for state in [PytestRunnerState.PASS, PytestRunnerState.FAIL, PytestRunnerState.QUEUED, PytestRunnerState.RUNNING, PytestRunnerState.TERMINATED]:
             count = counts[state]
             lines.append(f"{state}: {count} ({count / len(processes_infos):.2%})")
 

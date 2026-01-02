@@ -90,7 +90,6 @@ class TableTab(QGroupBox):
 
         self.table_widget.clear()
 
-        # get the most recent state for each test
         processes_infos = defaultdict(list)
         for pytest_process_info in pytest_process_infos:
             processes_infos[pytest_process_info.name].append(pytest_process_info)

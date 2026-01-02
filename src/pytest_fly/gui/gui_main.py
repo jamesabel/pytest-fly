@@ -102,7 +102,7 @@ class FlyAppMainWindow(QMainWindow):
             process_infos = db.query(self.run_tab.control_window.run_guid)
             self.graph_tab.update_pytest_process_info(process_infos)
             self.table_tab.update_pytest_process_info(process_infos)
-            self.run_tab.control_window.update()
+            self.run_tab.update_pytest_process_info(process_infos)
 
 
 @typechecked()

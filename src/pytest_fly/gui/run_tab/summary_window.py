@@ -8,6 +8,7 @@ import humanize
 
 from ...gui.gui_util import PlainTextWidget, get_text_dimensions
 from ...interfaces import PytestProcessInfo
+from ...pytest_runner.pytest_runner import PytestRunState
 from ...pytest_runner.const import PytestProcessState
 
 
@@ -15,7 +16,6 @@ class SummaryWindow(QGroupBox):
 
     def __init__(self):
         super().__init__()
-        self.statuses = {}
         self.setTitle("Status")
         layout = QVBoxLayout()
         self.setLayout(layout)
@@ -26,46 +26,40 @@ class SummaryWindow(QGroupBox):
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self.setFixedSize(self.status_widget.size())
 
-    def update_summary(self, status: PytestProcessInfo):
+    def update_summary(self, pytest_process_infos: list[PytestProcessInfo]):
         """
         Update the status window with the new status.
 
         param status: The new status to add to the window.
         """
 
-        # update with this particular status
-        self.statuses[status.name] = status
+        processes_infos = defaultdict(list)
+        for pytest_process_info in pytest_process_infos:
+            processes_infos[pytest_process_info.name].append(pytest_process_info)
 
-        # get statistics
         counts = defaultdict(int)
+        for row_number, test_name in enumerate(processes_infos):
+            process_infos = processes_infos[test_name]
+            pytest_run_state = PytestRunState(process_infos)
+            counts[pytest_run_state.state] += 1
+
         min_time_stamp = None
         max_time_stamp = None
-        for status in self.statuses.values():
-            counts[status.state] += 1
-            if status.start is not None and (min_time_stamp is None or status.start < min_time_stamp):
-                min_time_stamp = status.start
-            if status.end is not None and (max_time_stamp is None or status.end > max_time_stamp):
-                max_time_stamp = status.end
-        if min_time_stamp is None:
-            min_time_stamp = time.time()
-        if max_time_stamp is None:
-            max_time_stamp = time.time()
+        for process_info in pytest_process_infos:
+            if process_info.pid is not None:
+                if min_time_stamp is None or process_info.time_stamp < min_time_stamp:
+                    min_time_stamp = process_info.time_stamp
+                if max_time_stamp is None or process_info.time_stamp > max_time_stamp:
+                    max_time_stamp = process_info.time_stamp
 
-        # convert statistics to text
-        total_count = len(self.statuses)
-        lines = []
-        for status_name in [PytestProcessState.QUEUED, PytestProcessState.RUNNING, PytestProcessState.FINISHED, PytestProcessState.TERMINATED, PytestProcessState.UNKNOWN]:
-            count = counts[status_name]
-            lines.append(f"{status_name}: {count} ({count / total_count:.2%})")
-        lines.append(f"Total: {total_count}")
+        lines = [f"{len(counts)} tests"]
+        for state, count in counts.items():
+            lines.append(f"{state}: {count} ({count / len(counts):.2%})")
 
         # add total time so far to status
         overall_time = max_time_stamp - min_time_stamp
 
         lines.append(f"Total time: {humanize.precisedelta(timedelta(seconds=overall_time))}")
-
-        if status.test_coverage is not None:
-            lines.append(f"Coverage: {status.test_coverage:.2%}")
 
         text = "\n".join(lines)
 

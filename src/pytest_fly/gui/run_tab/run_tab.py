@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from PySide6.QtWidgets import QWidget, QHBoxLayout
+from PySide6.QtCore import Qt
 from typeguard import typechecked
 
 from .control_window import ControlWindow
@@ -18,13 +19,14 @@ class RunTab(QWidget):
         super().__init__(parent)
 
         layout = QHBoxLayout()
+        layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         self.setLayout(layout)
 
         self.control_window = ControlWindow(self, data_dir)
         self.status_window = StatusWindow(self)
 
-        layout.addWidget(self.control_window)
-        layout.addWidget(self.status_window)
+        layout.addWidget(self.control_window, alignment=Qt.AlignmentFlag.AlignTop)
+        layout.addWidget(self.status_window, alignment=Qt.AlignmentFlag.AlignTop)
         layout.addStretch()
 
     def update_pytest_process_info(self, pytest_process_infos: list[PytestProcessInfo]):

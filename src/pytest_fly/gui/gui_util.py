@@ -37,11 +37,11 @@ def get_text_dimensions(text: str, pad: bool = False) -> QSize:
 
 
 class PlainTextWidget(QPlainTextEdit):
-    def __init__(self, parent=None):
+    def __init__(self, parent, initial_text: str):
         super().__init__(parent)
-
         self.setReadOnly(True)
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.MinimumExpanding)
+        self.set_text(initial_text)
 
     def set_text(self, text: str):
         self.setPlainText(text)

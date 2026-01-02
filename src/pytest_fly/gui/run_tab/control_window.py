@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from PySide6.QtWidgets import QGroupBox, QVBoxLayout, QSizePolicy
+from PySide6.QtCore import Qt
 from typeguard import typechecked
 
 from ...interfaces import RunParameters
@@ -30,6 +31,7 @@ class ControlWindow(QGroupBox):
         self.setTitle("Control")
 
         layout = QVBoxLayout()
+        layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         self.setLayout(layout)
 
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)

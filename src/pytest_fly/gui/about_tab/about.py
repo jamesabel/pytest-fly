@@ -47,9 +47,8 @@ class About(QWidget):
 
         self.setWindowTitle("About")
 
-        self.about_box = PlainTextWidget(parent)
+        self.about_box = PlainTextWidget(parent, "Loading...")
         self.about_box.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.about_box.set_text("Loading...")
 
         vertical_layout = QVBoxLayout()
         self.setLayout(vertical_layout)

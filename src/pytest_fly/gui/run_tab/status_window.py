@@ -6,7 +6,7 @@ from PySide6.QtWidgets import QGroupBox, QVBoxLayout, QSizePolicy
 import humanize
 
 from ...gui.gui_util import PlainTextWidget
-from ...interfaces import PytestProcessInfo
+from ...interfaces import PytestProcessInfo, PytestRunnerState
 from ...pytest_runner.pytest_runner import PytestRunState
 
 
@@ -16,10 +16,9 @@ class StatusWindow(QGroupBox):
         super().__init__(parent)
         self.setTitle("Status")
         layout = QVBoxLayout()
-        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self.setLayout(layout)
-        self.status_widget = PlainTextWidget(self)
-        self.status_widget.set_text("")
+        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        self.status_widget = PlainTextWidget(self, "Loading...")
         layout.addWidget(self.status_widget)
 
     def update_status(self, pytest_process_infos: list[PytestProcessInfo]):
@@ -48,13 +47,14 @@ class StatusWindow(QGroupBox):
                 if max_time_stamp is None or process_info.time_stamp > max_time_stamp:
                     max_time_stamp = process_info.time_stamp
 
-        lines = [f"{len(counts)} tests"]
-        for state, count in counts.items():
-            lines.append(f"{state}: {count} ({count / len(counts):.2%})")
+        lines = [f"{len(processes_infos)} tests"]
+        for state in [PytestRunnerState.QUEUED, PytestRunnerState.RUNNING, PytestRunnerState.PASS, PytestRunnerState.FAIL, PytestRunnerState.TERMINATED]:
+            count = counts[state]
+            lines.append(f"{state}: {count} ({count / len(processes_infos):.2%})")
 
         # add total time so far to status
-        overall_time = max_time_stamp - min_time_stamp
-
-        lines.append(f"Total time: {humanize.precisedelta(timedelta(seconds=overall_time))}")
+        if min_time_stamp is not None and max_time_stamp is not None:
+            overall_time = max_time_stamp - min_time_stamp
+            lines.append(f"Total time: {humanize.precisedelta(timedelta(seconds=overall_time))}")
 
         self.status_widget.set_text("\n".join(lines))

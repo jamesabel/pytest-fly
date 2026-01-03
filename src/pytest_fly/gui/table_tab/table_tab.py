@@ -4,7 +4,6 @@ from enum import Enum
 from PySide6.QtWidgets import QGroupBox, QVBoxLayout, QScrollArea, QTableWidget, QTableWidgetItem, QMenu
 from PySide6.QtCore import Qt, QPoint
 from PySide6.QtGui import QColor, QGuiApplication
-from pytest import ExitCode
 
 from ...preferences import get_pref
 from ...interfaces import PytestProcessInfo

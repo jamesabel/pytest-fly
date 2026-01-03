@@ -5,11 +5,10 @@ from dataclasses import asdict
 
 from msqlite import MSQLite
 from balsa import get_logger
-from pytest import ExitCode
 from typeguard import typechecked
 
 from ..__version__ import application_name
-from ..interfaces import PytestProcessInfo
+from ..interfaces import PytestProcessInfo, PyTestFlyExitCode
 
 
 log = get_logger(application_name)
@@ -24,7 +23,7 @@ class PytestProcessInfoDB(MSQLite):
         self._schema = {}
         self._columns = []
         # fake to fill out all the fields since the underlying data structure is a dataclass
-        dummy_pytest_process_info = PytestProcessInfo(run_guid="", name="", pid=0, exit_code=ExitCode.OK, output="", time_stamp=0.0)
+        dummy_pytest_process_info = PytestProcessInfo(run_guid="", name="", pid=0, exit_code=PyTestFlyExitCode.OK, output="", time_stamp=0.0)
         for column, value in asdict(dummy_pytest_process_info).items():
             # "equivalent" SQLite types
             if isinstance(value, IntEnum):

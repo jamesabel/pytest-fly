@@ -4,7 +4,6 @@ from PySide6.QtWidgets import QGroupBox, QVBoxLayout, QSizePolicy
 from PySide6.QtCore import Qt
 from typeguard import typechecked
 
-from ...interfaces import RunParameters
 from ...pytest_runner.pytest_runner import PytestRunner
 from ...pytest_runner.test_list import get_tests
 from ...preferences import get_pref, ParallelismControl
@@ -80,16 +79,16 @@ class ControlWindow(QGroupBox):
         pref = get_pref()
         refresh_rate = pref.refresh_rate
         self.run_guid = generate_uuid()
-        run_parameters = RunParameters(self.run_guid, pref.run_mode, pref.processes)
-        if pref.parallelism == ParallelismControl.SERIAL:
-            run_parameters.max_processes = 1
 
         tests = get_tests()
         if self.pytest_runner is not None and self.pytest_runner.is_running():
             self.pytest_runner.stop()
             self.pytest_runner.join()
-        self.pytest_runner = PytestRunner(self.run_guid, tests, run_parameters.max_processes, self.data_dir, refresh_rate)
+
+        processes = 1 if pref.parallelism == ParallelismControl.SERIAL else pref.processes
+        self.pytest_runner = PytestRunner(self.run_guid, tests, processes, self.data_dir, refresh_rate)
         self.pytest_runner.start()
+
         self.run_button.setEnabled(False)
         self.stop_button.setEnabled(True)
 

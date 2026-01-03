@@ -6,11 +6,10 @@ from collections import defaultdict
 import time
 
 from typeguard import typechecked
-from pytest import ExitCode
 from PySide6.QtGui import QColor
 
 from ..logger import get_logger
-from ..interfaces import ScheduledTests, PytestRunnerState
+from ..interfaces import ScheduledTests, PytestRunnerState, PyTestFlyExitCode
 from .pytest_process import PytestProcess, PytestProcessInfo
 from ..db import PytestProcessInfoDB
 from .const import TIMEOUT
@@ -39,7 +38,7 @@ class PytestRunState:
                 else:
                     self.state = PytestRunnerState.RUNNING
             else:
-                if last_run_info.exit_code == ExitCode.OK:
+                if last_run_info.exit_code == PyTestFlyExitCode.OK:
                     self.state = PytestRunnerState.PASS
                 else:
                     self.state = PytestRunnerState.FAIL

@@ -1,7 +1,7 @@
 from tempfile import TemporaryDirectory
 from pathlib import Path
 
-from pytest import ExitCode
+from pytest_fly.interfaces import PyTestFlyExitCode
 from pytest_fly.pytest_runner.pytest_process import PytestProcess
 from pytest_fly.guid import generate_uuid
 from pytest_fly.db import PytestProcessInfoDB
@@ -19,7 +19,7 @@ def test_pytest_process():
             assert len(results) >= 2  # at least start and end entries
 
         assert len(results) >= 2
-        assert results[-1].exit_code == ExitCode.OK
+        assert results[-1].exit_code == PyTestFlyExitCode.OK
         execution_time = results[-1].time_stamp - results[0].time_stamp
         print(f"{execution_time=}")
         assert execution_time >= 0.0  # 1.4768257141113281 has been observed

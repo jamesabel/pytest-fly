@@ -99,23 +99,27 @@ class RunMode(IntEnum):
     CHECK = 2  # resume if program under test has not changed, otherwise restart
 
 
-@dataclass
-class RunParameters:
-    """
-    Parameters provided to the pytest runner.
-    """
-
-    run_guid: str  # unique identifier for the run
-    run_mode: RunMode  # True to automatically determine the number of processes to run in parallel
-    max_processes: int  # maximum number of processes to run in parallel (ignored if dynamic_processes is True)
-
-
 class PytestRunnerState(StrEnum):
     QUEUED = "Queued"
     RUNNING = "Running"
     PASS = "Pass"
     FAIL = "Fail"
     TERMINATED = "Terminated"
+
+class PyTestFlyExitCode(IntEnum):
+
+    # pytest exit codes
+    OK = ExitCode.OK
+    TESTS_FAILED = ExitCode.TESTS_FAILED
+    INTERRUPTED = ExitCode.INTERRUPTED
+    INTERNAL_ERROR = ExitCode.INTERNAL_ERROR
+    USAGE_ERROR = ExitCode.USAGE_ERROR
+    NO_TESTS_COLLECTED = ExitCode.NO_TESTS_COLLECTED
+    assert len(ExitCode) == 6  # ensure all pytest exit codes are covered
+
+    # pytest-fly specific exit codes
+    TERMINATED = 10  # test run was terminated
+
 
 
 @dataclass(frozen=True)
@@ -127,6 +131,6 @@ class PytestProcessInfo:
     run_guid: str  # the pytest run GUID this process is associated with
     name: str  # process name (usually the test name)
     pid: int | None  # process ID from the OS (if None the process has not started yet)
-    exit_code: ExitCode | None  # exit code from pytest, None if the test is still running
+    exit_code: PyTestFlyExitCode | None  # exit code from pytest, None if the test is still running
     output: str | None  # output from the pytest run, None if the test is still running
     time_stamp: float  # time stamp of the info update

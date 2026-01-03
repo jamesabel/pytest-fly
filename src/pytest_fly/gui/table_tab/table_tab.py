@@ -88,7 +88,7 @@ class TableTab(QGroupBox):
 
     def update_pytest_process_info(self, pytest_process_infos: list[PytestProcessInfo]):
 
-        self.table_widget.clear()
+        self.table_widget.clearContents()
 
         processes_infos = defaultdict(list)
         for pytest_process_info in pytest_process_infos:

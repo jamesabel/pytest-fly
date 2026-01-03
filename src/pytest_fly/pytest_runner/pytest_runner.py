@@ -90,7 +90,7 @@ class PytestRunner(Thread):
         with PytestProcessInfoDB(self.data_dir) as db:
             for test in self.tests:
                 test_queue.put(test.node_id)
-                pytest_process_info = PytestProcessInfo(self.run_guid, test.node_id, None, None, None, time_stamp=time.time())  # queued
+                pytest_process_info = PytestProcessInfo(self.run_guid, test.node_id, None, PyTestFlyExitCode.NONE, None, time_stamp=time.time())  # queued
                 db.write(pytest_process_info)
 
         for thread_number in range(self.number_of_processes):
@@ -187,6 +187,9 @@ class _TestRunner(Thread):
 
                         if not proc.is_alive():
                             log.info(f'process for test "{proc_name}" terminated ({self.run_guid=})')
+                            with PytestProcessInfoDB(self.data_dir) as db:
+                                pytest_process_info = PytestProcessInfo(self.run_guid, test.node_id, None, PyTestFlyExitCode.TERMINATED, None, time_stamp=time.time())  # queued
+                                db.write(pytest_process_info)
                         else:
                             # Ensure we are still operating on the same process object before forcing kill
                             if self.process is not proc:

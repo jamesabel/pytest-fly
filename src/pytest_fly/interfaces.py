@@ -115,10 +115,11 @@ class PyTestFlyExitCode(IntEnum):
     INTERNAL_ERROR = ExitCode.INTERNAL_ERROR
     USAGE_ERROR = ExitCode.USAGE_ERROR
     NO_TESTS_COLLECTED = ExitCode.NO_TESTS_COLLECTED
-    assert len(ExitCode) == 6  # ensure all pytest exit codes are covered
+    assert len(ExitCode) == 6  # Number of entries above. Check in case PyTest adds more exit codes.
 
     # pytest-fly specific exit codes
-    TERMINATED = 10  # test run was terminated
+    NONE = 100  # not yet set
+    TERMINATED = 101  # test run was terminated
 
 
 
@@ -131,6 +132,6 @@ class PytestProcessInfo:
     run_guid: str  # the pytest run GUID this process is associated with
     name: str  # process name (usually the test name)
     pid: int | None  # process ID from the OS (if None the process has not started yet)
-    exit_code: PyTestFlyExitCode | None  # exit code from pytest, None if the test is still running
+    exit_code: PyTestFlyExitCode
     output: str | None  # output from the pytest run, None if the test is still running
     time_stamp: float  # time stamp of the info update

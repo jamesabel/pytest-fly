@@ -23,7 +23,7 @@ class PytestProcessInfoDB(MSQLite):
         self._schema = {}
         self._columns = []
         # fake to fill out all the fields since the underlying data structure is a dataclass
-        dummy_pytest_process_info = PytestProcessInfo(run_guid="", name="", pid=0, exit_code=PyTestFlyExitCode.OK, output="", time_stamp=0.0)
+        dummy_pytest_process_info = PytestProcessInfo(run_guid="", name="", pid=0, exit_code=PyTestFlyExitCode.NONE, output="", time_stamp=0.0)
         for column, value in asdict(dummy_pytest_process_info).items():
             # "equivalent" SQLite types
             if isinstance(value, IntEnum):

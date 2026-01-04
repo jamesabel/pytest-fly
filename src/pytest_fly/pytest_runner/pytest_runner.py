@@ -25,23 +25,28 @@ class PytestRunState:
     @typechecked()
     def __init__(self, run_infos: list[PytestProcessInfo]):
         if len(run_infos) > 0:
-            self.name = run_infos[0].name
-        else:
-            self.name = None
-        if len(run_infos) < 2:
-            self.state = PytestRunnerState.QUEUED  # one entry means queued
-        else:
             last_run_info = run_infos[-1]
-            if last_run_info.exit_code is None:
+            self.name = last_run_info.name
+
+            exit_code = last_run_info.exit_code
+            if exit_code == PyTestFlyExitCode.OK:
+                self.state = PytestRunnerState.PASS
+            elif PyTestFlyExitCode.OK < exit_code <= PyTestFlyExitCode.MAX_PYTEST_EXIT_CODE:
+                # any pytest exit code other than OK is a failure
+                self.state = PytestRunnerState.FAIL
+            elif exit_code == PyTestFlyExitCode.TERMINATED:
+                self.state = PytestRunnerState.TERMINATED
+            elif exit_code == PyTestFlyExitCode.NONE:
                 if last_run_info.pid is None:
-                    self.state = PytestRunnerState.TERMINATED
+                    self.state = PytestRunnerState.QUEUED
                 else:
                     self.state = PytestRunnerState.RUNNING
             else:
-                if last_run_info.exit_code == PyTestFlyExitCode.OK:
-                    self.state = PytestRunnerState.PASS
-                else:
-                    self.state = PytestRunnerState.FAIL
+                log.error(f"unknown exit code {exit_code} for test {self.name}, defaulting to QUEUED")
+                self.state = PytestRunnerState.QUEUED
+        else:
+            self.name = None
+            self.state = PytestRunnerState.QUEUED
 
     @typechecked()
     def get_state(self) -> PytestRunnerState:
@@ -188,7 +193,7 @@ class _TestRunner(Thread):
                         if not proc.is_alive():
                             log.info(f'process for test "{proc_name}" terminated ({self.run_guid=})')
                             with PytestProcessInfoDB(self.data_dir) as db:
-                                pytest_process_info = PytestProcessInfo(self.run_guid, test.node_id, None, PyTestFlyExitCode.TERMINATED, None, time_stamp=time.time())  # queued
+                                pytest_process_info = PytestProcessInfo(self.run_guid, test, None, PyTestFlyExitCode.TERMINATED, None, time_stamp=time.time())  # queued
                                 db.write(pytest_process_info)
                         else:
                             # Ensure we are still operating on the same process object before forcing kill

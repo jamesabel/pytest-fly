@@ -10,7 +10,7 @@ from coverage import Coverage
 from typeguard import typechecked
 
 from ..__version__ import application_name
-from ..interfaces import PytestProcessInfo
+from ..interfaces import PytestProcessInfo, PyTestFlyExitCode
 from ..logger import get_logger
 from ..db import PytestProcessInfoDB
 from .process_monitor import ProcessMonitor
@@ -48,7 +48,7 @@ class PytestProcess(Process):
 
         # update the pytest process info to show that the test is running
         with PytestProcessInfoDB(self.data_dir) as db:
-            pytest_process_info = PytestProcessInfo(self.run_guid, self.name, self.pid, None, None, time_stamp=time.time())
+            pytest_process_info = PytestProcessInfo(self.run_guid, self.name, self.pid, PyTestFlyExitCode.NONE, None, time_stamp=time.time())
             db.write(pytest_process_info)
 
         # Finally, actually run pytest!

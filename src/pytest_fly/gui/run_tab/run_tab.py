@@ -31,3 +31,4 @@ class RunTab(QWidget):
 
     def update_pytest_process_info(self, pytest_process_infos: list[PytestProcessInfo]):
         self.status_window.update_status(pytest_process_infos)
+        self.control_window.update()

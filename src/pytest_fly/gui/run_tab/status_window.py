@@ -63,7 +63,10 @@ class StatusWindow(QGroupBox):
 
         for state in [PytestRunnerState.PASS, PytestRunnerState.FAIL, PytestRunnerState.QUEUED, PytestRunnerState.RUNNING, PytestRunnerState.TERMINATED]:
             count = counts[state]
-            lines.append(f"{state}: {count} ({count / len(processes_infos):.2%})")
+            if len(processes_infos) > 0:
+                lines.append(f"{state}: {count} ({count / len(processes_infos):.2%})")
+            else:
+                lines.append(f"{state}: {count}")
 
         # add total time so far to status
         if min_time_stamp is not None and max_time_stamp is not None:

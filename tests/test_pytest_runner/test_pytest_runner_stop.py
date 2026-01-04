@@ -1,7 +1,7 @@
 import time
 
-from pytest_fly.pytest_runner.pytest_runner import PytestRunner
-from pytest_fly.interfaces import ScheduledTest, ScheduledTests
+from pytest_fly.pytest_runner.pytest_runner import PytestRunner, PytestRunState
+from pytest_fly.interfaces import ScheduledTest, ScheduledTests, PyTestFlyExitCode, PytestRunnerState
 from pytest_fly.db import PytestProcessInfoDB
 from pytest_fly.guid import generate_uuid
 
@@ -25,4 +25,7 @@ def test_pytest_runner_stop(app):
     runner.join(10.0)
     with PytestProcessInfoDB(data_dir) as db:
         results = db.query()
-    assert len(results) == 2  # only the start of the test should be recorded
+    final_result = results[-1]
+    assert final_result.exit_code == PyTestFlyExitCode.TERMINATED
+    pytest_run_state = PytestRunState(results)
+    assert pytest_run_state.state == PytestRunnerState.TERMINATED

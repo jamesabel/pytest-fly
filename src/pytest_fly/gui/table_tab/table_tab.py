@@ -8,6 +8,7 @@ from PySide6.QtGui import QColor, QGuiApplication
 from ...preferences import get_pref
 from ...interfaces import PytestProcessInfo
 from ...pytest_runner.pytest_runner import PytestRunState
+from ...gui.gui_util import tool_tip_limiter
 
 
 class Columns(Enum):
@@ -121,7 +122,7 @@ class TableTab(QGroupBox):
             state_item.setForeground(pytest_run_state.get_qt_table_color())
 
             if len(process_infos) > 1 and process_infos[-1].output is not None:
-                tooltip_text = process_infos[-1].output
+                tooltip_text = tool_tip_limiter(process_infos[-1].output)
             else:
                 tooltip_text = ""
             state_item.setToolTip(tooltip_text)

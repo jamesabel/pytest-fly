@@ -2,7 +2,9 @@ from functools import lru_cache, cache
 
 from PySide6.QtWidgets import QPlainTextEdit, QSizePolicy
 from PySide6.QtGui import QFont, QFontMetrics
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QSize
+
+from ..const import TOOLTIP_LINE_LIMIT
 
 
 @cache
@@ -48,3 +50,17 @@ class PlainTextWidget(QPlainTextEdit):
         # Tell layouts the size hint changed
         self.updateGeometry()
         self.adjustSize()
+
+
+def tool_tip_limiter(text: str) -> str:
+    """
+    Limit the number of lines in a tooltip text.
+
+    :param text: The original tooltip text
+    :return: The limited tooltip text
+    """
+    lines = text.splitlines()
+    if len(lines) > TOOLTIP_LINE_LIMIT:
+        limited_text = f"...\n" + "\n".join(lines[len(lines) - TOOLTIP_LINE_LIMIT :])
+        return limited_text
+    return text

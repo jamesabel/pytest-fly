@@ -10,6 +10,7 @@ from ...interfaces import PytestProcessInfo
 from ...pytest_runner.pytest_runner import PytestRunState, PytestRunnerState
 from ..gui_util import get_text_dimensions
 from ...logger import get_logger
+from ..gui_util import tool_tip_limiter
 
 log = get_logger()
 
@@ -138,7 +139,7 @@ class PytestProgressBar(QWidget):
                 global_pos = event.globalPosition().toPoint()
             else:
                 global_pos = event.globalPos()
-            QToolTip.showText(global_pos, self._last_bar_text, self)
+            QToolTip.showText(global_pos, tool_tip_limiter(self._last_bar_text), self)
         else:
             QToolTip.hideText()
 

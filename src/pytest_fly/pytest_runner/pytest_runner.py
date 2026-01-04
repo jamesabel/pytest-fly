@@ -60,10 +60,22 @@ class PytestRunState:
         return self.name
 
     @typechecked()
-    def get_qt_color(self) -> QColor:
+    def get_qt_bar_color(self) -> QColor:
         state_to_color = {
             PytestRunnerState.QUEUED: QColor("blue"),
-            PytestRunnerState.RUNNING: QColor("gray"),
+            PytestRunnerState.RUNNING: QColor("lightgray"),
+            PytestRunnerState.PASS: QColor("lightgreen"),
+            PytestRunnerState.FAIL: QColor("red"),
+            PytestRunnerState.TERMINATED: QColor("orange"),
+        }
+        color = state_to_color[self.state]
+        return color
+
+    @typechecked()
+    def get_qt_table_color(self) -> QColor:
+        state_to_color = {
+            PytestRunnerState.QUEUED: QColor("blue"),
+            PytestRunnerState.RUNNING: QColor("black"),
             PytestRunnerState.PASS: QColor("green"),
             PytestRunnerState.FAIL: QColor("red"),
             PytestRunnerState.TERMINATED: QColor("orange"),

@@ -51,10 +51,12 @@ class ControlWindow(QGroupBox):
         self.run_mode_box = RunModeControlBox(self)
         layout.addWidget(self.run_mode_box)
 
-        self.view_coverage_button = ControlButton(self, "View Coverage", True)
-        self.view_coverage = ViewCoverage(self.data_dir)
-        self.view_coverage_button.clicked.connect(self.view_coverage.view)
-        layout.addWidget(self.view_coverage_button)
+        if False:
+            # todo: implement coverage
+            self.view_coverage_button = ControlButton(self, "View Coverage", True)
+            self.view_coverage = ViewCoverage(self.data_dir)
+            self.view_coverage_button.clicked.connect(self.view_coverage.view)
+            layout.addWidget(self.view_coverage_button)
 
         self.pytest_runner: PytestRunner | None = None
 

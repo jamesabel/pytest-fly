@@ -104,7 +104,7 @@ class TableTab(QGroupBox):
 
             state_item = QTableWidgetItem()
             state_item.setText(pytest_run_state.get_string())
-            state_item.setForeground(pytest_run_state.get_qt_color())
+            state_item.setForeground(pytest_run_state.get_qt_table_color())
             self.table_widget.setItem(row_number, Columns.STATE.value, state_item)
 
         # Resize columns to fit contents

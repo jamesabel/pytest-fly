@@ -4,6 +4,7 @@ from collections import defaultdict
 from PySide6.QtWidgets import QGroupBox, QVBoxLayout, QSizePolicy
 
 import humanize
+from mypy.dmypy_os import OpenProcess
 
 from ...gui.gui_util import PlainTextWidget
 from ...interfaces import PytestProcessInfo, PytestRunnerState
@@ -47,30 +48,33 @@ class StatusWindow(QGroupBox):
                 if max_time_stamp is None or process_info.time_stamp > max_time_stamp:
                     max_time_stamp = process_info.time_stamp
 
-        lines = [f"{len(processes_infos)} tests", ""]
+        if len(processes_infos) > 0:
+            lines = [f"{len(processes_infos)} tests", ""]
 
-        # get current pass rate
-        current_pass_count = counts[PytestRunnerState.PASS]
-        current_fail_count = counts[PytestRunnerState.FAIL]
-        total_completed = current_pass_count + current_fail_count
-        prefix = "Pass rate: "
-        if total_completed > 0:
-            pass_rate = current_pass_count / total_completed
-            lines.append(f"{prefix}{current_pass_count}/{total_completed} ({pass_rate:.2%})")
-        else:
-            lines.append(f"{prefix}(calculating...)")
-        lines.append("")  # space
-
-        for state in [PytestRunnerState.PASS, PytestRunnerState.FAIL, PytestRunnerState.QUEUED, PytestRunnerState.RUNNING, PytestRunnerState.TERMINATED]:
-            count = counts[state]
-            if len(processes_infos) > 0:
-                lines.append(f"{state}: {count} ({count / len(processes_infos):.2%})")
+            # get current pass rate
+            current_pass_count = counts[PytestRunnerState.PASS]
+            current_fail_count = counts[PytestRunnerState.FAIL]
+            total_completed = current_pass_count + current_fail_count
+            prefix = "Pass rate: "
+            if total_completed > 0:
+                pass_rate = current_pass_count / total_completed
+                lines.append(f"{prefix}{current_pass_count}/{total_completed} ({pass_rate:.2%})")
             else:
-                lines.append(f"{state}: {count}")
+                lines.append(f"{prefix}(calculating...)")
+            lines.append("")  # space
 
-        # add total time so far to status
-        if min_time_stamp is not None and max_time_stamp is not None:
-            overall_time = max_time_stamp - min_time_stamp
-            lines.append(f"Total time: {humanize.precisedelta(timedelta(seconds=overall_time))}")
+            for state in [PytestRunnerState.PASS, PytestRunnerState.FAIL, PytestRunnerState.QUEUED, PytestRunnerState.RUNNING, PytestRunnerState.TERMINATED]:
+                count = counts[state]
+                if len(processes_infos) > 0:
+                    lines.append(f"{state}: {count} ({count / len(processes_infos):.2%})")
+                else:
+                    lines.append(f"{state}: {count}")
+
+            # add total time so far to status
+            if min_time_stamp is not None and max_time_stamp is not None:
+                overall_time = max_time_stamp - min_time_stamp
+                lines.append(f"Total time: {humanize.precisedelta(timedelta(seconds=overall_time))}")
+        else:
+            lines = ["Tests not yet run. Please run the tests."]
 
         self.status_widget.set_text("\n".join(lines))

@@ -85,6 +85,7 @@ class TableTab(QGroupBox):
         self.max_cpu_usage.clear()
         self.max_memory_usage.clear()
 
+    # python
     def update_pytest_process_info(self, pytest_process_infos: list[PytestProcessInfo]):
 
         self.table_widget.clearContents()
@@ -103,9 +104,19 @@ class TableTab(QGroupBox):
             self.table_widget.setItem(row_number, Columns.NAME.value, QTableWidgetItem(pytest_run_state.get_name()))
 
             state_item = QTableWidgetItem()
-            state_item.setText(pytest_run_state.get_string())
+            state_text = pytest_run_state.get_string()
+            state_item.setText(state_text)
             state_item.setForeground(pytest_run_state.get_qt_table_color())
+
+            if len(process_infos) < 1 or (tooltip_text := process_infos[-1].output) is None:
+                tooltip_text = ""
+            state_item.setToolTip(tooltip_text)
+            state_item.setData(Qt.ItemDataRole.ToolTipRole, tooltip_text)
+
             self.table_widget.setItem(row_number, Columns.STATE.value, state_item)
+
+        # Resize columns to fit contents
+        self.table_widget.resizeColumnsToContents()
 
         # Resize columns to fit contents
         self.table_widget.resizeColumnsToContents()

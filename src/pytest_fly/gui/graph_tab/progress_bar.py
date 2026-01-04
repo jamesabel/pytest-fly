@@ -1,9 +1,8 @@
-import time
-
-from typeguard import typechecked
-from PySide6.QtWidgets import QWidget, QVBoxLayout
-from PySide6.QtCore import QRectF
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QToolTip
+from PySide6.QtCore import QRectF, QPointF
 from PySide6.QtGui import QPainter, QPen, QBrush, QPalette
+import time
+from typeguard import typechecked
 import humanize
 
 from ...interfaces import PytestProcessInfo
@@ -30,32 +29,33 @@ class PytestProgressBar(QWidget):
         super().__init__()
         layout = QVBoxLayout()
         self.setLayout(layout)
-        self.one_character_dimensions = get_text_dimensions("X")  # using monospace characters, so this is the width of any character
+        self.one_character_dimensions = get_text_dimensions("X")
 
         self.status_list = status_list
         self.min_time_stamp = min_time_stamp
         self.max_time_stamp = max_time_stamp
 
-        # set height of the progress bar
         if len(status_list) > 0:
             name = status_list[0].name
             name_text_dimensions = get_text_dimensions(name)
         else:
-            # generally the status_list should have at least one element, but just in case use a default
             name_text_dimensions = self.one_character_dimensions
-        self.bar_margin = 1  # pixels each side
-        self.bar_height = name_text_dimensions.height() + 2 * self.bar_margin  # 1 character plus padding
+        self.bar_margin = 1
+        self.bar_height = name_text_dimensions.height() + 2 * self.bar_margin
         self.setFixedHeight(self.bar_height)
         log.info(f"{self.bar_height=},{name_text_dimensions=}")
         self.update_pytest_process_info(status_list, min_time_stamp, max_time_stamp)
 
+        # --- Tooltip-related state ---
+        self.setMouseTracking(True)  # receive mouseMoveEvent even with no button pressed
+        self._last_bar_rect: QRectF | None = None
+        self._last_bar_text: str = ""
+
     def update_pytest_process_info(self, status_list: list[PytestProcessInfo], min_time_stamp: float, max_time_stamp: float):
-        # Save the new state and request a repaint
         self.status_list = status_list
         self.min_time_stamp = min_time_stamp
         self.max_time_stamp = max_time_stamp
 
-        # adjust height if we have a name to size against
         if len(self.status_list) > 0:
             name = self.status_list[0].name
             name_text_dimensions = get_text_dimensions(name)
@@ -64,10 +64,9 @@ class PytestProgressBar(QWidget):
         self.bar_height = name_text_dimensions.height() + 2 * self.bar_margin
         self.setFixedHeight(self.bar_height)
 
-        self.update()  # schedule a repaint on the GUI thread
+        self.update()
 
     def paintEvent(self, event):
-        # Draw based on the latest saved state
         if len(self.status_list) > 0:
 
             pytest_run_state = PytestRunState(self.status_list)
@@ -103,6 +102,14 @@ class PytestProgressBar(QWidget):
                 bar_rect = QRectF(x1, y1, w, h)
                 painter.fillRect(bar_rect, QBrush(bar_color))
 
+                # save rect and text for tooltip hit-testing
+                self._last_bar_rect = bar_rect
+                self._last_bar_text = self.status_list[-1].output
+            else:
+                # nothing drawn
+                self._last_bar_rect = None
+                self._last_bar_text = ""
+
             text_left_margin = self.one_character_dimensions.width()
             text_y_margin = int(round((0.5 * self.one_character_dimensions.height() + self.bar_margin + 1)))
 
@@ -113,5 +120,29 @@ class PytestProgressBar(QWidget):
 
             painter.end()
         else:
-
+            self._last_bar_rect = None
+            self._last_bar_text = ""
             super().paintEvent(event)
+
+    def mouseMoveEvent(self, event):
+        # get mouse position as QPointF for QRectF.contains
+        if hasattr(event, "position"):
+            pos = QPointF(event.position())
+        else:
+            pos = QPointF(event.pos())
+
+        if self._last_bar_rect is not None and self._last_bar_rect.contains(pos):
+            # global position may be provided as globalPosition() in Qt6 or globalPos()
+            if hasattr(event, "globalPosition"):
+                global_pos = event.globalPosition().toPoint()
+            else:
+                global_pos = event.globalPos()
+            QToolTip.showText(global_pos, self._last_bar_text, self)
+        else:
+            QToolTip.hideText()
+
+        super().mouseMoveEvent(event)
+
+    def leaveEvent(self, event):
+        QToolTip.hideText()
+        super().leaveEvent(event)

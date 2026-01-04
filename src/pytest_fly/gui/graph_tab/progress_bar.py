@@ -1,6 +1,7 @@
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QToolTip
+# python
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QToolTip, QMenu
 from PySide6.QtCore import QRectF, QPointF
-from PySide6.QtGui import QPainter, QPen, QBrush, QPalette
+from PySide6.QtGui import QPainter, QPen, QBrush, QPalette, QGuiApplication
 import time
 from typeguard import typechecked
 import humanize
@@ -146,3 +147,14 @@ class PytestProgressBar(QWidget):
     def leaveEvent(self, event):
         QToolTip.hideText()
         super().leaveEvent(event)
+
+    def contextMenuEvent(self, event):
+        """Right-click menu: Copy the current tooltip text to the clipboard."""
+        menu = QMenu(self)
+        copy_action = menu.addAction("Copy Pytest Output")
+        selected = menu.exec(event.globalPos())
+
+        if selected == copy_action:
+            tooltip = self._last_bar_text or ""
+            if tooltip:
+                QGuiApplication.clipboard().setText(str(tooltip))

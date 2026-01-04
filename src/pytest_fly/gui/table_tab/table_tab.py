@@ -57,12 +57,25 @@ class TableTab(QGroupBox):
         layout.addWidget(scroll_area)
         self.setLayout(layout)
 
+    # python
     def show_context_menu(self, position: QPoint):
         menu = QMenu()
-        copy_action = menu.addAction("Copy")
+        copy_tooltip_action = menu.addAction("Copy Pytest Output")
         action = menu.exec_(self.table_widget.viewport().mapToGlobal(position))
-        if action == copy_action:
-            self.copy_selected_text()
+
+        if action == copy_tooltip_action:
+            # try the item under the mouse; fallback to current item
+            item = self.table_widget.itemAt(position)
+            if item is None:
+                item = self.table_widget.currentItem()
+            if item is not None:
+                tooltip = item.toolTip()
+                # fallback to ItemDataRole if toolTip() is empty
+                if not tooltip:
+                    tooltip = item.data(Qt.ItemDataRole.ToolTipRole) or ""
+                if tooltip:
+                    clipboard = QGuiApplication.clipboard()
+                    clipboard.setText(tooltip)
 
     def copy_selected_text(self):
         selected_ranges = self.table_widget.selectedRanges()

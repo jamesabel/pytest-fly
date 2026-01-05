@@ -76,7 +76,7 @@ class PytestProcess(Process):
         self._process_monitor_process.request_stop()
         self._process_monitor_process.join(100.0)  # plenty of time for the monitor to stop
         if self._process_monitor_process.is_alive():
-            log.error(f"{self._process_monitor_process} is alive")
+            log.warning(f"{self._process_monitor_process} is alive")
 
         # update the pytest process info to show that the test has finished
         with PytestProcessInfoDB(self.data_dir) as db:

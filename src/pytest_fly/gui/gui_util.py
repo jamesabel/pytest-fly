@@ -61,6 +61,6 @@ def tool_tip_limiter(text: str) -> str:
     """
     lines = text.splitlines()
     if len(lines) > TOOLTIP_LINE_LIMIT:
-        limited_text = f"...\n" + "\n".join(lines[len(lines) - TOOLTIP_LINE_LIMIT :])
+        limited_text = "...\n" + "\n".join(lines[len(lines) - TOOLTIP_LINE_LIMIT :])
         return limited_text
     return text

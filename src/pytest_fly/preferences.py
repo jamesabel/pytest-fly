@@ -22,7 +22,6 @@ class ParallelismControl(IntEnum):
     DYNAMIC = 2  # automatically dynamically determine max number of processes to run in parallel, while trying to avoid high utilization thresholds (see utilization_high_threshold)
 
 
-
 @attrs
 class FlyPreferences(Pref):
 
@@ -45,6 +44,3 @@ class FlyPreferences(Pref):
 
 def get_pref() -> FlyPreferences:
     return FlyPreferences(application_name, author, file_name=preferences_file_name)
-
-
-

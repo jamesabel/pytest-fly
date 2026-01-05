@@ -106,6 +106,7 @@ class PytestRunnerState(StrEnum):
     FAIL = "Fail"
     TERMINATED = "Terminated"
 
+
 class PyTestFlyExitCode(IntEnum):
 
     # pytest exit codes
@@ -121,7 +122,6 @@ class PyTestFlyExitCode(IntEnum):
     # pytest-fly specific exit codes
     NONE = 100  # not yet set
     TERMINATED = 101  # test run was forcefully terminated
-
 
 
 @dataclass(frozen=True)

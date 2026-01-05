@@ -30,4 +30,8 @@ def test_pytest_runner_stop(app):
     assert pytest_run_state.get_state() == PytestRunnerState.TERMINATED
 
     assert results[0].exit_code == PyTestFlyExitCode.NONE
-    assert results[1].exit_code == PyTestFlyExitCode.TERMINATED
+    assert results[0].pid is None
+    assert results[1].exit_code == PyTestFlyExitCode.NONE
+    assert results[1].pid is not None
+    assert results[2].exit_code == PyTestFlyExitCode.TERMINATED
+    assert results[2].pid is None

@@ -4,6 +4,8 @@ from PySide6.QtWidgets import QPlainTextEdit, QSizePolicy
 from PySide6.QtGui import QFont, QFontMetrics
 from PySide6.QtCore import QSize
 
+from typeguard import typechecked
+
 from ..const import TOOLTIP_LINE_LIMIT
 
 
@@ -52,13 +54,16 @@ class PlainTextWidget(QPlainTextEdit):
         self.adjustSize()
 
 
-def tool_tip_limiter(text: str) -> str:
+@typechecked
+def tool_tip_limiter(text: str | None) -> str:
     """
     Limit the number of lines in a tooltip text.
 
     :param text: The original tooltip text
     :return: The limited tooltip text
     """
+    if text is None:
+        return ""
     lines = text.splitlines()
     if len(lines) > TOOLTIP_LINE_LIMIT:
         limited_text = "...\n" + "\n".join(lines[len(lines) - TOOLTIP_LINE_LIMIT :])

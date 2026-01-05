@@ -37,7 +37,7 @@ class StatusWindow(QGroupBox):
         for row_number, test_name in enumerate(processes_infos):
             process_infos = processes_infos[test_name]
             pytest_run_state = PytestRunState(process_infos)
-            counts[pytest_run_state.state] += 1
+            counts[pytest_run_state.get_state()] += 1
 
         min_time_stamp = None
         max_time_stamp = None

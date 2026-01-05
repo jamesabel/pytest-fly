@@ -1,5 +1,5 @@
 from pytest_fly.pytest_runner.pytest_runner import PytestRunner
-from pytest_fly.interfaces import ScheduledTest, ScheduledTests
+from pytest_fly.interfaces import ScheduledTest, ScheduledTests, PyTestFlyExitCode
 from pytest_fly.db import PytestProcessInfoDB
 from pytest_fly.guid import generate_uuid
 
@@ -22,3 +22,6 @@ def test_pytest_runner_simple(app):
     with PytestProcessInfoDB(data_dir) as db:
         results = db.query(run_guid)
     assert len(results) == 3
+    assert results[0].exit_code == PyTestFlyExitCode.NONE
+    assert results[1].exit_code == PyTestFlyExitCode.NONE
+    assert results[2].exit_code == PyTestFlyExitCode.OK

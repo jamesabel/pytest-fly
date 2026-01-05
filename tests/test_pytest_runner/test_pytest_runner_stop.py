@@ -25,7 +25,9 @@ def test_pytest_runner_stop(app):
     runner.join(10.0)
     with PytestProcessInfoDB(data_dir) as db:
         results = db.query()
-    final_result = results[-1]
-    assert final_result.exit_code == PyTestFlyExitCode.TERMINATED
+
     pytest_run_state = PytestRunState(results)
-    assert pytest_run_state.state == PytestRunnerState.TERMINATED
+    assert pytest_run_state.get_state() == PytestRunnerState.TERMINATED
+
+    assert results[0].exit_code == PyTestFlyExitCode.NONE
+    assert results[1].exit_code == PyTestFlyExitCode.TERMINATED

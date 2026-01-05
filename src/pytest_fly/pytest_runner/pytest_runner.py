@@ -26,38 +26,38 @@ class PytestRunState:
     def __init__(self, run_infos: list[PytestProcessInfo]):
         if len(run_infos) > 0:
             last_run_info = run_infos[-1]
-            self.name = last_run_info.name
+            self._name = last_run_info.name
 
             exit_code = last_run_info.exit_code
             if exit_code == PyTestFlyExitCode.OK:
-                self.state = PytestRunnerState.PASS
+                self._state = PytestRunnerState.PASS
             elif PyTestFlyExitCode.OK < exit_code <= PyTestFlyExitCode.MAX_PYTEST_EXIT_CODE:
                 # any pytest exit code other than OK is a failure
-                self.state = PytestRunnerState.FAIL
+                self._state = PytestRunnerState.FAIL
             elif exit_code == PyTestFlyExitCode.TERMINATED:
-                self.state = PytestRunnerState.TERMINATED
+                self._state = PytestRunnerState.TERMINATED
             elif exit_code == PyTestFlyExitCode.NONE:
                 if last_run_info.pid is None:
-                    self.state = PytestRunnerState.QUEUED
+                    self._state = PytestRunnerState.QUEUED
                 else:
-                    self.state = PytestRunnerState.RUNNING
+                    self._state = PytestRunnerState.RUNNING
             else:
-                log.error(f"unknown exit code {exit_code} for test {self.name}, defaulting to QUEUED")
-                self.state = PytestRunnerState.QUEUED
+                log.error(f"unknown exit code {exit_code} for test {self._name}, defaulting to QUEUED")
+                self._state = PytestRunnerState.QUEUED
         else:
-            self.name = None
-            self.state = PytestRunnerState.QUEUED
+            self._name = None
+            self._state = PytestRunnerState.QUEUED
 
     @typechecked()
     def get_state(self) -> PytestRunnerState:
-        return self.state
+        return self._state
 
     @typechecked()
     def get_string(self) -> str:
-        return self.state.value
+        return self._state.value
 
     def get_name(self) -> str | None:
-        return self.name
+        return self._name
 
     @typechecked()
     def get_qt_bar_color(self) -> QColor:
@@ -68,7 +68,7 @@ class PytestRunState:
             PytestRunnerState.FAIL: QColor("red"),
             PytestRunnerState.TERMINATED: QColor("orange"),
         }
-        color = state_to_color[self.state]
+        color = state_to_color[self._state]
         return color
 
     @typechecked()
@@ -80,7 +80,7 @@ class PytestRunState:
             PytestRunnerState.FAIL: QColor("red"),
             PytestRunnerState.TERMINATED: QColor("orange"),
         }
-        color = state_to_color[self.state]
+        color = state_to_color[self._state]
         return color
 
 

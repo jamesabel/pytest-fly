@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 from PySide6.QtWidgets import QApplication
 
-from pytest_fly.app.model import drop_pytest_process_current_info
+from pytest_fly.db import PytestProcessInfoDB
 
 pytest_plugins = "pytester"
 
@@ -31,8 +31,3 @@ def make_many_tests():
             test_file = Path(many_test_dir, f"test_many_{test_number:03d}.py")
             lines = [f"def test_many_{test_number}():", "    print(sum([x for x in range((int(1E7)))]))", "    assert True\n"]
             test_file.write_text("\n".join(lines))
-
-
-@pytest.fixture(scope="function")
-def init_pytest_process_info():
-    drop_pytest_process_current_info()

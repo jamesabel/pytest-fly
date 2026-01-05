@@ -1,7 +1,12 @@
 from pathlib import Path
-from pprint import pprint
 
-from PySide6.QtWidgets import QMainWindow, QApplication, QTabWidget
+from PySide6.QtWidgets import (
+    QMainWindow,
+    QApplication,
+    QTabWidget,
+    QScrollArea,
+    QSizePolicy,
+)
 from PySide6.QtCore import QCoreApplication, QRect, QTimer
 from typeguard import typechecked
 
@@ -48,12 +53,23 @@ class FlyAppMainWindow(QMainWindow):
             pref.window_width = pref.window_width if pref.window_width < screen_geometry.width() else screen_geometry.width()
             pref.window_height = pref.window_height if pref.window_height < screen_geometry.height() else screen_geometry.height()
             log.info(f"window is off the screen, moving to (0, 0) with width={pref.window_width} and height={pref.window_height}")
-        self.setGeometry(pref.window_x, pref.window_y, pref.window_width, pref.window_height)
+        # apply geometry but keep it clamped to the available screen
+        width = min(pref.window_width, screen_geometry.width())
+        height = min(pref.window_height, screen_geometry.height())
+        x = min(max(pref.window_x, screen_geometry.left()), screen_geometry.right() - width)
+        y = min(max(pref.window_y, screen_geometry.top()), screen_geometry.bottom() - height)
+        self.setGeometry(x, y, width, height)
+
+        # Prevent the window from growing beyond the screen; children can scroll instead.
+        self.setMaximumSize(screen_geometry.width(), screen_geometry.height())
 
         self.setWindowTitle(application_name)
 
         # add tab windows
         self.tab_widget = QTabWidget()
+        # ensure the tab widget expands but does not force the main window to grow
+        self.tab_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+
         self.run_tab = RunTab(self, self.data_dir)
         self.graph_tab = GraphTab()
         self.table_tab = TableTab()
@@ -65,14 +81,47 @@ class FlyAppMainWindow(QMainWindow):
         self.tab_widget.addTab(self.configuration, "Configuration")
         self.tab_widget.addTab(self.about, "About")
 
-        self.setCentralWidget(self.tab_widget)
+        # Wrap the tab widget in a scroll area so that very tall tab contents produce scrollbars
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
+        # QScrollArea takes ownership / reparents the widget
+        self.scroll_area.setWidget(self.tab_widget)
 
+        self.setCentralWidget(self.scroll_area)
+
+        # timer for periodic updates
         self.timer = QTimer(self, interval=int(round(pref.refresh_rate * 1000)))
         self.timer.timeout.connect(self.update_pytest_process_info)
         self.timer.start()
 
+    def constrain_to_screen(self):
+        """
+        Ensure the main window size and position stay within the primary screen's available geometry.
+        """
+        screen = QApplication.primaryScreen()
+        if screen is None:
+            return
+        avail = screen.availableGeometry()
+
+        # clamp size
+        new_width = min(self.width(), avail.width())
+        new_height = min(self.height(), avail.height())
+        if (new_width, new_height) != (self.width(), self.height()):
+            self.resize(new_width, new_height)
+
+        # clamp position
+        new_x = min(max(self.x(), avail.left()), avail.right() - self.width())
+        new_y = min(max(self.y(), avail.top()), avail.bottom() - self.height())
+        if (new_x, new_y) != (self.x(), self.y()):
+            self.move(new_x, new_y)
+
+        # ensure maximums follow the screen in case of DPI/monitor changes
+        self.setMaximumSize(avail.width(), avail.height())
+
     def reset(self):
         self.table_tab.reset()
+        # after resetting potentially large content, make sure window stays on-screen
+        self.constrain_to_screen()
 
     def closeEvent(self, event, /):
 
@@ -94,6 +143,16 @@ class FlyAppMainWindow(QMainWindow):
 
         event.accept()
 
+    def moveEvent(self, event):
+        super().moveEvent(event)
+        # keep the window inside the visible screen when moved
+        self.constrain_to_screen()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        # keep the window inside the visible screen when resized
+        self.constrain_to_screen()
+
     def update_pytest_process_info(self):
         """
         Timer event handler to update the GUI.
@@ -103,6 +162,8 @@ class FlyAppMainWindow(QMainWindow):
             self.graph_tab.update_pytest_process_info(process_infos)
             self.table_tab.update_pytest_process_info(process_infos)
             self.run_tab.update_pytest_process_info(process_infos)
+        # content updates may change preferred sizes; ensure the main window remains visible
+        self.constrain_to_screen()
 
 
 @typechecked()

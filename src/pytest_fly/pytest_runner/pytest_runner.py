@@ -9,7 +9,7 @@ from typeguard import typechecked
 from PySide6.QtGui import QColor
 
 from ..logger import get_logger
-from ..interfaces import ScheduledTests, PytestRunnerState, PyTestFlyExitCode
+from ..interfaces import PytestRunnerState, PyTestFlyExitCode, ScheduledTest
 from .pytest_process import PytestProcess, PytestProcessInfo
 from ..db import PytestProcessInfoDB
 from .const import TIMEOUT
@@ -87,7 +87,7 @@ class PytestRunState:
 class PytestRunner(Thread):
 
     @typechecked()
-    def __init__(self, run_guid: str, tests: ScheduledTests, number_of_processes: int, data_dir: Path, update_rate: float):
+    def __init__(self, run_guid: str, tests: list[ScheduledTest], number_of_processes: int, data_dir: Path, update_rate: float):
         self.run_guid = run_guid
         self.tests = tests
         self.number_of_processes = number_of_processes

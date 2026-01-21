@@ -54,45 +54,6 @@ class ScheduledTest:
         return eq
 
 
-class ScheduledTests:
-    """
-    Represents a list of scheduled tests.
-    """
-
-    def __init__(self) -> None:
-        self._tests_set = set()
-        self._is_sorted = True
-        self.tests = []  # list of scheduled (sorted) tests
-
-    def add(self, test: ScheduledTest) -> None:
-        """
-        Add a test to the list of scheduled tests. (not called append since we'll sort later in the schedule method)
-        """
-        self._is_sorted = False  # mark the list as unsorted so we can sort it later
-        self._tests_set.add(test)
-
-    def schedule(self):
-        """
-        Put the test in order so they will run in scheduled order.
-        """
-        if not self._is_sorted:
-            self.tests = sorted(self._tests_set)
-            self._is_sorted = True
-
-    def __iter__(self):
-        """
-        Iterate over the scheduled tests.
-        """
-        self.schedule()  # sort the tests before iterating
-        return iter(self.tests)
-
-    def __len__(self) -> int:
-        """
-        Get the number of scheduled tests.
-        """
-        return len(self.tests)
-
-
 class RunMode(IntEnum):
     RESTART = 0  # rerun all tests
     RESUME = 1  # resume test run, and run tests that either failed or were not run

@@ -87,34 +87,8 @@ class FlyAppMainWindow(QMainWindow):
         self.timer.timeout.connect(self.update_pytest_process_info)
         self.timer.start()
 
-    def constrain_to_screen(self):
-        """
-        Ensure the main window size and position stay within the primary screen's available geometry.
-        """
-        screen = QApplication.primaryScreen()
-        if screen is None:
-            return
-        avail = screen.availableGeometry()
-
-        # clamp size
-        new_width = min(self.width(), avail.width())
-        new_height = min(self.height(), avail.height())
-        if (new_width, new_height) != (self.width(), self.height()):
-            self.resize(new_width, new_height)
-
-        # clamp position
-        new_x = min(max(self.x(), avail.left()), avail.right() - self.width())
-        new_y = min(max(self.y(), avail.top()), avail.bottom() - self.height())
-        if (new_x, new_y) != (self.x(), self.y()):
-            self.move(new_x, new_y)
-
-        # ensure maximums follow the screen in case of DPI/monitor changes
-        self.setMaximumSize(avail.width(), avail.height())
-
     def reset(self):
         self.table_tab.reset()
-        # after resetting potentially large content, make sure window stays on-screen
-        self.constrain_to_screen()
 
     def closeEvent(self, event, /):
 
@@ -136,16 +110,6 @@ class FlyAppMainWindow(QMainWindow):
 
         event.accept()
 
-    def moveEvent(self, event):
-        super().moveEvent(event)
-        # keep the window inside the visible screen when moved
-        self.constrain_to_screen()
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        # keep the window inside the visible screen when resized
-        self.constrain_to_screen()
-
     def update_pytest_process_info(self):
         """
         Timer event handler to update the GUI.
@@ -155,8 +119,6 @@ class FlyAppMainWindow(QMainWindow):
             self.graph_tab.update_pytest_process_info(process_infos)
             self.table_tab.update_pytest_process_info(process_infos)
             self.run_tab.update_pytest_process_info(process_infos)
-        # content updates may change preferred sizes; ensure the main window remains visible
-        self.constrain_to_screen()
 
 
 @typechecked()

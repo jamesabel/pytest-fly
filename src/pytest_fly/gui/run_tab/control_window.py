@@ -5,7 +5,7 @@ from PySide6.QtCore import Qt
 from typeguard import typechecked
 
 from ...pytest_runner.pytest_runner import PytestRunner
-from ...pytest_runner.test_list import get_tests
+from ...pytest_runner.test_list import GetTests
 from ...preferences import get_pref, ParallelismControl
 from ...logger import get_logger
 from ...guid import generate_uuid
@@ -78,16 +78,22 @@ class ControlWindow(QGroupBox):
             self.stop_button.setEnabled(True)
 
     def run(self):
+        get_tests = GetTests()
+        get_tests.start()
+
         pref = get_pref()
         refresh_rate = pref.refresh_rate
         self.run_guid = generate_uuid()
 
-        tests = get_tests()
         if self.pytest_runner is not None and self.pytest_runner.is_running():
             self.pytest_runner.stop()
             self.pytest_runner.join()
 
         processes = 1 if pref.parallelism == ParallelismControl.SERIAL else pref.processes
+
+        get_tests.join()
+        tests = get_tests.get_tests()
+
         self.pytest_runner = PytestRunner(self.run_guid, tests, processes, self.data_dir, refresh_rate)
         self.pytest_runner.start()
 

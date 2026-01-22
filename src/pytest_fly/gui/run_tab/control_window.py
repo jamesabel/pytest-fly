@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from PySide6.QtWidgets import QGroupBox, QVBoxLayout, QSizePolicy
+from PySide6.QtWidgets import QGroupBox, QVBoxLayout, QSizePolicy, QApplication
 from PySide6.QtCore import Qt
 from typeguard import typechecked
 
@@ -91,7 +91,11 @@ class ControlWindow(QGroupBox):
 
         processes = 1 if pref.parallelism == ParallelismControl.SERIAL else pref.processes
 
+        while get_tests.is_alive():
+            get_tests.join(1)
+            QApplication.processEvents()  # keep the GUI at least somewhat responsive while we gather the tests
         get_tests.join()
+
         tests = get_tests.get_tests()
 
         self.pytest_runner = PytestRunner(self.run_guid, tests, processes, self.data_dir, refresh_rate)

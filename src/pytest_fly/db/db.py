@@ -47,7 +47,7 @@ class PytestProcessInfoDB(MSQLite):
 
         insert_statement = f"INSERT INTO {self.table_name} ({', '.join(self._columns)}) VALUES ({', '.join(['?'] * len(self._columns))})"
         parameters = list(asdict(pytest_process_info).values())
-        log.info(f"{insert_statement=}, {parameters=}")
+        log.debug(f"{insert_statement=}, {parameters=}")
         try:
             self.execute(insert_statement, parameters)
         except sqlite3.OperationalError as e:
@@ -67,7 +67,7 @@ class PytestProcessInfoDB(MSQLite):
         else:
             statement += " WHERE run_guid = ?"
             params = [run_guid]
-        log.info(f'QUERY {self.table_name}: "{statement}",{params=}')
+        log.debug(f'QUERY {self.table_name}: "{statement}",{params=}')
         rows = []
         for row in self.execute(statement, params):
             pytest_process_info = PytestProcessInfo(*row)

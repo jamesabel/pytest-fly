@@ -22,7 +22,7 @@ class GetTests(Process):
         :param test_dir: Directory in which to discover pytest tests.
         """
         self.test_dir = test_dir
-        self.scheduled_tests = []  # type: list[ScheduledTest]
+        self.scheduled_tests: list[ScheduledTest] = []
         self._scheduled_tests_queue = Queue()
         super().__init__()
 
@@ -41,33 +41,34 @@ class GetTests(Process):
             buffer = StringIO()
             sys.stdout = buffer
 
-            # Instruct pytest to only collect tests (no execution) quietly.
-            # -q (quiet) flag makes the output more predictable.
-            collect_parameters = ["--collect-only", "-q"]
-            # "-m singleton" is used to filter tests by the 'singleton' marker. "-m not singleton" is used to filter out tests with the 'singleton' marker.
-            if collect_singleton:
-                collect_parameters.extend(["-m", "singleton"])
-            collect_parameters.append(str(self.test_dir))
+            try:
+                # Instruct pytest to only collect tests (no execution) quietly.
+                # -q (quiet) flag makes the output more predictable.
+                collect_parameters = ["--collect-only", "-q"]
+                # "-m singleton" is used to filter tests by the ‘singleton’ marker. "-m not singleton" is used to filter out tests with the ‘singleton’ marker.
+                if collect_singleton:
+                    collect_parameters.extend(["-m", "singleton"])
+                collect_parameters.append(str(self.test_dir))
 
-            pytest.main(collect_parameters)
+                pytest.main(collect_parameters)
 
-            # The buffer now contains lines with test node IDs plus possibly other text
-            buffer_value = buffer.getvalue()
-            lines = buffer_value.strip().split("\n")
+                # The buffer now contains lines with test node IDs plus possibly other text
+                buffer_value = buffer.getvalue()
+                lines = buffer_value.strip().split("\n")
 
-            # Filter out lines that don't look like test node IDs.
-            # A simplistic approach is to keep lines containing '::' (the typical pytest node-id pattern).
-            delimiter = "::"
+                # Filter out lines that don’t look like test node IDs.
+                # A simplistic approach is to keep lines containing ‘::’ (the typical pytest node-id pattern).
+                delimiter = "::"
 
-            for line in lines:
-                if delimiter in line:
-                    # Extract the node ID from the line.
-                    # The node ID is typically the first part of the line before the delimiter.
-                    node_id = str(line.split(delimiter)[0])
-                    pytest_tests[node_id] = collect_singleton
-
-            # Restore the original stdout
-            sys.stdout = original_stdout
+                for line in lines:
+                    if delimiter in line:
+                        # Extract the node ID from the line.
+                        # The node ID is typically the first part of the line before the delimiter.
+                        node_id = line.split(delimiter)[0]
+                        pytest_tests[node_id] = collect_singleton
+            finally:
+                # Restore the original stdout
+                sys.stdout = original_stdout
 
         # todo: add test execution time and coverage to enable proper sorting
         for node_id, singleton in pytest_tests.items():

@@ -43,7 +43,7 @@ class ScheduledTest:
             gt = self.node_id > other.node_id
         else:
             # the test with the most effective coverage per second should be executed first
-            gt = _lines_per_second(self.duration, self.coverage) > _lines_per_second(other.duration, other.coverage)
+            gt = _lines_per_second(self.duration, self.coverage) < _lines_per_second(other.duration, other.coverage)
         return gt
 
     def __eq__(self, other):

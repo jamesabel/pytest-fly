@@ -127,14 +127,16 @@ class PytestRunner(Thread):
     def join(self, timeout_seconds: float | None = None) -> bool:
 
         # in case join is called right after .start(), wait until .run() has started all workers
-        start = time.time()
-        while not self._started_event.is_set() and time.time() - start < timeout_seconds:
-            time.sleep(0.1)
+        if timeout_seconds is not None:
+            start = time.time()
+            while not self._started_event.is_set() and time.time() - start < timeout_seconds:
+                time.sleep(0.1)
+        else:
+            self._started_event.wait()
 
-        finished = []
         for test_runner in self._test_runners.values():
-            finished.append(test_runner.join(timeout_seconds))
-        return all(finished)
+            test_runner.join(timeout_seconds)
+        return all(not test_runner.is_alive() for test_runner in self._test_runners.values())
 
     def stop(self):
         try:
@@ -161,7 +163,7 @@ class _TestRunner(Thread):
         self.data_dir = data_dir
         self.update_rate = update_rate  # for the process monitor
 
-        self.process: Optional[PytestProcess] | None = None
+        self.process: Optional[PytestProcess] = None
         self._stop_event = Event()
 
     def run(self):

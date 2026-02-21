@@ -4,6 +4,7 @@ import shutil
 import time
 from multiprocessing import Process
 from pathlib import Path
+from queue import Empty
 
 import pytest
 from coverage import Coverage
@@ -78,9 +79,24 @@ class PytestProcess(Process):
         if self._process_monitor_process.is_alive():
             log.warning(f"{self._process_monitor_process} is alive")
 
+        # drain the process monitor queue to compute peak CPU and memory usage
+        cpu_samples = []
+        memory_samples = []
+        while True:
+            try:
+                monitor_info = self._process_monitor_process.process_monitor_queue.get_nowait()
+                if monitor_info.cpu_percent is not None:
+                    cpu_samples.append(monitor_info.cpu_percent)
+                if monitor_info.memory_percent is not None:
+                    memory_samples.append(monitor_info.memory_percent)
+            except Empty:
+                break
+        peak_cpu = max(cpu_samples) if cpu_samples else None
+        peak_memory = max(memory_samples) if memory_samples else None
+
         # update the pytest process info to show that the test has finished
         with PytestProcessInfoDB(self.data_dir) as db:
-            pytest_process_info = PytestProcessInfo(self.run_guid, self.name, self.pid, exit_code, output, time.time())
+            pytest_process_info = PytestProcessInfo(self.run_guid, self.name, self.pid, exit_code, output, time.time(), peak_cpu, peak_memory)
             db.write(pytest_process_info)
 
         log.debug(f"{self.name=},{self.name},{exit_code=},{output=}")

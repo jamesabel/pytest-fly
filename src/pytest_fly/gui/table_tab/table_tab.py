@@ -1,3 +1,4 @@
+import time
 from collections import defaultdict
 from enum import Enum
 
@@ -6,7 +7,7 @@ from PySide6.QtCore import Qt, QPoint
 from PySide6.QtGui import QColor, QGuiApplication
 
 from ...preferences import get_pref
-from ...interfaces import PytestProcessInfo
+from ...interfaces import PytestProcessInfo, PyTestFlyExitCode
 from ...pytest_runner.pytest_runner import PytestRunState
 from ...gui.gui_util import tool_tip_limiter
 
@@ -129,6 +130,38 @@ class TableTab(QGroupBox):
             state_item.setData(Qt.ItemDataRole.ToolTipRole, tooltip_text)
 
             self.table_widget.setItem(row_number, Columns.STATE.value, state_item)
+
+            # Find the timestamp when the test started running and the final completed entry
+            start_time = None
+            final_info = None
+            for info in process_infos:
+                if info.pid is not None and start_time is None:
+                    start_time = info.time_stamp
+                if info.exit_code != PyTestFlyExitCode.NONE:
+                    final_info = info
+
+            # Runtime: elapsed from first "running" entry; live while still running
+            if start_time is not None:
+                end_time = final_info.time_stamp if final_info is not None else time.time()
+                runtime_seconds = end_time - start_time
+                if runtime_seconds < 60:
+                    runtime_text = f"{runtime_seconds:.1f}s"
+                else:
+                    runtime_text = f"{int(runtime_seconds // 60)}m {int(runtime_seconds % 60)}s"
+            else:
+                runtime_text = ""
+
+            # CPU and Memory: from the peak values recorded in the final DB entry
+            cpu_text = f"{final_info.cpu_percent:.1f}%" if (final_info is not None and final_info.cpu_percent is not None) else ""
+            memory_text = f"{final_info.memory_percent:.2f}%" if (final_info is not None and final_info.memory_percent is not None) else ""
+
+            cpu_item = QTableWidgetItem(cpu_text)
+            if final_info is not None and final_info.cpu_percent is not None:
+                set_utilization_color(cpu_item, final_info.cpu_percent / 100.0)
+            self.table_widget.setItem(row_number, Columns.CPU.value, cpu_item)
+
+            self.table_widget.setItem(row_number, Columns.MEMORY.value, QTableWidgetItem(memory_text))
+            self.table_widget.setItem(row_number, Columns.RUNTIME.value, QTableWidgetItem(runtime_text))
 
         # Resize columns to fit contents
         self.table_widget.resizeColumnsToContents()

@@ -4,7 +4,6 @@ from collections import defaultdict
 from PySide6.QtWidgets import QGroupBox, QVBoxLayout, QSizePolicy
 
 import humanize
-from mypy.dmypy_os import OpenProcess
 
 from ...gui.gui_util import PlainTextWidget
 from ...interfaces import PytestProcessInfo, PytestRunnerState

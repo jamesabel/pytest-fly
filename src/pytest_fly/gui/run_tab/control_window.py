@@ -13,7 +13,6 @@ from ...guid import generate_uuid
 from .control_pushbutton import ControlButton
 from .parallelism_control_box import ParallelismControlBox
 from .run_mode_control_box import RunModeControlBox
-from .view_coverage import ViewCoverage
 
 log = get_logger()
 
@@ -50,13 +49,6 @@ class ControlWindow(QGroupBox):
 
         self.run_mode_box = RunModeControlBox(self)
         layout.addWidget(self.run_mode_box)
-
-        if False:
-            # todo: implement coverage
-            self.view_coverage_button = ControlButton(self, "View Coverage", True)
-            self.view_coverage = ViewCoverage(self.data_dir)
-            self.view_coverage_button.clicked.connect(self.view_coverage.view)
-            layout.addWidget(self.view_coverage_button)
 
         self.pytest_runner: PytestRunner | None = None
 

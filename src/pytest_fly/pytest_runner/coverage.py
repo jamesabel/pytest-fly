@@ -31,7 +31,7 @@ def write_coverage_summary_file(coverage_value: float, test_identifier: str, cov
     test_identifier_hash = get_string_sha256(test_identifier)
     d = Path(_get_combined_directory(coverage_parent_directory), test_identifier_hash)
     d.mkdir(parents=True, exist_ok=True)
-    Path(d, _coverage_summary_file_name).open("w").write(f"{coverage_value}\n")
+    Path(d, _coverage_summary_file_name).write_text(f"{coverage_value}\n")
 
 
 def read_most_recent_coverage_summary_file(coverage_parent_directory: Path) -> float | None:

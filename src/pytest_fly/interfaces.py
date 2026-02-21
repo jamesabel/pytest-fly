@@ -43,7 +43,7 @@ class ScheduledTest:
             gt = self.node_id > other.node_id
         else:
             # the test with the most effective coverage per second should be executed first
-            gt = _lines_per_second(self.duration, self.coverage) > _lines_per_second(other.duration, other.coverage)
+            gt = _lines_per_second(self.duration, self.coverage) < _lines_per_second(other.duration, other.coverage)
         return gt
 
     def __eq__(self, other):
@@ -97,3 +97,5 @@ class PytestProcessInfo:
     exit_code: PyTestFlyExitCode | ExitCode
     output: str | None  # output from the pytest run, None if the test is still running
     time_stamp: float  # time stamp of the info update
+    cpu_percent: float | None = None  # peak CPU usage during the run (percent, e.g. 45.2 means 45.2%)
+    memory_percent: float | None = None  # peak memory usage during the run (percent of total physical RAM)

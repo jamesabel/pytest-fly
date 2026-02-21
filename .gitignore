@@ -84,3 +84,4 @@ tests/tests_many/
 .benchmarks/
 .pytest-fly/
 .env
+uv.lock

@@ -97,3 +97,5 @@ class PytestProcessInfo:
     exit_code: PyTestFlyExitCode | ExitCode
     output: str | None  # output from the pytest run, None if the test is still running
     time_stamp: float  # time stamp of the info update
+    cpu_percent: float | None = None  # peak CPU usage during the run (percent, e.g. 45.2 means 45.2%)
+    memory_percent: float | None = None  # peak memory usage during the run (percent of total physical RAM)

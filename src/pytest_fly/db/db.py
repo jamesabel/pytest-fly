@@ -23,7 +23,8 @@ class PytestProcessInfoDB(MSQLite):
         self._schema = {}
         self._columns = []
         # fake to fill out all the fields since the underlying data structure is a dataclass
-        dummy_pytest_process_info = PytestProcessInfo(run_guid="", name="", pid=0, exit_code=PyTestFlyExitCode.NONE, output="", time_stamp=0.0)
+        # use concrete non-None values for optional fields so the schema maps to the correct SQLite types
+        dummy_pytest_process_info = PytestProcessInfo(run_guid="", name="", pid=0, exit_code=PyTestFlyExitCode.NONE, output="", time_stamp=0.0, cpu_percent=0.0, memory_percent=0.0)
         for column, value in asdict(dummy_pytest_process_info).items():
             # "equivalent" SQLite types
             if isinstance(value, IntEnum):
@@ -35,6 +36,26 @@ class PytestProcessInfoDB(MSQLite):
             self._columns.append(column)
 
         db_path = Path(db_dir, f"{application_name}.db")
+
+        # Schema migration: if the table exists with a different set of columns, drop it so
+        # MSQLite recreates it with the current schema.  Test results are ephemeral, so data loss is acceptable.
+        # Note: sqlite3 context manager only handles transactions, not closing — call close() explicitly
+        # to release the Windows file lock before MSQLite opens its own connection below.
+        if db_path.exists():
+            _conn = sqlite3.connect(db_path)
+            try:
+                existing_columns = {row[1] for row in _conn.execute(f"PRAGMA table_info({table_name})").fetchall()}
+            finally:
+                _conn.close()
+            if existing_columns and existing_columns != set(self._columns):
+                log.info(f"Schema change detected for {table_name!r} – dropping table to recreate with new schema")
+                _conn = sqlite3.connect(db_path)
+                try:
+                    _conn.execute(f"DROP TABLE IF EXISTS {table_name}")
+                    _conn.commit()
+                finally:
+                    _conn.close()
+
         super().__init__(db_path, table_name, self._schema)
 
     @typechecked

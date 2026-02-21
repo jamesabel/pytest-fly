@@ -85,3 +85,4 @@ tests/tests_many/
 .pytest-fly/
 .env
 uv.lock
+.claude/

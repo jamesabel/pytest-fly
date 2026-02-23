@@ -10,6 +10,7 @@ from ...preferences import get_pref
 from ...interfaces import PytestProcessInfo, PyTestFlyExitCode
 from ...pytest_runner.pytest_runner import PytestRunState
 from ...gui.gui_util import tool_tip_limiter
+from ...platform.platform_info import get_performance_core_count
 
 
 class Columns(Enum):
@@ -151,13 +152,21 @@ class TableTab(QGroupBox):
             else:
                 runtime_text = ""
 
-            # CPU and Memory: from the peak values recorded in the final DB entry
-            cpu_text = f"{final_info.cpu_percent:.1f}%" if (final_info is not None and final_info.cpu_percent is not None) else ""
+            # CPU and Memory: from the peak values recorded in the final DB entry.
+            # psutil cpu_percent is per-process where 100.0 = one full logical CPU.
+            # Normalise against total performance cores so 100% means all p-cores fully used.
+            p_cores = get_performance_core_count()
+            if final_info is not None and final_info.cpu_percent is not None:
+                cpu_normalized = final_info.cpu_percent / p_cores
+                cpu_text = f"{cpu_normalized:.1f}%"
+            else:
+                cpu_normalized = None
+                cpu_text = ""
             memory_text = f"{final_info.memory_percent:.2f}%" if (final_info is not None and final_info.memory_percent is not None) else ""
 
             cpu_item = QTableWidgetItem(cpu_text)
-            if final_info is not None and final_info.cpu_percent is not None:
-                set_utilization_color(cpu_item, final_info.cpu_percent / 100.0)
+            if cpu_normalized is not None:
+                set_utilization_color(cpu_item, cpu_normalized / 100.0)
             self.table_widget.setItem(row_number, Columns.CPU.value, cpu_item)
 
             self.table_widget.setItem(row_number, Columns.MEMORY.value, QTableWidgetItem(memory_text))

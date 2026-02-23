@@ -157,7 +157,7 @@ class TableTab(QGroupBox):
             # Normalise against total performance cores so 100% means all p-cores fully used.
             p_cores = get_performance_core_count()
             if final_info is not None and final_info.cpu_percent is not None:
-                cpu_normalized = final_info.cpu_percent / p_cores
+                cpu_normalized = min(final_info.cpu_percent / p_cores, 100.0)
                 cpu_text = f"{cpu_normalized:.1f}%"
             else:
                 cpu_normalized = None

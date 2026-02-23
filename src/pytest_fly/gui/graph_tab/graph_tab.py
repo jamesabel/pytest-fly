@@ -1,5 +1,4 @@
 from collections import defaultdict
-from pprint import pprint
 
 from PySide6.QtWidgets import QGroupBox, QVBoxLayout
 from PySide6.QtCore import Qt

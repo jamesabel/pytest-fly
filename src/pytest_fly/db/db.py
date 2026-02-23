@@ -91,7 +91,8 @@ class PytestProcessInfoDB(MSQLite):
         log.debug(f'QUERY {self.table_name}: "{statement}",{params=}')
         rows = []
         for row in self.execute(statement, params):
-            pytest_process_info = PytestProcessInfo(*row)
+            row_dict = dict(zip(self._columns, row))
+            pytest_process_info = PytestProcessInfo(**row_dict)
             rows.append(pytest_process_info)
 
         # if no run_guid specified, filter to most recent run

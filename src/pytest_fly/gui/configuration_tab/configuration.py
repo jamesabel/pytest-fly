@@ -4,14 +4,13 @@ from PySide6.QtGui import QIntValidator, QDoubleValidator
 
 from tobool import to_bool_strict
 
-from pytest_fly.preferences import get_pref, scheduler_time_quantum_default, refresh_rate_default, utilization_high_threshold_default, utilization_low_threshold_default
+from pytest_fly.preferences import get_pref, refresh_rate_default, utilization_high_threshold_default, utilization_low_threshold_default
 from pytest_fly.platform.platform_info import get_performance_core_count
 from pytest_fly.logger import get_logger
 from pytest_fly.gui.gui_util import get_text_dimensions
 
 log = get_logger()
 
-minimum_scheduler_time_quantum = 0.1
 minimum_refresh_rate = 1.0
 
 
@@ -88,13 +87,6 @@ class Configuration(QWidget):
         pref = get_pref()
         if value.isnumeric():
             pref.processes = int(value)  # validator should ensure this is an integer
-
-    def update_scheduler_time_quantum(self, value: str):
-        pref = get_pref()
-        try:
-            pref.scheduler_time_quantum = max(float(value), minimum_scheduler_time_quantum)  # validator should ensure this is a float
-        except ValueError:
-            pass
 
     def update_refresh_rate(self, value: str):
         pref = get_pref()

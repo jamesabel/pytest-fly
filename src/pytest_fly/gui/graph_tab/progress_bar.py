@@ -76,7 +76,7 @@ class PytestProgressBar(QWidget):
             painter = QPainter(self)
             painter.setRenderHint(QPainter.Antialiasing)
 
-            if pytest_run_state.get_state() == PytestRunnerState.QUEUED:
+            if pytest_run_state.get_state() == PytestRunnerState.QUEUED or len(self.status_list) < 2:
                 start_running_time = None
             else:
                 start_running_time = self.status_list[1].time_stamp

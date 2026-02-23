@@ -9,6 +9,8 @@ from coverage.exceptions import NoDataError, DataError
 from ..logger import get_logger
 from pytest_fly.__version__ import application_name
 
+log = get_logger(application_name)
+
 _coverage_summary_file_name = "coverage.txt"
 
 
@@ -64,9 +66,6 @@ def read_most_recent_coverage_summary_file(coverage_parent_directory: Path) -> f
     return coverage_value
 
 
-log = get_logger(application_name)
-
-
 class PytestFlyCoverage(Coverage):
 
     def __init__(self, data_file: Path) -> None:
@@ -92,7 +91,7 @@ def calculate_coverage(test_identifier: str, coverage_parent_directory: Path, wr
     combined_parent_directory = _get_combined_directory(coverage_parent_directory)
 
     test_identifier_hash = get_string_sha256(test_identifier)
-    combined_file_name = f"{get_string_sha256(test_identifier_hash)}.combined"
+    combined_file_name = f"{test_identifier_hash}.combined"
     combined_file_path = Path(combined_parent_directory, combined_file_name)
     combined_directory = Path(combined_parent_directory, test_identifier_hash)  # HTML report directory
 

@@ -32,26 +32,31 @@ class ScheduledTest:
 
     def __gt__(self, other):
         """
-        Compare two ScheduledTest objects. True if this object should be executed earlier than the other.
+        Return True if this test should be executed *later* than other (i.e. has lower priority).
+        Singletons are always lower priority (run last). Among non-singletons, higher coverage
+        efficiency (lines/second) = higher priority = executed earlier.
         """
         if self.singleton and not other.singleton:
-            gt = True  # this object is a singleton, but the other is not, so this object should be executed later
+            return True  # singletons run last
         elif not self.singleton and other.singleton:
-            gt = False  # this object is not a singleton, but the other is, so this object should be executed earlier
+            return False  # non-singletons run first
         elif self.duration is None or self.coverage is None or other.duration is None or other.coverage is None:
-            # if either test has no duration or coverage, we just sort alphabetically
-            gt = self.node_id > other.node_id
+            return self.node_id > other.node_id
         else:
-            # the test with the most effective coverage per second should be executed first
-            gt = _lines_per_second(self.duration, self.coverage) < _lines_per_second(other.duration, other.coverage)
-        return gt
+            return _lines_per_second(self.duration, self.coverage) < _lines_per_second(other.duration, other.coverage)
 
-    def __eq__(self, other):
+    def __lt__(self, other):
         """
-        Compare two ScheduledTest objects.
+        Return True if this test should be executed *earlier* than other (i.e. has higher priority).
         """
-        eq = self.singleton == other.singleton and self.duration == other.duration and self.coverage == other.coverage
-        return eq
+        if self.singleton and not other.singleton:
+            return False
+        elif not self.singleton and other.singleton:
+            return True
+        elif self.duration is None or self.coverage is None or other.duration is None or other.coverage is None:
+            return self.node_id < other.node_id
+        else:
+            return _lines_per_second(self.duration, self.coverage) > _lines_per_second(other.duration, other.coverage)
 
 
 class RunMode(IntEnum):
@@ -97,5 +102,5 @@ class PytestProcessInfo:
     exit_code: PyTestFlyExitCode | ExitCode
     output: str | None  # output from the pytest run, None if the test is still running
     time_stamp: float  # time stamp of the info update
-    cpu_percent: float | None = None  # peak CPU usage during the run (percent, e.g. 45.2 means 45.2%)
+    cpu_percent: float | None = None  # peak CPU usage during the run, as reported by psutil (100.0 = one full logical CPU; can exceed 100 on multi-core)
     memory_percent: float | None = None  # peak memory usage during the run (percent of total physical RAM)

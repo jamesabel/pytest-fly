@@ -117,11 +117,7 @@ class PytestRunner(Thread):
         self._started_event.set()
 
     def is_running(self) -> bool:
-        running = []
-        for test_runner in self._test_runners.values():
-            if test_runner.process is not None:
-                running.append(test_runner.process.is_alive())
-        return any(running)
+        return any(test_runner.is_alive() for test_runner in self._test_runners.values())
 
     @typechecked()
     def join(self, timeout_seconds: float | None = None) -> bool:

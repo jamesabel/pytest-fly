@@ -7,6 +7,7 @@ from coverage import Coverage
 from coverage.exceptions import NoDataError, DataError
 
 from ..logger import get_logger
+from ..file_util import find_most_recent_file
 from pytest_fly.__version__ import application_name
 
 log = get_logger(application_name)
@@ -46,14 +47,7 @@ def read_most_recent_coverage_summary_file(coverage_parent_directory: Path) -> f
 
     coverage_value = None
 
-    coverage_summary_file_path = None
-    coverage_summary_file_mtime = None
-    for file_path in sorted(Path(coverage_parent_directory).rglob(_coverage_summary_file_name)):
-        if file_path.is_file():
-            file_mtime = file_path.stat().st_mtime
-            if coverage_summary_file_path is None or file_mtime > coverage_summary_file_mtime:
-                coverage_summary_file_path = file_path
-                coverage_summary_file_mtime = file_mtime
+    coverage_summary_file_path = find_most_recent_file(Path(coverage_parent_directory), _coverage_summary_file_name)
 
     try:
         if coverage_summary_file_path is not None and len(coverage_string := coverage_summary_file_path.read_text().strip()) > 0:

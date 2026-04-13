@@ -4,7 +4,6 @@ from PySide6.QtCore import QRectF, QPointF
 from PySide6.QtGui import QPainter, QPen, QBrush, QPalette, QGuiApplication
 import time
 from typeguard import typechecked
-import humanize
 
 from ...interfaces import PytestProcessInfo
 from ...pytest_runner.pytest_runner import PytestRunState, PytestRunnerState

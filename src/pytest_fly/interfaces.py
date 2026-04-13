@@ -2,12 +2,11 @@ from dataclasses import dataclass
 from enum import IntEnum, StrEnum
 
 from pytest import ExitCode
-from balsa import get_logger
 
-from .__version__ import application_name
+from .logger import get_logger
 
 
-log = get_logger(application_name)
+log = get_logger()
 
 
 def _lines_per_second(duration: float, coverage: float) -> float:

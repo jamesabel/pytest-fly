@@ -27,6 +27,8 @@ log = get_logger()
 
 
 class FlyAppMainWindow(QMainWindow):
+    """Top-level application window containing the five main tabs."""
+
     def __init__(self, data_dir: Path):
         self.data_dir = data_dir
 
@@ -88,6 +90,7 @@ class FlyAppMainWindow(QMainWindow):
         self.timer.start()
 
     def reset(self):
+        """Reset all tabs to their initial state."""
         self.table_tab.reset()
 
     def closeEvent(self, event, /):

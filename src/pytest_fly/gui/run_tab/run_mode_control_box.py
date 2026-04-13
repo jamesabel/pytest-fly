@@ -3,6 +3,7 @@ from pytest_fly.preferences import get_pref, RunMode
 
 
 class RunModeControlBox(QGroupBox):
+    """Radio-button group for selecting the run mode (Restart / Resume)."""
 
     def __init__(self, parent):
         super().__init__("Run Mode", parent)
@@ -29,6 +30,7 @@ class RunModeControlBox(QGroupBox):
         self.run_mode_resume.toggled.connect(self.update_preferences)
 
     def update_preferences(self):
+        """Sync the selected radio button back to user preferences."""
         pref = get_pref()
         if self.run_mode_restart.isChecked():
             pref.run_mode = RunMode.RESTART

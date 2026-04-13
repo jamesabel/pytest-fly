@@ -1,5 +1,4 @@
 import time
-from collections import defaultdict
 from enum import Enum
 
 from PySide6.QtWidgets import QGroupBox, QVBoxLayout, QScrollArea, QTableWidget, QTableWidgetItem, QMenu
@@ -9,7 +8,7 @@ from PySide6.QtGui import QColor, QGuiApplication
 from ...preferences import get_pref
 from ...interfaces import PytestProcessInfo, PyTestFlyExitCode
 from ...pytest_runner.pytest_runner import PytestRunState
-from ...gui.gui_util import tool_tip_limiter
+from ...gui.gui_util import tool_tip_limiter, group_process_infos_by_name, format_runtime
 from ...platform.platform_info import get_performance_core_count
 
 
@@ -22,24 +21,31 @@ class Columns(Enum):
 
 
 def set_utilization_color(item: QTableWidgetItem, value: float):
+    """
+    Colorize a table cell based on utilization thresholds from user preferences.
+
+    Red if above the high threshold, yellow if above the low threshold,
+    otherwise the default color is kept.
+
+    :param item: The table-widget item to colorize.
+    :param value: Utilization value in the range ``[0.0, 1.0]``.
+    """
     pref = get_pref()
     if value > pref.utilization_high_threshold:
         item.setForeground(QColor("red"))
     elif value > pref.utilization_low_threshold:
         item.setForeground(QColor("yellow"))
     else:
-        # no change to color
         return
 
 
 class TableTab(QGroupBox):
+    """Tab showing a per-test table with state, CPU, memory, and runtime columns."""
 
     def __init__(self):
         super().__init__()
 
-        self.statuses = {}
-        self.max_cpu_usage = defaultdict(float)
-        self.max_memory_usage = defaultdict(float)
+        self.statuses: dict = {}
 
         self.setTitle("Tests")
         layout = QVBoxLayout()
@@ -96,18 +102,16 @@ class TableTab(QGroupBox):
             clipboard.setText("\n".join(selected_text))
 
     def reset(self):
+        """Clear all table rows and cached state."""
         self.table_widget.setRowCount(0)
         self.statuses.clear()
-        self.max_cpu_usage.clear()
-        self.max_memory_usage.clear()
 
     def update_pytest_process_info(self, pytest_process_infos: list[PytestProcessInfo]):
+        """Refresh the table with the latest process info records."""
 
         self.table_widget.clearContents()
 
-        processes_infos = defaultdict(list)
-        for pytest_process_info in pytest_process_infos:
-            processes_infos[pytest_process_info.name].append(pytest_process_info)
+        processes_infos = group_process_infos_by_name(pytest_process_infos)
 
         self.table_widget.setRowCount(len(processes_infos))
 
@@ -144,11 +148,7 @@ class TableTab(QGroupBox):
             # Runtime: elapsed from first "running" entry; live while still running
             if start_time is not None:
                 end_time = final_info.time_stamp if final_info is not None else time.time()
-                runtime_seconds = end_time - start_time
-                if runtime_seconds < 60:
-                    runtime_text = f"{runtime_seconds:.1f}s"
-                else:
-                    runtime_text = f"{int(runtime_seconds // 60)}m {int(runtime_seconds % 60)}s"
+                runtime_text = format_runtime(end_time - start_time)
             else:
                 runtime_text = ""
 

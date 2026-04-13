@@ -1,12 +1,16 @@
+from collections import defaultdict
+from datetime import timedelta
 from functools import lru_cache, cache
 
 from PySide6.QtWidgets import QPlainTextEdit, QSizePolicy
 from PySide6.QtGui import QFont, QFontMetrics
 from PySide6.QtCore import QSize
 
+import humanize
 from typeguard import typechecked
 
 from ..const import TOOLTIP_LINE_LIMIT
+from ..interfaces import PytestProcessInfo
 
 
 @cache
@@ -41,6 +45,8 @@ def get_text_dimensions(text: str, pad: bool = False) -> QSize:
 
 
 class PlainTextWidget(QPlainTextEdit):
+    """Read-only plain-text widget that auto-resizes when its content changes."""
+
     def __init__(self, parent, initial_text: str):
         super().__init__(parent)
         self.setReadOnly(True)
@@ -48,10 +54,55 @@ class PlainTextWidget(QPlainTextEdit):
         self.set_text(initial_text)
 
     def set_text(self, text: str):
+        """Replace the displayed text and trigger a geometry update."""
         self.setPlainText(text)
         # Tell layouts the size hint changed
         self.updateGeometry()
         self.adjustSize()
+
+
+def group_process_infos_by_name(process_infos: list[PytestProcessInfo]) -> dict[str, list[PytestProcessInfo]]:
+    """
+    Group a flat list of process info records by test name.
+
+    :param process_infos: Flat list of ``PytestProcessInfo`` objects.
+    :return: Dictionary mapping each test name to its list of info records, in encounter order.
+    """
+    grouped: dict[str, list[PytestProcessInfo]] = defaultdict(list)
+    for info in process_infos:
+        grouped[info.name].append(info)
+    return grouped
+
+
+def compute_time_window(process_infos: list[PytestProcessInfo], require_pid: bool = False) -> tuple[float | None, float | None]:
+    """
+    Compute the minimum and maximum timestamps from a list of process info records.
+
+    :param process_infos: List of ``PytestProcessInfo`` objects.
+    :param require_pid: If ``True``, only consider records where ``pid`` is not ``None``
+                        (i.e. the process has actually started).
+    :return: ``(min_timestamp, max_timestamp)`` tuple, or ``(None, None)`` if no records qualify.
+    """
+    min_ts: float | None = None
+    max_ts: float | None = None
+    for info in process_infos:
+        if require_pid and info.pid is None:
+            continue
+        if min_ts is None or info.time_stamp < min_ts:
+            min_ts = info.time_stamp
+        if max_ts is None or info.time_stamp > max_ts:
+            max_ts = info.time_stamp
+    return min_ts, max_ts
+
+
+def format_runtime(seconds: float) -> str:
+    """
+    Format a duration in seconds into a human-readable string using ``humanize.precisedelta``.
+
+    :param seconds: Duration in seconds.
+    :return: Formatted string (e.g. ``"3 seconds"``, ``"2 minutes and 15 seconds"``).
+    """
+    return humanize.precisedelta(timedelta(seconds=seconds))
 
 
 @typechecked

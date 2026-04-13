@@ -13,6 +13,7 @@ log = get_logger()
 
 
 class RunTab(QWidget):
+    """Primary tab combining the control panel (Run/Stop) and the status summary."""
 
     @typechecked
     def __init__(self, parent, data_dir: Path):
@@ -30,5 +31,6 @@ class RunTab(QWidget):
         layout.addStretch()
 
     def update_pytest_process_info(self, pytest_process_infos: list[PytestProcessInfo]):
+        """Forward updated process info to the status window and control panel."""
         self.status_window.update_status(pytest_process_infos)
         self.control_window.update()

@@ -3,14 +3,15 @@ import stat
 import time
 from pathlib import Path
 from typing import Union
-from logging import getLogger
 import sys
 from functools import cache
 import shutil
 
 from typeguard import typechecked
 
-log = getLogger(__file__)
+from ..logger import get_logger
+
+log = get_logger()
 
 
 class RemoveDirectoryException(Exception):

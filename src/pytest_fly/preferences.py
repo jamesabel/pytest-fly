@@ -24,6 +24,7 @@ class ParallelismControl(IntEnum):
 
 @attrs
 class FlyPreferences(Pref):
+    """Persistent user preferences backed by a local SQLite file via the *pref* library."""
 
     window_x: int = attrib(default=-1)
     window_y: int = attrib(default=-1)
@@ -43,4 +44,5 @@ class FlyPreferences(Pref):
 
 
 def get_pref() -> FlyPreferences:
+    """Return a :class:`FlyPreferences` instance (reads from / auto-saves to disk)."""
     return FlyPreferences(application_name, author, file_name=preferences_file_name)

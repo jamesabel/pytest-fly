@@ -10,12 +10,15 @@ log = get_logger(application_name)
 
 
 class FlyLogger(Balsa):
+    """Application-level Balsa logger configured from user preferences."""
+
     def __init__(self):
         pref = get_pref()
         super().__init__(name=application_name, author=author, verbose=pref.verbose, gui=False)
 
 
 def app_main():
+    """Initialize logging and launch the GUI."""
 
     fly_logger = FlyLogger()
     fly_logger.init_logger()

@@ -18,6 +18,7 @@ log = get_logger()
 
 
 class ControlWindow(QGroupBox):
+    """Run/Stop controls and parallelism/run-mode selectors for the Run tab."""
 
     @typechecked()
     def __init__(self, parent, data_dir: Path):
@@ -55,13 +56,14 @@ class ControlWindow(QGroupBox):
         self.set_fixed_width()  # calculate and set the widget width
 
     def set_fixed_width(self):
-        # Calculate the maximum width required by the child widgets
+        """Calculate and set a fixed width based on the widest child widget."""
         max_width = max(self.run_button.sizeHint().width(), self.stop_button.sizeHint().width(), self.parallelism_box.sizeHint().width())
         # Add some padding
         max_width += 30
         self.setFixedWidth(max_width)
 
     def update(self):
+        """Enable/disable run and stop buttons based on the runner state."""
         if self.pytest_runner is None or not self.pytest_runner.is_running():
             self.run_button.setEnabled(True)
             self.stop_button.setEnabled(False)
@@ -70,6 +72,7 @@ class ControlWindow(QGroupBox):
             self.stop_button.setEnabled(True)
 
     def run(self):
+        """Discover tests and launch a new :class:`PytestRunner`."""
         get_tests = GetTests()
         get_tests.start()
 
@@ -97,6 +100,7 @@ class ControlWindow(QGroupBox):
         self.stop_button.setEnabled(True)
 
     def stop(self):
+        """Stop the currently running test suite."""
         self.pytest_runner.stop()
         self.run_button.setEnabled(True)
         self.stop_button.setEnabled(False)

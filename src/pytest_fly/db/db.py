@@ -4,17 +4,25 @@ import sqlite3
 from dataclasses import asdict
 
 from msqlite import MSQLite
-from balsa import get_logger
 from typeguard import typechecked
 
+from ..logger import get_logger
 from ..__version__ import application_name
 from ..interfaces import PytestProcessInfo, PyTestFlyExitCode
 
 
-log = get_logger(application_name)
+log = get_logger()
 
 
 class PytestProcessInfoDB(MSQLite):
+    """
+    Thread-safe SQLite store for :class:`PytestProcessInfo` records.
+
+    The table schema is derived automatically from the dataclass fields.
+    If a schema change is detected (columns differ from what is on disk),
+    the table is dropped and recreated — test results are ephemeral so data
+    loss is acceptable.
+    """
 
     @typechecked
     def __init__(self, db_dir: Path):
@@ -105,6 +113,10 @@ class PytestProcessInfoDB(MSQLite):
         return rows
 
     def delete(self, run_guid: str | None = None):
+        """
+        Delete records.  If *run_guid* is ``None`` the entire table is dropped;
+        otherwise only records matching the GUID are removed.
+        """
         if run_guid is None:
             self.execute(f"DROP TABLE {self.table_name}")
         else:

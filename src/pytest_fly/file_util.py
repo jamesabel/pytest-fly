@@ -1,6 +1,11 @@
 from pathlib import Path
 
 
+def sanitize_test_name(name: str) -> str:
+    """Convert a test node_id into a safe filesystem filename."""
+    return name.replace("/", "_").replace("\\", "_")
+
+
 def find_most_recent_file(directory: Path, pattern: str) -> Path | None:
     """
     Find the most recently modified file matching a glob pattern under a directory.

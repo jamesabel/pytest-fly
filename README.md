@@ -11,19 +11,22 @@
 ## Features
 
 - Real-time monitoring of test execution in a GUI with six tabs:
-  - **Run** — start/stop controls and run mode selection
-  - **Graph** — time-based progress chart
-  - **Table** — per-test status grid with elapsed time, peak CPU, and memory usage
-  - **Coverage** — line chart of combined code coverage over time
-  - **Configuration** — parallelism settings and resource thresholds
+  - **Run** — start/stop controls, run mode selection (Restart/Resume), pass rate, coverage percentage,
+  elapsed time, and estimated time remaining
+  - **Graph** — time-based progress chart showing each test module as a horizontal bar
+  - **Table** — per-test status grid with elapsed time, peak CPU, memory usage, and individual coverage
+  - **Coverage** — line chart of combined code coverage over time with covered/total line counts
+  - **Configuration** — parallelism settings, refresh rate, and utilization thresholds
   - **About** — system and project information
 - Parallel test execution at the module level with configurable process count.
+- Resumable test execution — skip already-passed tests and only re-run failed or unrun tests.
 - Graceful interruption — stop the test suite and resume where it left off.
 - Per-process resource monitoring — tracks peak CPU and memory usage for each test module.
 - Estimated time remaining based on prior run durations, accounting for parallelism.
-- Code coverage tracking — each test writes its own coverage data, combined automatically as tests 
-complete. Coverage persists across restarts so previously-passed tests contribute to the total.
-- Singleton test support via `@pytest.mark.singleton` — singleton tests run exclusively with no other tests 
+- Code coverage tracking — each test writes its own coverage data, combined automatically as tests
+complete. The Coverage tab plots coverage over time, and the Table shows per-test coverage.
+Coverage persists across restarts so previously-passed tests contribute to the total.
+- Singleton test support via `@pytest.mark.singleton` — singleton tests run exclusively with no other tests
 executing concurrently.
 
 ## Installation

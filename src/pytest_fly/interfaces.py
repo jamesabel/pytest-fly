@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from enum import IntEnum, StrEnum
+from functools import total_ordering
 
 from pytest import ExitCode
 
@@ -12,12 +13,20 @@ log = get_logger()
 def _lines_per_second(duration: float, coverage: float) -> float:
     """
     Calculate the line coverage per second.
+
+    Used by :class:`ScheduledTest` ordering to prioritise tests that cover
+    the most lines in the least time.
+
+    :param duration: Test duration in seconds.
+    :param coverage: Fraction of lines covered (0.0 to 1.0).
+    :return: Lines-per-second efficiency metric.
     """
 
     lines_per_second = coverage / max(duration, 1e-9)  # avoid division by zero
     return lines_per_second
 
 
+@total_ordering
 @dataclass(frozen=True)
 class ScheduledTest:
     """
@@ -29,25 +38,22 @@ class ScheduledTest:
     duration: float | None  # duration of the most recent run (seconds)
     coverage: float | None  # coverage of the most recent run, between 0.0 and 1.0 (1.0 = this tests covers all the code)
 
-    def __gt__(self, other):
-        """
-        Return True if this test should be executed *later* than other (i.e. has lower priority).
-        Singletons are always lower priority (run last). Among non-singletons, higher coverage
-        efficiency (lines/second) = higher priority = executed earlier.
-        """
-        if self.singleton and not other.singleton:
-            return True  # singletons run last
-        elif not self.singleton and other.singleton:
-            return False  # non-singletons run first
-        elif self.duration is None or self.coverage is None or other.duration is None or other.coverage is None:
-            return self.node_id > other.node_id
-        else:
-            return _lines_per_second(self.duration, self.coverage) < _lines_per_second(other.duration, other.coverage)
+    def __eq__(self, other):
+        """Return True if both tests have the same node_id."""
+        if not isinstance(other, ScheduledTest):
+            return NotImplemented
+        return self.node_id == other.node_id
+
+    def __hash__(self):
+        """Hash based on node_id to be consistent with __eq__."""
+        return hash(self.node_id)
 
     def __lt__(self, other):
         """
         Return True if this test should be executed *earlier* than other (i.e. has higher priority).
         """
+        if not isinstance(other, ScheduledTest):
+            return NotImplemented
         if self.singleton and not other.singleton:
             return False
         elif not self.singleton and other.singleton:

@@ -137,12 +137,10 @@ def test_table_tab_with_data(app):
 
 
 def test_table_tab_per_test_coverage(app):
-    """TableTab should display per-test coverage in the Coverage column with correct values."""
+    """TableTab should display per-test coverage when per_test_coverage is populated."""
     table = TableTab()
     tick = _make_tick_data_with_tests()
-    # Simulate realistic per-test coverage where individual < combined
     tick.per_test_coverage = {"tests/test_a.py": 0.123, "tests/test_b.py": 0.456}
-    tick.coverage_history = [(time.time(), 0.52)]  # combined is higher than any individual
     table.update_tick(tick)
 
     # Collect coverage values by test name
@@ -157,10 +155,29 @@ def test_table_tab_per_test_coverage(app):
     assert coverage_by_name["tests/test_b.py"] == "45.6%"
     assert coverage_by_name["tests/test_c.py"] == ""  # queued, no coverage yet
 
-    # Per-test values must be <= combined coverage
-    combined = tick.coverage_history[-1][1]
+
+def test_per_test_coverage_not_greater_than_combined(app):
+    """Per-test coverage values must not exceed the combined coverage percentage."""
+    tick = _make_tick_data_with_tests()
+    combined_pct = 0.52
+    tick.coverage_history = [(time.time(), combined_pct)]
+    # Simulate per-test values that are valid (each <= combined)
+    tick.per_test_coverage = {"tests/test_a.py": 0.35, "tests/test_b.py": 0.40}
+
     for test_name, pct in tick.per_test_coverage.items():
-        assert pct <= combined, f"{test_name} coverage {pct:.1%} exceeds combined {combined:.1%}"
+        assert pct <= combined_pct, f"{test_name} coverage {pct:.1%} exceeds combined {combined_pct:.1%}"
+
+    # Verify the table displays them correctly
+    table = TableTab()
+    table.update_tick(tick)
+    for row in range(table.table_widget.rowCount()):
+        name_item = table.table_widget.item(row, 0)
+        cov_item = table.table_widget.item(row, 5)
+        cov_text = cov_item.text()
+        if cov_text:
+            # Parse back the percentage and verify it's <= combined
+            pct_value = float(cov_text.rstrip("%")) / 100.0
+            assert pct_value <= combined_pct + 0.001, f"{name_item.text()} shows {cov_text} which exceeds combined {combined_pct:.1%}"
 
 
 def test_table_tab_updates_on_second_tick(app):
@@ -493,18 +510,13 @@ def test_status_window_with_coverage(app):
 
 
 def test_coverage_consistent_across_all_views(app):
-    """Coverage values should be consistent across Status pane, Table, and Coverage tab."""
+    """Coverage values should be consistent across Status pane and Coverage tab."""
     now = time.time()
     tick = _make_tick_data_with_tests()
     combined_pct = 0.52
     tick.coverage_history = [(now - 5, 0.30), (now, combined_pct)]
-    tick.per_test_coverage = {"tests/test_a.py": 0.35, "tests/test_b.py": 0.40}
     tick.covered_lines = 260
     tick.total_lines = 500
-
-    # All per-test values must be <= combined
-    for name, pct in tick.per_test_coverage.items():
-        assert pct <= combined_pct, f"{name} coverage {pct:.1%} > combined {combined_pct:.1%}"
 
     # Status pane shows combined with line counts
     status = StatusWindow(None)
@@ -512,16 +524,6 @@ def test_coverage_consistent_across_all_views(app):
     status_text = status.status_widget.toPlainText()
     assert "Coverage: 52.0%" in status_text
     assert "260/500 lines" in status_text
-
-    # Table shows per-test
-    table = TableTab()
-    table.update_tick(tick)
-    for row in range(table.table_widget.rowCount()):
-        name = table.table_widget.item(row, 0).text()
-        cov_text = table.table_widget.item(row, 5).text()
-        if name in tick.per_test_coverage:
-            expected = f"{tick.per_test_coverage[name]:.1%}"
-            assert cov_text == expected, f"Table shows {cov_text} for {name}, expected {expected}"
 
     # Coverage tab chart has the history
     coverage_tab = CoverageTab()

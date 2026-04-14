@@ -9,7 +9,7 @@ from PySide6.QtCore import Qt, QPointF
 from ...tick_data import TickData
 from ...interfaces import PytestRunnerState
 from ..graph_tab.time_axis import compute_grid_ticks
-from ..gui_util import get_text_dimensions
+from ..gui_util import get_text_dimensions, count_test_states
 
 GRID_LINE_COLOR = QColor(180, 180, 180, 100)
 COVERAGE_LINE_COLOR = QColor(34, 139, 34)  # forest green
@@ -159,8 +159,9 @@ class CoverageTab(QGroupBox):
         # Compute status indicator from run states
         if tick.run_states:
             total = len(tick.run_states)
-            running = sum(1 for rs in tick.run_states.values() if rs.get_state() == PytestRunnerState.RUNNING)
-            queued = sum(1 for rs in tick.run_states.values() if rs.get_state() == PytestRunnerState.QUEUED)
+            counts = count_test_states(tick.run_states)
+            running = counts[PytestRunnerState.RUNNING]
+            queued = counts[PytestRunnerState.QUEUED]
             if running > 0 or queued > 0:
                 completed = total - running - queued
                 status_text = f"Running ({completed}/{total} complete)"

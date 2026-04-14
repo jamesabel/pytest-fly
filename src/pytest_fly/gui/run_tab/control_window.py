@@ -11,6 +11,7 @@ from ...interfaces import RunMode, PyTestFlyExitCode
 from ...db import PytestProcessInfoDB
 from ...logger import get_logger
 from ...guid import generate_uuid
+from ..gui_util import extract_test_duration
 
 from .control_pushbutton import ControlButton
 from .parallelism_control_box import ParallelismControlBox
@@ -101,32 +102,13 @@ class ControlWindow(QGroupBox):
         with PytestProcessInfoDB(self.data_dir) as db:
             prior_results = db.query()  # most recent run
 
-        if pref.run_mode == RunMode.RESUME:
-            passed = {r.name for r in prior_results if r.exit_code == PyTestFlyExitCode.OK}
-            tests = [t for t in tests if t.node_id not in passed]
+        tests = self._filter_for_resume(tests, prior_results, pref)
 
         # Reorder so previously-failed tests run first (within their singleton group)
-        if prior_results:
-            passed = {r.name for r in prior_results if r.exit_code == PyTestFlyExitCode.OK}
-            prior_names = {r.name for r in prior_results}
-            failed = prior_names - passed
-            tests = sorted(tests, key=lambda t: (t.singleton, t.node_id not in failed))
+        tests = self._reorder_failed_first(tests, prior_results)
 
         # Compute prior durations for ETA estimation
-        self.prior_durations = {}
-        prior_by_name: dict[str, list] = {}
-        for r in prior_results:
-            prior_by_name.setdefault(r.name, []).append(r)
-        for name, infos in prior_by_name.items():
-            start = None
-            end = None
-            for info in infos:
-                if info.pid is not None and start is None:
-                    start = info.time_stamp
-                if info.exit_code != PyTestFlyExitCode.NONE:
-                    end = info.time_stamp
-            if start is not None and end is not None:
-                self.prior_durations[name] = end - start
+        self.prior_durations = self._compute_prior_durations(prior_results)
         self.num_processes = processes
 
         self.pytest_runner = PytestRunner(self.run_guid, tests, processes, self.data_dir, refresh_rate)
@@ -134,6 +116,49 @@ class ControlWindow(QGroupBox):
 
         self.run_button.setEnabled(False)
         self.stop_button.setEnabled(True)
+
+    def _filter_for_resume(self, tests, prior_results, pref):
+        """Filter out already-passed tests when running in RESUME mode.
+
+        :param tests: List of scheduled tests.
+        :param prior_results: List of prior PytestProcessInfo records.
+        :param pref: User preferences object.
+        :return: Filtered list of tests.
+        """
+        if pref.run_mode == RunMode.RESUME:
+            passed = {r.name for r in prior_results if r.exit_code == PyTestFlyExitCode.OK}
+            tests = [t for t in tests if t.node_id not in passed]
+        return tests
+
+    def _reorder_failed_first(self, tests, prior_results):
+        """Reorder tests so previously-failed ones run first (within their singleton group).
+
+        :param tests: List of scheduled tests.
+        :param prior_results: List of prior PytestProcessInfo records.
+        :return: Reordered list of tests.
+        """
+        if prior_results:
+            passed = {r.name for r in prior_results if r.exit_code == PyTestFlyExitCode.OK}
+            prior_names = {r.name for r in prior_results}
+            failed = prior_names - passed
+            tests = sorted(tests, key=lambda t: (t.singleton, t.node_id not in failed))
+        return tests
+
+    def _compute_prior_durations(self, prior_results):
+        """Compute durations from prior results for ETA estimation.
+
+        :param prior_results: List of prior PytestProcessInfo records.
+        :return: Dictionary mapping test name to duration in seconds.
+        """
+        durations = {}
+        prior_by_name: dict[str, list] = {}
+        for r in prior_results:
+            prior_by_name.setdefault(r.name, []).append(r)
+        for name, infos in prior_by_name.items():
+            start, end = extract_test_duration(infos)
+            if start is not None and end is not None:
+                durations[name] = end - start
+        return durations
 
     def stop(self):
         """Stop the currently running test suite."""

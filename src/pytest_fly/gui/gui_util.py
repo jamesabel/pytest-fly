@@ -121,6 +121,33 @@ def format_runtime(seconds: float) -> str:
     return humanize.precisedelta(timedelta(seconds=seconds))
 
 
+def count_test_states(run_states: dict) -> dict:
+    """Count tests by their current PytestRunnerState."""
+    counts = defaultdict(int)
+    for run_state in run_states.values():
+        counts[run_state.get_state()] += 1
+    return counts
+
+
+def extract_test_duration(infos: list) -> tuple[float | None, float | None]:
+    """
+    Extract start and end timestamps from a test's process info records.
+
+    :param infos: List of PytestProcessInfo for a single test.
+    :return: (start_timestamp, end_timestamp) or (None, None).
+    """
+    from ..interfaces import PyTestFlyExitCode
+
+    start = None
+    end = None
+    for info in infos:
+        if info.pid is not None and start is None:
+            start = info.time_stamp
+        if info.exit_code != PyTestFlyExitCode.NONE:
+            end = info.time_stamp
+    return start, end
+
+
 @typechecked
 def tool_tip_limiter(text: str | None) -> str:
     """

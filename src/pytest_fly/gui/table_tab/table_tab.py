@@ -65,8 +65,11 @@ class TableTab(QGroupBox):
         layout.addWidget(scroll_area)
         self.setLayout(layout)
 
-    # python
     def show_context_menu(self, position: QPoint):
+        """Show a right-click context menu allowing the user to copy pytest output.
+
+        :param position: Click position relative to the table viewport.
+        """
         menu = QMenu()
         copy_tooltip_action = menu.addAction("Copy Pytest Output")
         action = menu.exec_(self.table_widget.viewport().mapToGlobal(position))

@@ -1,1 +1,1 @@
-claude --permission-mode acceptEdits
+claude --permission-mode acceptEdits --dangerously-skip-permissions

@@ -3,14 +3,27 @@ Tests that verify the GUI tabs display correct data when given TickData.
 """
 
 import time
+from pathlib import Path
 
 from pytest_fly.db import PytestProcessInfoDB
 from pytest_fly.gui.gui_main import build_tick_data
 from pytest_fly.gui.run_tab.status_window import StatusWindow
+from pytest_fly.gui.run_tab.control_window import ControlWindow
+from pytest_fly.gui.run_tab.control_pushbutton import ControlButton
+from pytest_fly.gui.run_tab.run_mode_control_box import RunModeControlBox
+from pytest_fly.gui.run_tab.parallelism_control_box import ParallelismControlBox
+from pytest_fly.gui.run_tab.run_tab import RunTab
+from pytest_fly.gui.run_tab.view_coverage import ViewCoverage
 from pytest_fly.gui.table_tab.table_tab import TableTab
 from pytest_fly.gui.graph_tab.graph_tab import GraphTab
+from pytest_fly.gui.graph_tab.progress_bar import PytestProgressBar
+from pytest_fly.gui.graph_tab.time_axis import TimeAxisWidget
+from pytest_fly.gui.coverage_tab import CoverageTab
+from pytest_fly.gui.configuration_tab.configuration import Configuration
+from pytest_fly.gui.about_tab.about import About
+from pytest_fly.gui.about_tab.project_info import get_project_info
 from pytest_fly.interfaces import PytestProcessInfo, PyTestFlyExitCode, PytestRunnerState, ScheduledTest
-from pytest_fly.pytest_runner.pytest_runner import PytestRunner
+from pytest_fly.pytest_runner.pytest_runner import PytestRunner, PytestRunState
 from pytest_fly.guid import generate_uuid
 
 from .paths import get_temp_dir
@@ -264,6 +277,296 @@ def test_coverage_tab_status_indicator(app):
     tick_done = build_tick_data(infos)
     tab.update_tick(tick_done)
     assert "Complete" in tab.chart._status_text
+
+
+# ---------------------------------------------------------------------------
+# ControlButton tests
+# ---------------------------------------------------------------------------
+
+
+def test_control_button(qtbot):
+    """ControlButton should set text and enabled state."""
+    btn = ControlButton(None, "Run", True)
+    qtbot.addWidget(btn)
+    assert btn.text() == "Run"
+    assert btn.isEnabled()
+
+    btn2 = ControlButton(None, "Stop", False)
+    qtbot.addWidget(btn2)
+    assert btn2.text() == "Stop"
+    assert not btn2.isEnabled()
+
+
+# ---------------------------------------------------------------------------
+# RunModeControlBox tests
+# ---------------------------------------------------------------------------
+
+
+def test_run_mode_control_box(qtbot):
+    """RunModeControlBox should initialize with one radio button checked."""
+    box = RunModeControlBox(None)
+    qtbot.addWidget(box)
+    assert box.run_mode_restart.isChecked() or box.run_mode_resume.isChecked()
+
+
+def test_run_mode_control_box_toggle(qtbot):
+    """Toggling run mode radio buttons should update preferences."""
+    box = RunModeControlBox(None)
+    qtbot.addWidget(box)
+    box.run_mode_resume.setChecked(True)
+    box.update_preferences()
+    box.run_mode_restart.setChecked(True)
+    box.update_preferences()
+
+
+# ---------------------------------------------------------------------------
+# ParallelismControlBox tests
+# ---------------------------------------------------------------------------
+
+
+def test_parallelism_control_box(qtbot):
+    """ParallelismControlBox should initialize with one option checked."""
+    box = ParallelismControlBox(None)
+    qtbot.addWidget(box)
+    assert box.parallelism_serial.isChecked() or box.parallelism_parallel.isChecked()
+
+
+def test_parallelism_control_box_toggle(qtbot):
+    """Toggling parallelism radio buttons should update preferences."""
+    box = ParallelismControlBox(None)
+    qtbot.addWidget(box)
+    box.parallelism_parallel.setChecked(True)
+    box.update_preferences()
+    assert "Parallel" in box.parallelism_parallel.text()
+
+
+# ---------------------------------------------------------------------------
+# Configuration tests
+# ---------------------------------------------------------------------------
+
+
+def test_configuration_init(qtbot):
+    """Configuration tab should instantiate with all widgets."""
+    config = Configuration()
+    qtbot.addWidget(config)
+    assert config.verbose_checkbox is not None
+    assert config.processes_lineedit.text().isnumeric()
+    assert len(config.refresh_rate_lineedit.text()) > 0
+
+
+def test_configuration_update_methods(qtbot):
+    """Configuration update callbacks should not raise."""
+    config = Configuration()
+    qtbot.addWidget(config)
+    config.update_verbose()
+    config.update_processes("4")
+    config.update_processes("not_a_number")  # should handle gracefully
+    config.update_refresh_rate("2.0")
+    config.update_refresh_rate("invalid")  # should handle ValueError
+    config.update_utilization_high_threshold("0.9")
+    config.update_utilization_low_threshold("0.4")
+    config.update_utilization_high_threshold("invalid")  # ValueError path
+    config.update_utilization_low_threshold("invalid")  # ValueError path
+
+
+# ---------------------------------------------------------------------------
+# About / ProjectInfo tests
+# ---------------------------------------------------------------------------
+
+
+def test_project_info():
+    """get_project_info should return valid project metadata."""
+    info = get_project_info()
+    assert info.application_name != "Unknown"
+    assert info.version != "Unknown"
+    # covers __str__
+    s = str(info)
+    assert info.application_name in s
+    assert info.version in s
+
+
+def test_about(qtbot):
+    """About tab should load project and platform info in background."""
+    about = About(None)
+    qtbot.addWidget(about)
+    qtbot.waitUntil(lambda: not about.thread.isRunning(), timeout=10000)
+    text = about.about_box.toPlainText()
+    assert len(text) > 10
+
+
+# ---------------------------------------------------------------------------
+# RunTab / ControlWindow tests
+# ---------------------------------------------------------------------------
+
+
+def test_run_tab(qtbot):
+    """RunTab should instantiate and accept tick data."""
+    data_dir = get_temp_dir("test_run_tab")
+    tab = RunTab(None, data_dir)
+    qtbot.addWidget(tab)
+    tick = _make_tick_data_with_tests()
+    tab.update_tick(tick)
+
+
+def test_control_window_update(qtbot):
+    """ControlWindow.update() should enable Run and disable Stop when idle."""
+    data_dir = get_temp_dir("test_control_window")
+    cw = ControlWindow(None, data_dir)
+    qtbot.addWidget(cw)
+    cw.update()
+    assert cw.run_button.isEnabled()
+    assert not cw.stop_button.isEnabled()
+
+
+# ---------------------------------------------------------------------------
+# ViewCoverage tests
+# ---------------------------------------------------------------------------
+
+
+def test_view_coverage_missing_dir():
+    """ViewCoverage.view() should not crash when directory doesn't exist."""
+    vc = ViewCoverage(Path("nonexistent_dir_xyz_12345"))
+    vc.view()  # should log warning, not raise
+
+
+# ---------------------------------------------------------------------------
+# StatusWindow ETA and coverage branches
+# ---------------------------------------------------------------------------
+
+
+def test_status_window_with_eta(app):
+    """StatusWindow should display estimated remaining time when prior durations are available."""
+    window = StatusWindow(None)
+    tick = _make_tick_data_with_tests()
+    tick.prior_durations = {"tests/test_a.py": 5.0, "tests/test_c.py": 3.0}
+    tick.num_processes = 2
+    window.update_tick(tick)
+    text = window.status_widget.toPlainText()
+    assert "Estimated remaining" in text
+
+
+def test_status_window_with_coverage(app):
+    """StatusWindow should display coverage percentage when history is available."""
+    window = StatusWindow(None)
+    tick = _make_tick_data_with_tests()
+    tick.coverage_history = [(time.time(), 0.75)]
+    window.update_tick(tick)
+    text = window.status_widget.toPlainText()
+    assert "Coverage: 75.0%" in text
+
+
+# ---------------------------------------------------------------------------
+# ProgressBar paint tests
+# ---------------------------------------------------------------------------
+
+
+def test_progress_bar_queued(qtbot):
+    """PytestProgressBar should render a queued test without errors."""
+    guid = "test-guid-bar"
+    now = time.time()
+    infos = [_make_process_info(guid, "tests/test_a.py", None, PyTestFlyExitCode.NONE, time_stamp=now)]
+    run_state = PytestRunState(infos)
+    bar = PytestProgressBar(infos, now - 1, now + 1, run_state)
+    qtbot.addWidget(bar)
+    bar.show()
+    bar.repaint()
+
+
+def test_progress_bar_pass(qtbot):
+    """PytestProgressBar should render a passed test with bar color."""
+    guid = "test-guid-bar-pass"
+    now = time.time()
+    infos = [
+        _make_process_info(guid, "tests/test_a.py", None, PyTestFlyExitCode.NONE, time_stamp=now - 5),
+        _make_process_info(guid, "tests/test_a.py", 1001, PyTestFlyExitCode.NONE, time_stamp=now - 4),
+        _make_process_info(guid, "tests/test_a.py", 1001, PyTestFlyExitCode.OK, output="1 passed", time_stamp=now - 1),
+    ]
+    run_state = PytestRunState(infos)
+    bar = PytestProgressBar(infos, now - 5, now, run_state)
+    qtbot.addWidget(bar)
+    bar.show()
+    bar.repaint()
+
+
+def test_progress_bar_update(qtbot):
+    """PytestProgressBar.update_pytest_process_info should accept new data."""
+    guid = "test-guid-bar-update"
+    now = time.time()
+    infos = [_make_process_info(guid, "tests/test_a.py", None, PyTestFlyExitCode.NONE, time_stamp=now)]
+    run_state = PytestRunState(infos)
+    bar = PytestProgressBar(infos, now - 1, now + 1, run_state)
+    qtbot.addWidget(bar)
+
+    # Update with completed state
+    infos2 = infos + [
+        _make_process_info(guid, "tests/test_a.py", 1001, PyTestFlyExitCode.NONE, time_stamp=now + 1),
+        _make_process_info(guid, "tests/test_a.py", 1001, PyTestFlyExitCode.OK, output="1 passed", time_stamp=now + 3),
+    ]
+    run_state2 = PytestRunState(infos2)
+    bar.update_pytest_process_info(infos2, now - 1, now + 3, run_state2)
+    bar.repaint()
+
+
+# ---------------------------------------------------------------------------
+# TimeAxisWidget paint tests
+# ---------------------------------------------------------------------------
+
+
+def test_time_axis_widget_paint(qtbot):
+    """TimeAxisWidget should render tick marks and labels."""
+    widget = TimeAxisWidget()
+    qtbot.addWidget(widget)
+    widget.update_time_window(1000.0, 1010.0)
+    widget.show()
+    widget.repaint()
+
+
+def test_time_axis_widget_no_data(qtbot):
+    """TimeAxisWidget should handle None timestamps gracefully."""
+    widget = TimeAxisWidget()
+    qtbot.addWidget(widget)
+    widget.update_time_window(None, None)
+    widget.show()
+    widget.repaint()
+
+
+# ---------------------------------------------------------------------------
+# CoverageTab paint tests
+# ---------------------------------------------------------------------------
+
+
+def test_coverage_tab_paint_with_data(qtbot):
+    """CoverageTab chart should render the step-function line when data is present."""
+    tab = CoverageTab()
+    qtbot.addWidget(tab)
+    now = time.time()
+    tick = _make_tick_data_with_tests()
+    tick.coverage_history = [(now - 5, 0.3), (now - 2, 0.55), (now, 0.7)]
+    tab.update_tick(tick)
+    tab.chart.show()
+    tab.chart.repaint()
+
+
+def test_coverage_tab_paint_empty(qtbot):
+    """CoverageTab chart should render 'Waiting' message with no data."""
+    tab = CoverageTab()
+    qtbot.addWidget(tab)
+    tick = _make_tick_data_empty()
+    tab.update_tick(tick)
+    tab.chart.show()
+    tab.chart.repaint()
+
+
+def test_coverage_tab_paint_single_point(qtbot):
+    """CoverageTab chart should handle a single coverage data point."""
+    tab = CoverageTab()
+    qtbot.addWidget(tab)
+    now = time.time()
+    tick = _make_tick_data_with_tests()
+    tick.coverage_history = [(now, 0.42)]
+    tab.update_tick(tick)
+    tab.chart.show()
+    tab.chart.repaint()
 
 
 # ---------------------------------------------------------------------------

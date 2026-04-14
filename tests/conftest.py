@@ -10,7 +10,7 @@ pytest_plugins = "pytester"
 
 @pytest.fixture(scope="session")
 def app():
-    return QApplication([])
+    return QApplication.instance() or QApplication([])
 
 
 @pytest.fixture(scope="session", autouse=True)

@@ -27,3 +27,4 @@ class TickData:
     max_time_stamp_started: float | None = None
     prior_durations: dict[str, float] = field(default_factory=dict)
     num_processes: int = 1
+    coverage_history: list[tuple[float, float]] = field(default_factory=list)  # (timestamp, coverage_pct 0.0-1.0)

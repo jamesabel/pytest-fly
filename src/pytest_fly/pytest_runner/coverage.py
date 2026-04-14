@@ -63,7 +63,7 @@ def read_most_recent_coverage_summary_file(coverage_parent_directory: Path) -> f
 class PytestFlyCoverage(Coverage):
 
     def __init__(self, data_file: Path) -> None:
-        super().__init__(data_file, timid=True, concurrency=["thread", "process"], check_preimported=True)
+        super().__init__(data_file, timid=True, concurrency=["thread", "multiprocessing"], check_preimported=True)
         # avoid: "CoverageWarning: Couldn't parse '...': No source for code: '...'. (couldnt-parse)"
         self._no_warn_slugs.add("couldnt-parse")
 

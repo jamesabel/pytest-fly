@@ -1,4 +1,5 @@
 # python
+import time
 from pathlib import Path
 
 from PySide6.QtWidgets import (
@@ -18,11 +19,14 @@ from ..gui.about_tab.about import About
 from ..preferences import get_pref
 from ..__version__ import application_name
 from ..tick_data import TickData
+from ..interfaces import PytestRunnerState
 from ..pytest_runner.pytest_runner import PytestRunState
+from ..pytest_runner.coverage import calculate_coverage
 from .gui_util import get_font, get_text_dimensions, group_process_infos_by_name, compute_time_window
 from .run_tab import RunTab
 from .table_tab import TableTab
 from .graph_tab import GraphTab
+from .coverage_tab import CoverageTab
 
 
 log = get_logger()
@@ -95,13 +99,20 @@ class FlyAppMainWindow(QMainWindow):
         self.run_tab = RunTab(self, self.data_dir)
         self.graph_tab = GraphTab()
         self.table_tab = TableTab()
+        self.coverage_tab = CoverageTab()
         self.configuration = Configuration()
         self.about = About(self)
         self.tab_widget.addTab(self.run_tab, "Run")
         self.tab_widget.addTab(self.graph_tab, "Graph")
         self.tab_widget.addTab(self.table_tab, "Table")
+        self.tab_widget.addTab(self.coverage_tab, "Coverage")
         self.tab_widget.addTab(self.configuration, "Configuration")
         self.tab_widget.addTab(self.about, "About")
+
+        # Coverage tracking state
+        self._completed_tests: set[str] = set()
+        self._coverage_history: list[tuple[float, float]] = []
+        self._last_run_guid: str | None = None
 
         # Wrap the tab widget in a scroll area so that very tall tab contents produce scrollbars
         self.scroll_area = QScrollArea()
@@ -155,9 +166,29 @@ class FlyAppMainWindow(QMainWindow):
         control = self.run_tab.control_window
         tick = build_tick_data(process_infos, prior_durations=control.prior_durations, num_processes=control.num_processes)
 
+        # Reset coverage state when a new run starts
+        current_guid = control.run_guid
+        if current_guid != self._last_run_guid:
+            self._last_run_guid = current_guid
+            self._completed_tests = set()
+            self._coverage_history = []
+
+        # Trigger coverage recalculation when new tests complete
+        current_completed = {name for name, rs in tick.run_states.items() if rs.get_state() in (PytestRunnerState.PASS, PytestRunnerState.FAIL)}
+        if current_completed and current_completed != self._completed_tests:
+            self._completed_tests = current_completed
+            try:
+                coverage_pct = calculate_coverage("current", self.data_dir, write_report=False)
+                if coverage_pct is not None:
+                    self._coverage_history.append((time.time(), coverage_pct))
+            except Exception as e:
+                log.warning(f"coverage calculation failed: {e}")
+        tick.coverage_history = self._coverage_history
+
         self.graph_tab.update_tick(tick)
         self.table_tab.update_tick(tick)
         self.run_tab.update_tick(tick)
+        self.coverage_tab.update_tick(tick)
 
 
 @typechecked()

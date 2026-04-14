@@ -58,8 +58,11 @@ class PytestProcess(Process):
         with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
 
             # create a temp coverage file and then move it so if the file exists, the content is complete (the save is not necessarily instantaneous and atomic)
-            coverage_file_path = Path(self.data_dir, f"{self.name}.coverage")
-            coverage_temp_file_path = Path(self.data_dir, f"{self.name}.temp")
+            coverage_dir = Path(self.data_dir, "coverage")
+            coverage_dir.mkdir(parents=True, exist_ok=True)
+            safe_name = self.name.replace("/", "_").replace("\\", "_")
+            coverage_file_path = Path(coverage_dir, f"{safe_name}.coverage")
+            coverage_temp_file_path = Path(coverage_dir, f"{safe_name}.temp")
             coverage_temp_file_path.unlink(missing_ok=True)
             coverage = Coverage(coverage_temp_file_path)
             coverage.start()

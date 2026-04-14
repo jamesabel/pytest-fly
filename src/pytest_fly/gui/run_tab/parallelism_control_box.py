@@ -4,6 +4,7 @@ from pytest_fly.preferences import get_pref, ParallelismControl
 
 
 class ParallelismControlBox(QGroupBox):
+    """Radio-button group for selecting serial or parallel test execution."""
 
     def __init__(self, parent):
         super().__init__("Parallelism", parent)
@@ -32,6 +33,7 @@ class ParallelismControlBox(QGroupBox):
         self.update_preferences()
 
     def update_preferences(self):
+        """Sync the selected radio button back to user preferences."""
         pref = get_pref()
         self.parallelism_parallel.setText(f"Parallel ({pref.processes})")
         self.parallelism_parallel.setToolTip(f"Run a fixed number of tests ({pref.processes}) in parallel.")
@@ -39,11 +41,3 @@ class ParallelismControlBox(QGroupBox):
             pref.parallelism = ParallelismControl.SERIAL
         elif self.parallelism_parallel.isChecked():
             pref.parallelism = ParallelismControl.PARALLEL
-
-    def get_selection(self) -> ParallelismControl:
-        if self.parallelism_serial.isChecked():
-            return ParallelismControl.SERIAL
-        elif self.parallelism_parallel.isChecked():
-            return ParallelismControl.PARALLEL
-        else:
-            return ParallelismControl.SERIAL

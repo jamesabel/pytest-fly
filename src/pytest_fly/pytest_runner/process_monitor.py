@@ -8,6 +8,8 @@ from typeguard import typechecked
 
 @dataclass(frozen=True)
 class PytestProcessMonitorInfo:
+    """A single CPU/memory sample captured by :class:`ProcessMonitor`."""
+
     run_guid: str  # pytest run GUID
     name: str  # process name
     pid: int | None  # process ID from the OS
@@ -17,6 +19,10 @@ class PytestProcessMonitorInfo:
 
 
 class ProcessMonitor(Process):
+    """
+    Subprocess that periodically samples CPU and memory usage of a target
+    process and makes the readings available via a shared :class:`~multiprocessing.Queue`.
+    """
 
     @typechecked()
     def __init__(self, run_guid: str, name: str, pid: int, update_rate: float):
@@ -36,11 +42,13 @@ class ProcessMonitor(Process):
         self.process_monitor_queue = Queue()  # Queue to send back process monitor info
 
     def run(self):
+        """Sample CPU and memory at ``_update_rate`` intervals until stop is requested."""
 
         psutil_process = PsutilProcess(self._pid)
         psutil_process.cpu_percent()  # initialize psutil's CPU usage (ignore the first 0.0)
 
         def put_process_monitor_data():
+            """Take one CPU/memory sample and enqueue it."""
             if psutil_process.is_running():
                 try:
                     # memory percent default is "rss"
@@ -61,4 +69,5 @@ class ProcessMonitor(Process):
         put_process_monitor_data()
 
     def request_stop(self):
+        """Signal the monitor loop to exit after the current sample."""
         self._stop_event.set()

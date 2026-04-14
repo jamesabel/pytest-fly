@@ -2,7 +2,6 @@ from pathlib import Path
 from queue import Queue, Empty
 from typing import Optional
 from threading import Event, Thread
-from collections import defaultdict
 import time
 
 from typeguard import typechecked
@@ -10,6 +9,7 @@ from PySide6.QtGui import QColor
 
 from ..logger import get_logger
 from ..interfaces import PytestRunnerState, PyTestFlyExitCode, ScheduledTest
+from ..colors import BAR_COLORS, TABLE_COLORS
 from .pytest_process import PytestProcess, PytestProcessInfo
 from ..db import PytestProcessInfoDB
 from .const import TIMEOUT
@@ -61,30 +61,20 @@ class PytestRunState:
 
     @typechecked()
     def get_qt_bar_color(self) -> QColor:
-        state_to_color = {
-            PytestRunnerState.QUEUED: QColor("blue"),
-            PytestRunnerState.RUNNING: QColor("lightgray"),
-            PytestRunnerState.PASS: QColor("lightgreen"),
-            PytestRunnerState.FAIL: QColor("red"),
-            PytestRunnerState.TERMINATED: QColor("orange"),
-        }
-        color = state_to_color[self._state]
-        return color
+        """Return the color used for progress-bar visualization of this state."""
+        return BAR_COLORS[self._state]
 
     @typechecked()
     def get_qt_table_color(self) -> QColor:
-        state_to_color = {
-            PytestRunnerState.QUEUED: QColor("blue"),
-            PytestRunnerState.RUNNING: QColor("black"),
-            PytestRunnerState.PASS: QColor("green"),
-            PytestRunnerState.FAIL: QColor("red"),
-            PytestRunnerState.TERMINATED: QColor("orange"),
-        }
-        color = state_to_color[self._state]
-        return color
+        """Return the foreground text color used in the table view for this state."""
+        return TABLE_COLORS[self._state]
 
 
 class PytestRunner(Thread):
+    """
+    Orchestrates parallel test execution by spawning a pool of :class:`_TestRunner`
+    worker threads that each pull tests from a shared queue.
+    """
 
     @typechecked()
     def __init__(self, run_guid: str, tests: list[ScheduledTest], number_of_processes: int, data_dir: Path, update_rate: float):
@@ -95,13 +85,13 @@ class PytestRunner(Thread):
         self.update_rate = update_rate
 
         self._test_runners = {}
-        self._results = defaultdict(list)
         self._started_event = Event()
         self._written_to_db = set()
 
         super().__init__()
 
     def run(self):
+        """Enqueue all tests, spin up worker threads, and signal readiness."""
 
         test_queue = Queue()
         with PytestProcessInfoDB(self.data_dir) as db:
@@ -117,6 +107,7 @@ class PytestRunner(Thread):
         self._started_event.set()
 
     def is_running(self) -> bool:
+        """Return ``True`` if any worker thread is still alive."""
         return any(test_runner.is_alive() for test_runner in self._test_runners.values())
 
     @typechecked()
@@ -144,79 +135,120 @@ class PytestRunner(Thread):
 
 class _TestRunner(Thread):
     """
-    Worker that runs pytest tests in separate processes.
+    Worker thread that pulls test names from a shared queue and runs each one
+    in a dedicated :class:`PytestProcess`.
     """
 
     @typechecked()
     def __init__(self, run_guid: str, pytest_test_queue: Queue, data_dir: Path, update_rate: float) -> None:
         """
-        Pytest runner worker.
+        :param run_guid: GUID identifying the overall test run.
+        :param pytest_test_queue: Shared queue of test node-IDs to execute.
+        :param data_dir: Directory used for the results database.
+        :param update_rate: Polling / process-monitor sample interval in seconds.
         """
         super().__init__()
 
         self.run_guid = run_guid
         self.pytest_test_queue = pytest_test_queue
         self.data_dir = data_dir
-        self.update_rate = update_rate  # for the process monitor
+        self.update_rate = update_rate
 
         self.process: Optional[PytestProcess] = None
         self._stop_event = Event()
 
+    # ------------------------------------------------------------------
+    # Process lifecycle helpers
+    # ------------------------------------------------------------------
+
+    def _terminate_process(self, proc: PytestProcess, proc_name: str, test: str) -> None:
+        """
+        Attempt a graceful termination of *proc*.  If the process exits within
+        a short grace period the result is recorded as ``TERMINATED`` in the DB.
+        Otherwise :meth:`_force_kill_process` is called.
+
+        :param proc: The running :class:`PytestProcess`.
+        :param proc_name: Human-readable name for log messages.
+        :param test: Test node-ID (used when writing the DB record).
+        """
+        try:
+            proc.terminate()
+            log.info(f'attempted terminate for process "{proc_name}" ({self.run_guid=})')
+        except (OSError, RuntimeError, PermissionError) as e:
+            log.info(f'error calling terminate on "{proc_name}",{self.run_guid=},{e}')
+
+        proc.join(max(self.update_rate, 2.0))
+
+        if not proc.is_alive():
+            log.info(f'process for test "{proc_name}" terminated ({self.run_guid=})')
+            with PytestProcessInfoDB(self.data_dir) as db:
+                info = PytestProcessInfo(self.run_guid, test, None, PyTestFlyExitCode.TERMINATED, None, time_stamp=time.time())
+                db.write(info)
+        else:
+            self._force_kill_process(proc, proc_name)
+
+    def _force_kill_process(self, proc: PytestProcess, proc_name: str) -> None:
+        """
+        Forcefully kill *proc* after a graceful terminate failed.
+
+        A safety check ensures the ``self.process`` reference has not been
+        replaced by a newer process before issuing the kill.
+
+        :param proc: The process to kill.
+        :param proc_name: Human-readable name for log messages.
+        """
+        if self.process is not proc:
+            log.info(f'process object changed while waiting; skipping kill for "{proc_name}" ({self.run_guid=})')
+            return
+        try:
+            proc.kill()
+            log.info(f'process for test "{proc_name}" killed ({self.run_guid=})')
+        except (OSError, RuntimeError, PermissionError) as e:
+            log.warning(f'error calling kill on "{proc_name}",{self.run_guid=},{e}')
+
+    def _handle_stop_request(self, test: str) -> None:
+        """
+        Called inside the polling loop when a stop has been requested.
+        Resolves the current process reference and delegates to
+        :meth:`_terminate_process`.
+
+        :param test: Test node-ID currently being executed.
+        """
+        try:
+            proc = self.process
+            proc_name = getattr(proc, "name", "<unknown>")
+        except (OSError, RuntimeError, PermissionError) as e:
+            log.warning(f"error accessing process name,{self.run_guid=},{e}")
+            proc = None
+            proc_name = None
+
+        if proc is None:
+            log.info(f"{proc=},cannot terminate or kill ({self.run_guid=})")
+        else:
+            self._terminate_process(proc, proc_name, test)
+
+    # ------------------------------------------------------------------
+    # Main loop
+    # ------------------------------------------------------------------
+
     def run(self):
+        """Consume test node-IDs from the queue until it is empty or a stop is requested."""
 
         while not self._stop_event.is_set():
             try:
                 test = self.pytest_test_queue.get(False)
             except Empty:
-                test = None
-
-            if test is None:
                 break
 
             self.process = PytestProcess(self.run_guid, test, self.data_dir, self.update_rate)
             log.info(f'Starting process for test "{test}" ({self.run_guid=})')
             self.process.start()
 
-            # facilitate stopping the process if needed
             while self.process.is_alive():
                 if self._stop_event.is_set():
-                    try:
-                        proc = self.process
-                        proc_name = getattr(proc, "name", "<unknown>")
-                    except (OSError, RuntimeError, PermissionError) as e:
-                        log.warning(f"error accessing process name,{self.run_guid=},{e}")
-                        proc = None
-                        proc_name = None
+                    self._handle_stop_request(test)
 
-                    # Try polite shutdown first
-                    if proc is None:
-                        log.info(f"{proc=},cannot terminate or kill ({self.run_guid=})")
-                    else:
-                        try:
-                            proc.terminate()
-                            log.info(f'attempted terminate for process "{proc_name}" ({self.run_guid=})')
-                        except (OSError, RuntimeError, PermissionError) as e:
-                            log.info(f'error calling terminate on "{proc_name}",{self.run_guid=},{e}')
-
-                        proc.join(max(self.update_rate, 2.0))  # Wait a short grace period for the process to exit
-
-                        if not proc.is_alive():
-                            log.info(f'process for test "{proc_name}" terminated ({self.run_guid=})')
-                            with PytestProcessInfoDB(self.data_dir) as db:
-                                pytest_process_info = PytestProcessInfo(self.run_guid, test, None, PyTestFlyExitCode.TERMINATED, None, time_stamp=time.time())  # queued
-                                db.write(pytest_process_info)
-                        else:
-                            # Ensure we are still operating on the same process object before forcing kill
-                            if self.process is not proc:
-                                log.info(f'process object changed while waiting; skipping kill for "{proc_name}" ({self.run_guid=})')
-                            else:
-                                try:
-                                    proc.kill()
-                                    log.info(f'process for test "{proc_name}" killed ({self.run_guid=})')
-                                except (OSError, RuntimeError, PermissionError) as e:
-                                    log.warning(f'error calling kill on "{proc_name}",{self.run_guid=},{e}')
-
-                # Regular join / polling to avoid busy loop
+                # Poll / yield to avoid busy-looping
                 if self.process is None:
                     time.sleep(self.update_rate)
                 else:
@@ -229,4 +261,5 @@ class _TestRunner(Thread):
                 log.info(f'process for test "{self.process.name}" completed ({self.run_guid=})')
 
     def stop(self):
+        """Signal all work to stop as soon as possible."""
         self._stop_event.set()

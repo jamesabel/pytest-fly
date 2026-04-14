@@ -1,16 +1,17 @@
-from datetime import timedelta
 from collections import defaultdict
+from datetime import timedelta
 
 from PySide6.QtWidgets import QGroupBox, QVBoxLayout, QSizePolicy
 
 import humanize
 
 from ...gui.gui_util import PlainTextWidget
-from ...interfaces import PytestProcessInfo, PytestRunnerState
-from ...pytest_runner.pytest_runner import PytestRunState
+from ...interfaces import PytestRunnerState
+from ...tick_data import TickData
 
 
 class StatusWindow(QGroupBox):
+    """Displays an aggregate status summary (pass/fail counts, elapsed time, etc.)."""
 
     def __init__(self, parent):
         super().__init__(parent)
@@ -21,34 +22,23 @@ class StatusWindow(QGroupBox):
         self.status_widget = PlainTextWidget(self, "Loading...")
         layout.addWidget(self.status_widget)
 
-    def update_status(self, pytest_process_infos: list[PytestProcessInfo]):
+    def update_tick(self, tick: TickData):
         """
-        Update the status window with the new status.
+        Rebuild the status text from pre-computed tick data.
 
-        param status: The new status to add to the window.
+        :param tick: Pre-computed data for this refresh cycle.
         """
 
-        processes_infos = defaultdict(list)
-        for pytest_process_info in pytest_process_infos:
-            processes_infos[pytest_process_info.name].append(pytest_process_info)
+        counts: dict[PytestRunnerState, int] = defaultdict(int)
+        for test_name, run_state in tick.run_states.items():
+            counts[run_state.get_state()] += 1
 
-        counts = defaultdict(int)
-        for row_number, test_name in enumerate(processes_infos):
-            process_infos = processes_infos[test_name]
-            pytest_run_state = PytestRunState(process_infos)
-            counts[pytest_run_state.get_state()] += 1
+        min_time_stamp = tick.min_time_stamp_started
+        max_time_stamp = tick.max_time_stamp_started
 
-        min_time_stamp = None
-        max_time_stamp = None
-        for process_info in pytest_process_infos:
-            if process_info.pid is not None:
-                if min_time_stamp is None or process_info.time_stamp < min_time_stamp:
-                    min_time_stamp = process_info.time_stamp
-                if max_time_stamp is None or process_info.time_stamp > max_time_stamp:
-                    max_time_stamp = process_info.time_stamp
-
-        if len(processes_infos) > 0:
-            lines = [f"{len(processes_infos)} tests", ""]
+        if len(tick.infos_by_name) > 0:
+            total_tests = len(tick.infos_by_name)
+            lines = [f"{total_tests} tests", ""]
 
             # get current pass rate
             current_pass_count = counts[PytestRunnerState.PASS]
@@ -64,10 +54,7 @@ class StatusWindow(QGroupBox):
 
             for state in [PytestRunnerState.PASS, PytestRunnerState.FAIL, PytestRunnerState.QUEUED, PytestRunnerState.RUNNING, PytestRunnerState.TERMINATED]:
                 count = counts[state]
-                if len(processes_infos) > 0:
-                    lines.append(f"{state}: {count} ({count / len(processes_infos):.2%})")
-                else:
-                    lines.append(f"{state}: {count}")
+                lines.append(f"{state}: {count} ({count / total_tests:.2%})")
 
             # add total time so far to status
             if min_time_stamp is not None and max_time_stamp is not None:

@@ -15,6 +15,8 @@ minimum_refresh_rate = 1.0
 
 
 class Configuration(QWidget):
+    """Configuration tab exposing user-editable preferences (verbose, processes, refresh rate, thresholds)."""
+
     def __init__(self):
         super().__init__()
 
@@ -80,35 +82,44 @@ class Configuration(QWidget):
         layout.addWidget(self.utilization_low_threshold_lineedit)
 
     def update_verbose(self):
+        """Persist the verbose checkbox state to preferences."""
         pref = get_pref()
         pref.verbose = self.verbose_checkbox.isChecked()
 
     def update_processes(self, value: str):
+        """Persist the process-count value to preferences."""
         pref = get_pref()
         if value.isnumeric():
-            pref.processes = int(value)  # validator should ensure this is an integer
+            pref.processes = int(value)
 
     def update_refresh_rate(self, value: str):
+        """Persist the refresh-rate value (clamped to *minimum_refresh_rate*)."""
         pref = get_pref()
         try:
-            pref.refresh_rate = max(float(value), minimum_refresh_rate)  # validator should ensure this is a float
+            pref.refresh_rate = max(float(value), minimum_refresh_rate)
         except ValueError:
             pass
+
+    def _validate_utilization_thresholds(self):
+        """Warn if the low threshold exceeds the high threshold."""
+        pref = get_pref()
+        if pref.utilization_low_threshold > pref.utilization_high_threshold:
+            log.warning("Low utilization threshold is greater than high utilization threshold")
 
     def update_utilization_high_threshold(self, value: str):
+        """Persist the high-utilization threshold and validate against the low threshold."""
         pref = get_pref()
         try:
-            pref.utilization_high_threshold = float(value)  # validator should ensure this is a float
+            pref.utilization_high_threshold = float(value)
         except ValueError:
             pass
-        if pref.utilization_low_threshold > pref.utilization_high_threshold:
-            log.warning("Low utilization threshold is greater than high utilization threshold")
+        self._validate_utilization_thresholds()
 
     def update_utilization_low_threshold(self, value: str):
+        """Persist the low-utilization threshold and validate against the high threshold."""
         pref = get_pref()
         try:
-            pref.utilization_low_threshold = float(value)  # validator should ensure this is a float
+            pref.utilization_low_threshold = float(value)
         except ValueError:
             pass
-        if pref.utilization_low_threshold > pref.utilization_high_threshold:
-            log.warning("Low utilization threshold is greater than high utilization threshold")
+        self._validate_utilization_thresholds()

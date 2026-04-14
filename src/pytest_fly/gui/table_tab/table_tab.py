@@ -1,5 +1,4 @@
 import time
-from collections import defaultdict
 from enum import Enum
 
 from PySide6.QtWidgets import QGroupBox, QVBoxLayout, QScrollArea, QTableWidget, QTableWidgetItem, QMenu
@@ -7,9 +6,9 @@ from PySide6.QtCore import Qt, QPoint
 from PySide6.QtGui import QColor, QGuiApplication
 
 from ...preferences import get_pref
-from ...interfaces import PytestProcessInfo, PyTestFlyExitCode
-from ...pytest_runner.pytest_runner import PytestRunState
-from ...gui.gui_util import tool_tip_limiter
+from ...interfaces import PyTestFlyExitCode
+from ...tick_data import TickData
+from ...gui.gui_util import tool_tip_limiter, format_runtime
 from ...platform.platform_info import get_performance_core_count
 
 
@@ -22,24 +21,29 @@ class Columns(Enum):
 
 
 def set_utilization_color(item: QTableWidgetItem, value: float):
+    """
+    Colorize a table cell based on utilization thresholds from user preferences.
+
+    Red if above the high threshold, yellow if above the low threshold,
+    otherwise the default color is kept.
+
+    :param item: The table-widget item to colorize.
+    :param value: Utilization value in the range ``[0.0, 1.0]``.
+    """
     pref = get_pref()
     if value > pref.utilization_high_threshold:
         item.setForeground(QColor("red"))
     elif value > pref.utilization_low_threshold:
         item.setForeground(QColor("yellow"))
     else:
-        # no change to color
         return
 
 
 class TableTab(QGroupBox):
+    """Tab showing a per-test table with state, CPU, memory, and runtime columns."""
 
     def __init__(self):
         super().__init__()
-
-        self.statuses = {}
-        self.max_cpu_usage = defaultdict(float)
-        self.max_memory_usage = defaultdict(float)
 
         self.setTitle("Tests")
         layout = QVBoxLayout()
@@ -96,25 +100,18 @@ class TableTab(QGroupBox):
             clipboard.setText("\n".join(selected_text))
 
     def reset(self):
+        """Clear all table rows."""
         self.table_widget.setRowCount(0)
-        self.statuses.clear()
-        self.max_cpu_usage.clear()
-        self.max_memory_usage.clear()
 
-    def update_pytest_process_info(self, pytest_process_infos: list[PytestProcessInfo]):
+    def update_tick(self, tick: TickData):
+        """Refresh the table from pre-computed tick data."""
 
         self.table_widget.clearContents()
+        self.table_widget.setRowCount(len(tick.infos_by_name))
 
-        processes_infos = defaultdict(list)
-        for pytest_process_info in pytest_process_infos:
-            processes_infos[pytest_process_info.name].append(pytest_process_info)
-
-        self.table_widget.setRowCount(len(processes_infos))
-
-        for row_number, test_name in enumerate(processes_infos):
-            process_infos = processes_infos[test_name]
-
-            pytest_run_state = PytestRunState(process_infos)
+        for row_number, test_name in enumerate(tick.infos_by_name):
+            process_infos = tick.infos_by_name[test_name]
+            pytest_run_state = tick.run_states[test_name]
 
             self.table_widget.setItem(row_number, Columns.NAME.value, QTableWidgetItem(pytest_run_state.get_name()))
 
@@ -129,7 +126,6 @@ class TableTab(QGroupBox):
                 tooltip_text = ""
             state_item.setToolTip(tooltip_text)
             state_item.setData(Qt.ItemDataRole.ToolTipRole, tooltip_text)
-
             self.table_widget.setItem(row_number, Columns.STATE.value, state_item)
 
             # Find the timestamp when the test started running and the final completed entry
@@ -144,17 +140,11 @@ class TableTab(QGroupBox):
             # Runtime: elapsed from first "running" entry; live while still running
             if start_time is not None:
                 end_time = final_info.time_stamp if final_info is not None else time.time()
-                runtime_seconds = end_time - start_time
-                if runtime_seconds < 60:
-                    runtime_text = f"{runtime_seconds:.1f}s"
-                else:
-                    runtime_text = f"{int(runtime_seconds // 60)}m {int(runtime_seconds % 60)}s"
+                runtime_text = format_runtime(end_time - start_time)
             else:
                 runtime_text = ""
 
-            # CPU and Memory: from the peak values recorded in the final DB entry.
-            # psutil cpu_percent is per-process where 100.0 = one full logical CPU.
-            # Normalise against total performance cores so 100% means all p-cores fully used.
+            # CPU and Memory
             p_cores = get_performance_core_count()
             if final_info is not None and final_info.cpu_percent is not None:
                 cpu_normalized = min(final_info.cpu_percent / p_cores, 100.0)
@@ -168,9 +158,7 @@ class TableTab(QGroupBox):
             if cpu_normalized is not None:
                 set_utilization_color(cpu_item, cpu_normalized / 100.0)
             self.table_widget.setItem(row_number, Columns.CPU.value, cpu_item)
-
             self.table_widget.setItem(row_number, Columns.MEMORY.value, QTableWidgetItem(memory_text))
             self.table_widget.setItem(row_number, Columns.RUNTIME.value, QTableWidgetItem(runtime_text))
 
-        # Resize columns to fit contents
         self.table_widget.resizeColumnsToContents()

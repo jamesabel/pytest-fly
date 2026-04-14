@@ -34,7 +34,7 @@ jobs:
       - name: Run tests with coverage
         env:
           QT_QPA_PLATFORM: offscreen
-        run: coverage run -m pytest tests
+        run: coverage run --source=src -m pytest tests
 
       - name: Generate coverage report
         run: coverage xml

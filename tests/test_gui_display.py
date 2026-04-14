@@ -192,6 +192,81 @@ def test_graph_tab_reuses_bars(app):
 
 
 # ---------------------------------------------------------------------------
+# CoverageTab tests
+# ---------------------------------------------------------------------------
+
+
+def test_coverage_tab_empty(app):
+    """CoverageTab should render without error when there is no coverage data."""
+    from pytest_fly.gui.coverage_tab import CoverageTab
+
+    tab = CoverageTab()
+    tick = _make_tick_data_empty()
+    tab.update_tick(tick)
+
+    assert tab.chart._coverage_history == []
+
+
+def test_coverage_tab_with_data(app):
+    """CoverageTab should store coverage history data for rendering."""
+    from pytest_fly.gui.coverage_tab import CoverageTab
+
+    tab = CoverageTab()
+    tick = _make_tick_data_with_tests()
+    now = time.time()
+    tick.coverage_history = [(now - 5, 0.25), (now - 2, 0.55), (now, 0.78)]
+    tab.update_tick(tick)
+
+    assert tab.chart._coverage_history == tick.coverage_history
+    assert len(tab.chart._coverage_history) == 3
+
+
+def test_coverage_tab_updates(app):
+    """CoverageTab should reflect new data when update_tick is called again."""
+    from pytest_fly.gui.coverage_tab import CoverageTab
+
+    tab = CoverageTab()
+    now = time.time()
+
+    # First tick: one data point
+    tick_1 = _make_tick_data_with_tests()
+    tick_1.coverage_history = [(now - 5, 0.30)]
+    tab.update_tick(tick_1)
+    assert len(tab.chart._coverage_history) == 1
+
+    # Second tick: two data points
+    tick_2 = _make_tick_data_with_tests()
+    tick_2.coverage_history = [(now - 5, 0.30), (now, 0.65)]
+    tab.update_tick(tick_2)
+    assert len(tab.chart._coverage_history) == 2
+    assert tab.chart._coverage_history[-1][1] == 0.65
+
+
+def test_coverage_tab_status_indicator(app):
+    """CoverageTab should show running/complete status based on test states."""
+    from pytest_fly.gui.coverage_tab import CoverageTab
+
+    tab = CoverageTab()
+
+    # With running and queued tests: shows "Running"
+    tick = _make_tick_data_with_tests()  # has PASS, FAIL, and QUEUED tests
+    tab.update_tick(tick)
+    assert "Running" in tab.chart._status_text
+
+    # All tests completed (no QUEUED or RUNNING)
+    guid = "test-guid-complete"
+    now = time.time()
+    infos = [
+        _make_process_info(guid, "tests/test_a.py", None, PyTestFlyExitCode.NONE, time_stamp=now - 5),
+        _make_process_info(guid, "tests/test_a.py", 1001, PyTestFlyExitCode.NONE, time_stamp=now - 4),
+        _make_process_info(guid, "tests/test_a.py", 1001, PyTestFlyExitCode.OK, output="1 passed", time_stamp=now - 1),
+    ]
+    tick_done = build_tick_data(infos)
+    tab.update_tick(tick_done)
+    assert "Complete" in tab.chart._status_text
+
+
+# ---------------------------------------------------------------------------
 # Integration test: real runner → DB → TickData → GUI tabs
 # ---------------------------------------------------------------------------
 

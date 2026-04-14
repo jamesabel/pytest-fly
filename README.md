@@ -10,17 +10,19 @@
 
 ## Features
 
-- Real-time monitoring of test execution in a GUI with five tabs:
+- Real-time monitoring of test execution in a GUI with six tabs:
   - **Run** — start/stop controls and run mode selection
-  - **Table** — per-test status grid with elapsed time, peak CPU, and memory usage
   - **Graph** — time-based progress chart
+  - **Table** — per-test status grid with elapsed time, peak CPU, and memory usage
+  - **Coverage** — line chart of combined code coverage over time
   - **Configuration** — parallelism settings and resource thresholds
   - **About** — system and project information
 - Parallel test execution at the module level with configurable process count.
 - Graceful interruption — stop the test suite and resume where it left off.
 - Per-process resource monitoring — tracks peak CPU and memory usage for each test module.
 - Estimated time remaining based on prior run durations, accounting for parallelism.
-- Optional code coverage that runs in parallel across test modules.
+- Code coverage tracking — each test writes its own coverage data, combined automatically as tests 
+complete. Coverage persists across restarts so previously-passed tests contribute to the total.
 - Singleton test support via `@pytest.mark.singleton` — singleton tests run exclusively with no other tests 
 executing concurrently.
 

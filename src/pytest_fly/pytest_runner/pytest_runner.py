@@ -1,7 +1,7 @@
 from pathlib import Path
 from queue import Queue, Empty
 from typing import Optional
-from threading import Event, Thread
+from threading import Event, Lock, Thread
 import time
 
 from typeguard import typechecked
@@ -96,12 +96,20 @@ class PytestRunner(Thread):
         test_queue = Queue()
         with PytestProcessInfoDB(self.data_dir) as db:
             for test in self.tests:
-                test_queue.put(test.node_id)
+                test_queue.put(test)
                 pytest_process_info = PytestProcessInfo(self.run_guid, test.node_id, None, PyTestFlyExitCode.NONE, None, time_stamp=time.time())  # queued
                 db.write(pytest_process_info)
 
+        # Singleton enforcement primitives (shared across all workers)
+        singleton_event = Event()
+        singleton_event.set()  # parallel execution allowed initially
+        active_count_lock = Lock()
+        active_workers = [0]  # mutable counter shared by reference
+        all_idle_event = Event()
+        all_idle_event.set()  # no workers active initially
+
         for thread_number in range(self.number_of_processes):
-            test_runner = _TestRunner(self.run_guid, test_queue, self.data_dir, self.update_rate)
+            test_runner = _TestRunner(self.run_guid, test_queue, self.data_dir, self.update_rate, singleton_event, active_count_lock, active_workers, all_idle_event)
             test_runner.start()
             self._test_runners[thread_number] = test_runner
         self._started_event.set()
@@ -135,17 +143,32 @@ class PytestRunner(Thread):
 
 class _TestRunner(Thread):
     """
-    Worker thread that pulls test names from a shared queue and runs each one
-    in a dedicated :class:`PytestProcess`.
+    Worker thread that pulls tests from a shared queue and runs each one
+    in a dedicated :class:`PytestProcess`.  Singleton tests are run exclusively —
+    no other workers execute concurrently.
     """
 
     @typechecked()
-    def __init__(self, run_guid: str, pytest_test_queue: Queue, data_dir: Path, update_rate: float) -> None:
+    def __init__(
+        self,
+        run_guid: str,
+        pytest_test_queue: Queue,
+        data_dir: Path,
+        update_rate: float,
+        singleton_event: Event,
+        active_count_lock: Lock,
+        active_workers: list,
+        all_idle_event: Event,
+    ) -> None:
         """
         :param run_guid: GUID identifying the overall test run.
-        :param pytest_test_queue: Shared queue of test node-IDs to execute.
+        :param pytest_test_queue: Shared queue of :class:`ScheduledTest` to execute.
         :param data_dir: Directory used for the results database.
         :param update_rate: Polling / process-monitor sample interval in seconds.
+        :param singleton_event: Cleared when a singleton is running to block other workers.
+        :param active_count_lock: Protects the *active_workers* counter.
+        :param active_workers: Single-element list ``[int]`` tracking how many workers are executing.
+        :param all_idle_event: Set when *active_workers* drops to zero.
         """
         super().__init__()
 
@@ -156,6 +179,29 @@ class _TestRunner(Thread):
 
         self.process: Optional[PytestProcess] = None
         self._stop_event = Event()
+
+        # Singleton enforcement (shared across all workers)
+        self._singleton_event = singleton_event
+        self._active_count_lock = active_count_lock
+        self._active_workers = active_workers
+        self._all_idle_event = all_idle_event
+
+    # ------------------------------------------------------------------
+    # Active-worker tracking
+    # ------------------------------------------------------------------
+
+    def _increment_active(self):
+        """Mark this worker as actively running a test."""
+        with self._active_count_lock:
+            self._active_workers[0] += 1
+            self._all_idle_event.clear()
+
+    def _decrement_active(self):
+        """Mark this worker as idle.  Signals *all_idle_event* when count hits zero."""
+        with self._active_count_lock:
+            self._active_workers[0] -= 1
+            if self._active_workers[0] == 0:
+                self._all_idle_event.set()
 
     # ------------------------------------------------------------------
     # Process lifecycle helpers
@@ -228,18 +274,14 @@ class _TestRunner(Thread):
             self._terminate_process(proc, proc_name, test)
 
     # ------------------------------------------------------------------
-    # Main loop
+    # Test execution
     # ------------------------------------------------------------------
 
-    def run(self):
-        """Consume test node-IDs from the queue until it is empty or a stop is requested."""
+    def _run_single_test(self, test: str):
+        """Run a single test process, tracking the active worker count."""
 
-        while not self._stop_event.is_set():
-            try:
-                test = self.pytest_test_queue.get(False)
-            except Empty:
-                break
-
+        self._increment_active()
+        try:
             self.process = PytestProcess(self.run_guid, test, self.data_dir, self.update_rate)
             log.info(f'Starting process for test "{test}" ({self.run_guid=})')
             self.process.start()
@@ -259,6 +301,45 @@ class _TestRunner(Thread):
                 log.warning(f'process for test "{self.process.name}" did not terminate ({self.run_guid=})')
             else:
                 log.info(f'process for test "{self.process.name}" completed ({self.run_guid=})')
+        finally:
+            self._decrement_active()
+
+    # ------------------------------------------------------------------
+    # Main loop
+    # ------------------------------------------------------------------
+
+    def run(self):
+        """Consume tests from the queue until it is empty or a stop is requested."""
+
+        while not self._stop_event.is_set():
+            try:
+                scheduled_test = self.pytest_test_queue.get(False)
+            except Empty:
+                break
+
+            test = scheduled_test.node_id
+
+            if scheduled_test.singleton:
+                # Singleton protocol: block others, drain active workers, run exclusively, resume.
+                self._singleton_event.clear()
+                while not self._all_idle_event.wait(timeout=self.update_rate):
+                    if self._stop_event.is_set():
+                        break
+                if self._stop_event.is_set():
+                    self._handle_stop_request(test)
+                    break
+                log.info(f'Running singleton test "{test}" ({self.run_guid=})')
+                self._run_single_test(test)
+                self._singleton_event.set()
+            else:
+                # Normal protocol: wait until no singleton is running.
+                while not self._singleton_event.wait(timeout=self.update_rate):
+                    if self._stop_event.is_set():
+                        break
+                if self._stop_event.is_set():
+                    self._handle_stop_request(test)
+                    break
+                self._run_single_test(test)
 
     def stop(self):
         """Signal all work to stop as soon as possible."""

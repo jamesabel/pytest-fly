@@ -28,7 +28,7 @@ from .graph_tab import GraphTab
 log = get_logger()
 
 
-def build_tick_data(process_infos):
+def build_tick_data(process_infos, prior_durations=None, num_processes=1):
     """
     Build a :class:`TickData` bundle from a flat list of process info records.
 
@@ -48,6 +48,8 @@ def build_tick_data(process_infos):
         max_time_stamp=max_ts,
         min_time_stamp_started=min_ts_s,
         max_time_stamp_started=max_ts_s,
+        prior_durations=prior_durations if prior_durations is not None else {},
+        num_processes=num_processes,
     )
 
 
@@ -150,7 +152,8 @@ class FlyAppMainWindow(QMainWindow):
         with PytestProcessInfoDB(self.data_dir) as db:
             process_infos = db.query(self.run_tab.control_window.run_guid)
 
-        tick = build_tick_data(process_infos)
+        control = self.run_tab.control_window
+        tick = build_tick_data(process_infos, prior_durations=control.prior_durations, num_processes=control.num_processes)
 
         self.graph_tab.update_tick(tick)
         self.table_tab.update_tick(tick)

@@ -1,3 +1,4 @@
+import time
 from collections import defaultdict
 from datetime import timedelta
 
@@ -60,6 +61,24 @@ class StatusWindow(QGroupBox):
             if min_time_stamp is not None and max_time_stamp is not None:
                 overall_time = max_time_stamp - min_time_stamp
                 lines.append(f"Total time: {humanize.precisedelta(timedelta(seconds=overall_time))}")
+
+            # estimated time remaining based on prior run durations
+            if tick.prior_durations and (counts[PytestRunnerState.QUEUED] + counts[PytestRunnerState.RUNNING]) > 0:
+                remaining_seconds = 0.0
+                now = time.time()
+                for test_name, run_state in tick.run_states.items():
+                    state = run_state.get_state()
+                    prior = tick.prior_durations.get(test_name, 0.0)
+                    if state == PytestRunnerState.QUEUED:
+                        remaining_seconds += prior
+                    elif state == PytestRunnerState.RUNNING:
+                        infos = tick.infos_by_name.get(test_name, [])
+                        started_at = next((i.time_stamp for i in infos if i.pid is not None), None)
+                        if started_at is not None:
+                            remaining_seconds += max(0.0, prior - (now - started_at))
+                if remaining_seconds > 0 and tick.num_processes > 0:
+                    wall_clock = remaining_seconds / tick.num_processes
+                    lines.append(f"Estimated remaining: {humanize.precisedelta(timedelta(seconds=wall_clock))}")
         else:
             lines = ["Tests not yet run. Please run the tests."]
 

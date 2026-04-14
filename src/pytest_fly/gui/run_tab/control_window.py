@@ -54,6 +54,8 @@ class ControlWindow(QGroupBox):
         layout.addWidget(self.run_mode_box)
 
         self.pytest_runner: PytestRunner | None = None
+        self.prior_durations: dict[str, float] = {}
+        self.num_processes: int = 1
 
         self.set_fixed_width()  # calculate and set the widget width
 
@@ -109,6 +111,23 @@ class ControlWindow(QGroupBox):
             prior_names = {r.name for r in prior_results}
             failed = prior_names - passed
             tests = sorted(tests, key=lambda t: (t.singleton, t.node_id not in failed))
+
+        # Compute prior durations for ETA estimation
+        self.prior_durations = {}
+        prior_by_name: dict[str, list] = {}
+        for r in prior_results:
+            prior_by_name.setdefault(r.name, []).append(r)
+        for name, infos in prior_by_name.items():
+            start = None
+            end = None
+            for info in infos:
+                if info.pid is not None and start is None:
+                    start = info.time_stamp
+                if info.exit_code != PyTestFlyExitCode.NONE:
+                    end = info.time_stamp
+            if start is not None and end is not None:
+                self.prior_durations[name] = end - start
+        self.num_processes = processes
 
         self.pytest_runner = PytestRunner(self.run_guid, tests, processes, self.data_dir, refresh_rate)
         self.pytest_runner.start()

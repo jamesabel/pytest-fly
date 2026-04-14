@@ -19,6 +19,7 @@
 - Parallel test execution at the module level with configurable process count.
 - Graceful interruption — stop the test suite and resume where it left off.
 - Per-process resource monitoring — tracks peak CPU and memory usage for each test module.
+- Estimated time remaining based on prior run durations, accounting for parallelism.
 - Optional code coverage that runs in parallel across test modules.
 - Singleton test support via `@pytest.mark.singleton` — singleton tests run exclusively with no other tests 
 executing concurrently.

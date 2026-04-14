@@ -6,9 +6,9 @@ from PySide6.QtCore import Qt, QPoint
 from PySide6.QtGui import QColor, QGuiApplication
 
 from ...preferences import get_pref
-from ...interfaces import PytestProcessInfo, PyTestFlyExitCode
-from ...pytest_runner.pytest_runner import PytestRunState
-from ...gui.gui_util import tool_tip_limiter, group_process_infos_by_name, format_runtime
+from ...interfaces import PyTestFlyExitCode
+from ...tick_data import TickData
+from ...gui.gui_util import tool_tip_limiter, format_runtime
 from ...platform.platform_info import get_performance_core_count
 
 
@@ -44,8 +44,6 @@ class TableTab(QGroupBox):
 
     def __init__(self):
         super().__init__()
-
-        self.statuses: dict = {}
 
         self.setTitle("Tests")
         layout = QVBoxLayout()
@@ -102,23 +100,18 @@ class TableTab(QGroupBox):
             clipboard.setText("\n".join(selected_text))
 
     def reset(self):
-        """Clear all table rows and cached state."""
+        """Clear all table rows."""
         self.table_widget.setRowCount(0)
-        self.statuses.clear()
 
-    def update_pytest_process_info(self, pytest_process_infos: list[PytestProcessInfo]):
-        """Refresh the table with the latest process info records."""
+    def update_tick(self, tick: TickData):
+        """Refresh the table from pre-computed tick data."""
 
         self.table_widget.clearContents()
+        self.table_widget.setRowCount(len(tick.infos_by_name))
 
-        processes_infos = group_process_infos_by_name(pytest_process_infos)
-
-        self.table_widget.setRowCount(len(processes_infos))
-
-        for row_number, test_name in enumerate(processes_infos):
-            process_infos = processes_infos[test_name]
-
-            pytest_run_state = PytestRunState(process_infos)
+        for row_number, test_name in enumerate(tick.infos_by_name):
+            process_infos = tick.infos_by_name[test_name]
+            pytest_run_state = tick.run_states[test_name]
 
             self.table_widget.setItem(row_number, Columns.NAME.value, QTableWidgetItem(pytest_run_state.get_name()))
 
@@ -133,7 +126,6 @@ class TableTab(QGroupBox):
                 tooltip_text = ""
             state_item.setToolTip(tooltip_text)
             state_item.setData(Qt.ItemDataRole.ToolTipRole, tooltip_text)
-
             self.table_widget.setItem(row_number, Columns.STATE.value, state_item)
 
             # Find the timestamp when the test started running and the final completed entry
@@ -152,9 +144,7 @@ class TableTab(QGroupBox):
             else:
                 runtime_text = ""
 
-            # CPU and Memory: from the peak values recorded in the final DB entry.
-            # psutil cpu_percent is per-process where 100.0 = one full logical CPU.
-            # Normalise against total performance cores so 100% means all p-cores fully used.
+            # CPU and Memory
             p_cores = get_performance_core_count()
             if final_info is not None and final_info.cpu_percent is not None:
                 cpu_normalized = min(final_info.cpu_percent / p_cores, 100.0)
@@ -168,9 +158,7 @@ class TableTab(QGroupBox):
             if cpu_normalized is not None:
                 set_utilization_color(cpu_item, cpu_normalized / 100.0)
             self.table_widget.setItem(row_number, Columns.CPU.value, cpu_item)
-
             self.table_widget.setItem(row_number, Columns.MEMORY.value, QTableWidgetItem(memory_text))
             self.table_widget.setItem(row_number, Columns.RUNTIME.value, QTableWidgetItem(runtime_text))
 
-        # Resize columns to fit contents
         self.table_widget.resizeColumnsToContents()

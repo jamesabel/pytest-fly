@@ -6,7 +6,7 @@ from typeguard import typechecked
 
 from .control_window import ControlWindow
 from .status_window import StatusWindow
-from ...interfaces import PytestProcessInfo
+from ...tick_data import TickData
 from ...logger import get_logger
 
 log = get_logger()
@@ -30,7 +30,7 @@ class RunTab(QWidget):
         layout.addWidget(self.status_window, alignment=Qt.AlignmentFlag.AlignTop)
         layout.addStretch()
 
-    def update_pytest_process_info(self, pytest_process_infos: list[PytestProcessInfo]):
-        """Forward updated process info to the status window and control panel."""
-        self.status_window.update_status(pytest_process_infos)
+    def update_tick(self, tick: TickData):
+        """Forward pre-computed tick data to the status window and control panel."""
+        self.status_window.update_tick(tick)
         self.control_window.update()

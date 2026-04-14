@@ -64,7 +64,7 @@ class PytestProcessInfoDB(MSQLite):
                 finally:
                     _conn.close()
 
-        super().__init__(db_path, table_name, self._schema)
+        super().__init__(db_path, table_name, self._schema, indexes=["run_guid"])
 
     @typechecked
     def write(self, pytest_process_info: PytestProcessInfo) -> None:

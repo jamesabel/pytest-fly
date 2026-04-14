@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSizePolicy,
 )
-from PySide6.QtCore import QCoreApplication, QRect, QTimer, Qt
+from PySide6.QtCore import QCoreApplication, QRect, QTimer
 from typeguard import typechecked
 
 from ..db import PytestProcessInfoDB
@@ -17,13 +17,38 @@ from ..gui.configuration_tab.configuration import Configuration
 from ..gui.about_tab.about import About
 from ..preferences import get_pref
 from ..__version__ import application_name
-from .gui_util import get_font, get_text_dimensions
+from ..tick_data import TickData
+from ..pytest_runner.pytest_runner import PytestRunState
+from .gui_util import get_font, get_text_dimensions, group_process_infos_by_name, compute_time_window
 from .run_tab import RunTab
 from .table_tab import TableTab
 from .graph_tab import GraphTab
 
 
 log = get_logger()
+
+
+def build_tick_data(process_infos):
+    """
+    Build a :class:`TickData` bundle from a flat list of process info records.
+
+    Performs grouping, time-window computation, and run-state construction
+    once so that all tabs can share the pre-computed results.
+    """
+    infos_by_name = group_process_infos_by_name(process_infos)
+    run_states = {name: PytestRunState(infos) for name, infos in infos_by_name.items()}
+    min_ts, max_ts = compute_time_window(process_infos)
+    min_ts_s, max_ts_s = compute_time_window(process_infos, require_pid=True)
+
+    return TickData(
+        process_infos=process_infos,
+        infos_by_name=infos_by_name,
+        run_states=run_states,
+        min_time_stamp=min_ts,
+        max_time_stamp=max_ts,
+        min_time_stamp_started=min_ts_s,
+        max_time_stamp_started=max_ts_s,
+    )
 
 
 class FlyAppMainWindow(QMainWindow):
@@ -86,7 +111,7 @@ class FlyAppMainWindow(QMainWindow):
 
         # timer for periodic updates
         self.timer = QTimer(self, interval=int(round(pref.refresh_rate * 1000)))
-        self.timer.timeout.connect(self.update_pytest_process_info)
+        self.timer.timeout.connect(self._update_tick)
         self.timer.start()
 
     def reset(self):
@@ -113,15 +138,23 @@ class FlyAppMainWindow(QMainWindow):
 
         event.accept()
 
-    def update_pytest_process_info(self):
+    def _update_tick(self):
         """
-        Timer event handler to update the GUI.
+        Timer event handler — query the DB and refresh all tabs.
+
+        The query runs synchronously on the GUI thread (sub-millisecond for
+        typical result sets).  Grouping, time-window, and run-state computation
+        happen once in :func:`build_tick_data` and the resulting :class:`TickData`
+        is shared across all tabs.
         """
         with PytestProcessInfoDB(self.data_dir) as db:
             process_infos = db.query(self.run_tab.control_window.run_guid)
-            self.graph_tab.update_pytest_process_info(process_infos)
-            self.table_tab.update_pytest_process_info(process_infos)
-            self.run_tab.update_pytest_process_info(process_infos)
+
+        tick = build_tick_data(process_infos)
+
+        self.graph_tab.update_tick(tick)
+        self.table_tab.update_tick(tick)
+        self.run_tab.update_tick(tick)
 
 
 @typechecked()

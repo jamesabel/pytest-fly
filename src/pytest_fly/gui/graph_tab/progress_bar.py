@@ -5,11 +5,10 @@ from PySide6.QtGui import QPainter, QPen, QBrush, QPalette, QGuiApplication
 import time
 from typeguard import typechecked
 
-from ...interfaces import PytestProcessInfo
-from ...pytest_runner.pytest_runner import PytestRunState, PytestRunnerState
-from ..gui_util import get_text_dimensions
+from ...interfaces import PytestProcessInfo, PytestRunnerState
+from ...pytest_runner.pytest_runner import PytestRunState
+from ..gui_util import get_text_dimensions, tool_tip_limiter
 from ...logger import get_logger
-from ..gui_util import tool_tip_limiter
 
 log = get_logger()
 
@@ -25,6 +24,7 @@ class PytestProgressBar(QWidget):
         status_list: list[PytestProcessInfo],
         min_time_stamp: float,
         max_time_stamp: float,
+        run_state: PytestRunState,
     ) -> None:
 
         super().__init__()
@@ -35,6 +35,7 @@ class PytestProgressBar(QWidget):
         self.status_list = status_list
         self.min_time_stamp = min_time_stamp
         self.max_time_stamp = max_time_stamp
+        self._run_state = run_state
 
         if len(status_list) > 0:
             name = status_list[0].name
@@ -45,17 +46,48 @@ class PytestProgressBar(QWidget):
         self.bar_height = name_text_dimensions.height() + 2 * self.bar_margin
         self.setFixedHeight(self.bar_height)
         log.info(f"{self.bar_height=},{name_text_dimensions=}")
-        self.update_pytest_process_info(status_list, min_time_stamp, max_time_stamp)
 
         # --- Tooltip-related state ---
         self.setMouseTracking(True)  # receive mouseMoveEvent even with no button pressed
         self._last_bar_rect: QRectF | None = None
         self._last_bar_text: str = ""
 
-    def update_pytest_process_info(self, status_list: list[PytestProcessInfo], min_time_stamp: float, max_time_stamp: float):
+        # --- Change-detection state (must be initialized before first update call) ---
+        self._prev_count: int = 0
+        self._prev_last_ts: float | None = None
+        self._prev_min_ts: float | None = None
+        self._prev_max_ts: float | None = None
+
+        self.update_pytest_process_info(status_list, min_time_stamp, max_time_stamp, run_state)
+
+    def update_pytest_process_info(self, status_list: list[PytestProcessInfo], min_time_stamp: float, max_time_stamp: float, run_state: PytestRunState):
+        """
+        Update the bar's data and schedule a repaint — but only if the data
+        actually changed or the test is still running (its bar grows over time).
+        """
+        # O(1) change detection: skip repaint if nothing changed
+        new_count = len(status_list)
+        new_last_ts = status_list[-1].time_stamp if status_list else None
+        is_running = (
+            len(status_list) > 0 and status_list[-1].pid is not None and run_state.get_state() == PytestRunnerState.RUNNING
+        )
+        if (
+            not is_running
+            and new_count == self._prev_count
+            and new_last_ts == self._prev_last_ts
+            and min_time_stamp == self._prev_min_ts
+            and max_time_stamp == self._prev_max_ts
+        ):
+            return  # no change — skip repaint
+        self._prev_count = new_count
+        self._prev_last_ts = new_last_ts
+        self._prev_min_ts = min_time_stamp
+        self._prev_max_ts = max_time_stamp
+
         self.status_list = status_list
         self.min_time_stamp = min_time_stamp
         self.max_time_stamp = max_time_stamp
+        self._run_state = run_state
 
         if len(self.status_list) > 0:
             name = self.status_list[0].name
@@ -70,7 +102,7 @@ class PytestProgressBar(QWidget):
     def paintEvent(self, event):
         if len(self.status_list) > 0:
 
-            pytest_run_state = PytestRunState(self.status_list)
+            pytest_run_state = self._run_state
 
             painter = QPainter(self)
             painter.setRenderHint(QPainter.Antialiasing)

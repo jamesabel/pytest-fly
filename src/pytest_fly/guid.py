@@ -2,6 +2,7 @@ import uuid
 from datetime import datetime, timezone
 
 from typeguard import typechecked
+from uuid6 import uuid7
 
 
 @typechecked
@@ -9,7 +10,7 @@ def generate_uuid() -> str:
     """
     Generate a UUIDv7 (time-ordered, timestamp-encoded).
     """
-    u = str(uuid.uuid7())
+    u = str(uuid7())
     return u
 
 

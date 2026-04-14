@@ -62,23 +62,38 @@ def read_most_recent_coverage_summary_file(coverage_parent_directory: Path) -> f
 
 class PytestFlyCoverage(Coverage):
 
-    def __init__(self, data_file: Path) -> None:
-        super().__init__(data_file, timid=True, concurrency=["thread", "multiprocessing"], check_preimported=True)
+    def __init__(self, data_file: Path, **kwargs) -> None:
+        super().__init__(data_file, timid=True, concurrency=["thread", "multiprocessing"], check_preimported=True, **kwargs)
         # avoid: "CoverageWarning: Couldn't parse '...': No source for code: '...'. (couldnt-parse)"
         self._no_warn_slugs.add("couldnt-parse")
 
 
-def calculate_coverage(test_identifier: str, coverage_parent_directory: Path, write_report: bool) -> float | None:
+def _parse_report_totals(report_output: str) -> tuple[int, int]:
+    """Parse the TOTAL line from a coverage text report to get (statements, missing)."""
+    for line in report_output.splitlines():
+        if line.startswith("TOTAL"):
+            parts = line.split()
+            if len(parts) >= 3:
+                try:
+                    return int(parts[1]), int(parts[2])
+                except (ValueError, IndexError):
+                    pass
+    return 0, 0
+
+
+def calculate_coverage(test_identifier: str, coverage_parent_directory: Path, write_report: bool) -> tuple[float | None, int, int]:
     """
     Load a collection of coverage files from a directory and calculate the overall coverage.
 
     :param test_identifier: Test identifier.
     :param coverage_parent_directory: The directory containing the coverage files.
     :param write_report: Whether to write the HTML report.
-    :return: The overall coverage as a value between 0.0 and 1.0, or None if no coverage files were found.
+    :return: Tuple of (overall coverage as 0.0-1.0 or None, covered statements, total statements).
     """
 
     coverage_value = None
+    covered_statements = 0
+    total_statements = 0
 
     coverage_directory = Path(coverage_parent_directory, "coverage")
 
@@ -97,8 +112,16 @@ def calculate_coverage(test_identifier: str, coverage_parent_directory: Path, wr
         cov.combine(coverage_files_as_strings, keep=True)
         cov.save()
 
-        output_buffer = io.StringIO()  # unused but required by the API
-        coverage_value = cov.report(ignore_errors=True, output_format="total", file=output_buffer) / 100.0  # report returns coverage as a percentage
+        # Get percentage from total-only report
+        total_buffer = io.StringIO()
+        coverage_value = cov.report(ignore_errors=True, output_format="total", file=total_buffer) / 100.0
+
+        # Get statement counts from the full text report
+        report_buffer = io.StringIO()
+        cov.report(ignore_errors=True, file=report_buffer)
+        total_statements, missing = _parse_report_totals(report_buffer.getvalue())
+        covered_statements = total_statements - missing
+
         write_coverage_summary_file(coverage_value, test_identifier, coverage_parent_directory)
         if write_report:
             cov.html_report(directory=str(combined_directory), ignore_errors=True)
@@ -110,4 +133,4 @@ def calculate_coverage(test_identifier: str, coverage_parent_directory: Path, wr
     except PermissionError as e:
         log.info(f"{test_identifier},{e}")
 
-    return coverage_value
+    return coverage_value, covered_statements, total_statements

@@ -11,6 +11,7 @@ from coverage import Coverage
 from typeguard import typechecked
 
 from ..__version__ import application_name
+from ..file_util import sanitize_test_name
 from ..interfaces import PytestProcessInfo, PyTestFlyExitCode
 from ..logger import get_logger
 from ..db import PytestProcessInfoDB
@@ -60,7 +61,7 @@ class PytestProcess(Process):
             # create a temp coverage file and then move it so if the file exists, the content is complete (the save is not necessarily instantaneous and atomic)
             coverage_dir = Path(self.data_dir, "coverage")
             coverage_dir.mkdir(parents=True, exist_ok=True)
-            safe_name = self.name.replace("/", "_").replace("\\", "_")
+            safe_name = sanitize_test_name(self.name)
             coverage_file_path = Path(coverage_dir, f"{safe_name}.coverage")
             coverage_temp_file_path = Path(coverage_dir, f"{safe_name}.temp")
             coverage_temp_file_path.unlink(missing_ok=True)

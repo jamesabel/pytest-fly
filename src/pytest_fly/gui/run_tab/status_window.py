@@ -1,12 +1,8 @@
 import time
-from collections import defaultdict
-from datetime import timedelta
 
 from PySide6.QtWidgets import QGroupBox, QVBoxLayout, QSizePolicy
 
-import humanize
-
-from ...gui.gui_util import PlainTextWidget
+from ...gui.gui_util import PlainTextWidget, count_test_states, format_runtime
 from ...interfaces import PytestRunnerState
 from ...tick_data import TickData
 
@@ -19,7 +15,7 @@ class StatusWindow(QGroupBox):
         self.setTitle("Status")
         layout = QVBoxLayout()
         self.setLayout(layout)
-        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
         self.status_widget = PlainTextWidget(self, "Loading...")
         layout.addWidget(self.status_widget)
 
@@ -30,9 +26,7 @@ class StatusWindow(QGroupBox):
         :param tick: Pre-computed data for this refresh cycle.
         """
 
-        counts: dict[PytestRunnerState, int] = defaultdict(int)
-        for test_name, run_state in tick.run_states.items():
-            counts[run_state.get_state()] += 1
+        counts = count_test_states(tick.run_states)
 
         min_time_stamp = tick.min_time_stamp_started
         max_time_stamp = tick.max_time_stamp_started
@@ -60,31 +54,43 @@ class StatusWindow(QGroupBox):
             # add total time so far to status
             if min_time_stamp is not None and max_time_stamp is not None:
                 overall_time = max_time_stamp - min_time_stamp
-                lines.append(f"Total time: {humanize.precisedelta(timedelta(seconds=overall_time))}")
+                lines.append(f"Total time: {format_runtime(overall_time)}")
 
             # add current code coverage
             if tick.coverage_history:
                 latest_coverage = tick.coverage_history[-1][1]
-                lines.append(f"Coverage: {latest_coverage:.1%}")
+                cov_text = f"Coverage: {latest_coverage:.1%}"
+                if tick.total_lines > 0:
+                    cov_text += f"  ({tick.covered_lines}/{tick.total_lines} lines)"
+                lines.append(cov_text)
 
             # estimated time remaining based on prior run durations
             if tick.prior_durations and (counts[PytestRunnerState.QUEUED] + counts[PytestRunnerState.RUNNING]) > 0:
-                remaining_seconds = 0.0
-                now = time.time()
-                for test_name, run_state in tick.run_states.items():
-                    state = run_state.get_state()
-                    prior = tick.prior_durations.get(test_name, 0.0)
-                    if state == PytestRunnerState.QUEUED:
-                        remaining_seconds += prior
-                    elif state == PytestRunnerState.RUNNING:
-                        infos = tick.infos_by_name.get(test_name, [])
-                        started_at = next((i.time_stamp for i in infos if i.pid is not None), None)
-                        if started_at is not None:
-                            remaining_seconds += max(0.0, prior - (now - started_at))
+                remaining_seconds = self._calculate_remaining_seconds(tick)
                 if remaining_seconds > 0 and tick.num_processes > 0:
                     wall_clock = remaining_seconds / tick.num_processes
-                    lines.append(f"Estimated remaining: {humanize.precisedelta(timedelta(seconds=wall_clock))}")
+                    lines.append(f"Estimated remaining: {format_runtime(wall_clock)}")
         else:
-            lines = ["Tests not yet run. Please run the tests."]
+            lines = ["Calculating..."]
 
         self.status_widget.set_text("\n".join(lines))
+
+    def _calculate_remaining_seconds(self, tick: TickData) -> float:
+        """Estimate the total remaining CPU-seconds for queued and running tests.
+
+        :param tick: Pre-computed data for this refresh cycle.
+        :return: Estimated remaining seconds of CPU work.
+        """
+        remaining_seconds = 0.0
+        now = time.time()
+        for test_name, run_state in tick.run_states.items():
+            state = run_state.get_state()
+            prior = tick.prior_durations.get(test_name, 0.0)
+            if state == PytestRunnerState.QUEUED:
+                remaining_seconds += prior
+            elif state == PytestRunnerState.RUNNING:
+                infos = tick.infos_by_name.get(test_name, [])
+                started_at = next((i.time_stamp for i in infos if i.pid is not None), None)
+                if started_at is not None:
+                    remaining_seconds += max(0.0, prior - (now - started_at))
+        return remaining_seconds

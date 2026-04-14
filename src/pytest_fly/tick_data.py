@@ -28,3 +28,6 @@ class TickData:
     prior_durations: dict[str, float] = field(default_factory=dict)
     num_processes: int = 1
     coverage_history: list[tuple[float, float]] = field(default_factory=list)  # (timestamp, coverage_pct 0.0-1.0)
+    per_test_coverage: dict[str, float] = field(default_factory=dict)  # test_name -> coverage_pct 0.0-1.0
+    covered_lines: int = 0  # lines executed by all completed tests combined
+    total_lines: int = 0  # total executable lines in the source

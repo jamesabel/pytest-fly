@@ -50,15 +50,31 @@ class PlainTextWidget(QPlainTextEdit):
     def __init__(self, parent, initial_text: str):
         super().__init__(parent)
         self.setReadOnly(True)
+        self.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
         self.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.MinimumExpanding)
         self.set_text(initial_text)
 
     def set_text(self, text: str):
-        """Replace the displayed text and trigger a geometry update."""
+        """Replace the displayed text and resize to fit content without wrapping."""
         self.setPlainText(text)
-        # Tell layouts the size hint changed
+        # Calculate the width needed to display the longest line
+        doc = self.document()
+        margins = self.contentsMargins()
+        doc_margin = int(doc.documentMargin())
+        max_line_width = 0
+        block = doc.begin()
+        while block.isValid():
+            line_width = self.fontMetrics().horizontalAdvance(block.text())
+            max_line_width = max(max_line_width, line_width)
+            block = block.next()
+        # Add margins and scrollbar space
+        total_width = max_line_width + margins.left() + margins.right() + 2 * doc_margin + 10
+        line_count = doc.blockCount()
+        line_height = self.fontMetrics().lineSpacing()
+        total_height = line_count * line_height + margins.top() + margins.bottom() + 2 * doc_margin
+        self.setMinimumWidth(total_width)
+        self.setMinimumHeight(total_height)
         self.updateGeometry()
-        self.adjustSize()
 
 
 def group_process_infos_by_name(process_infos: list[PytestProcessInfo]) -> dict[str, list[PytestProcessInfo]]:
@@ -103,6 +119,33 @@ def format_runtime(seconds: float) -> str:
     :return: Formatted string (e.g. ``"3 seconds"``, ``"2 minutes and 15 seconds"``).
     """
     return humanize.precisedelta(timedelta(seconds=seconds))
+
+
+def count_test_states(run_states: dict) -> dict:
+    """Count tests by their current PytestRunnerState."""
+    counts = defaultdict(int)
+    for run_state in run_states.values():
+        counts[run_state.get_state()] += 1
+    return counts
+
+
+def extract_test_duration(infos: list) -> tuple[float | None, float | None]:
+    """
+    Extract start and end timestamps from a test's process info records.
+
+    :param infos: List of PytestProcessInfo for a single test.
+    :return: (start_timestamp, end_timestamp) or (None, None).
+    """
+    from ..interfaces import PyTestFlyExitCode
+
+    start = None
+    end = None
+    for info in infos:
+        if info.pid is not None and start is None:
+            start = info.time_stamp
+        if info.exit_code != PyTestFlyExitCode.NONE:
+            end = info.time_stamp
+    return start, end
 
 
 @typechecked

@@ -18,6 +18,7 @@ class Columns(Enum):
     CPU = 2
     MEMORY = 3
     RUNTIME = 4
+    COVERAGE = 5
 
 
 def set_utilization_color(item: QTableWidgetItem, value: float):
@@ -55,7 +56,7 @@ class TableTab(QGroupBox):
         # Create a table widget to hold the content
         self.table_widget = QTableWidget(parent=scroll_area)
         self.table_widget.setColumnCount(len(Columns))
-        self.table_widget.setHorizontalHeaderLabels(["Name", "State", "CPU", "Memory", "Runtime"])
+        self.table_widget.setHorizontalHeaderLabels(["Name", "State", "CPU", "Memory", "Runtime", "Coverage"])
         self.table_widget.horizontalHeader().setStretchLastSection(True)
         self.table_widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table_widget.customContextMenuRequested.connect(self.show_context_menu)
@@ -64,8 +65,11 @@ class TableTab(QGroupBox):
         layout.addWidget(scroll_area)
         self.setLayout(layout)
 
-    # python
     def show_context_menu(self, position: QPoint):
+        """Show a right-click context menu allowing the user to copy pytest output.
+
+        :param position: Click position relative to the table viewport.
+        """
         menu = QMenu()
         copy_tooltip_action = menu.addAction("Copy Pytest Output")
         action = menu.exec_(self.table_widget.viewport().mapToGlobal(position))
@@ -160,5 +164,10 @@ class TableTab(QGroupBox):
             self.table_widget.setItem(row_number, Columns.CPU.value, cpu_item)
             self.table_widget.setItem(row_number, Columns.MEMORY.value, QTableWidgetItem(memory_text))
             self.table_widget.setItem(row_number, Columns.RUNTIME.value, QTableWidgetItem(runtime_text))
+
+            # Per-test coverage
+            coverage_pct = tick.per_test_coverage.get(test_name)
+            coverage_text = f"{coverage_pct:.1%}" if coverage_pct is not None else ""
+            self.table_widget.setItem(row_number, Columns.COVERAGE.value, QTableWidgetItem(coverage_text))
 
         self.table_widget.resizeColumnsToContents()

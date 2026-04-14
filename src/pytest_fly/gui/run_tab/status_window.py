@@ -62,6 +62,11 @@ class StatusWindow(QGroupBox):
                 overall_time = max_time_stamp - min_time_stamp
                 lines.append(f"Total time: {humanize.precisedelta(timedelta(seconds=overall_time))}")
 
+            # add current code coverage
+            if tick.coverage_history:
+                latest_coverage = tick.coverage_history[-1][1]
+                lines.append(f"Coverage: {latest_coverage:.1%}")
+
             # estimated time remaining based on prior run durations
             if tick.prior_durations and (counts[PytestRunnerState.QUEUED] + counts[PytestRunnerState.RUNNING]) > 0:
                 remaining_seconds = 0.0

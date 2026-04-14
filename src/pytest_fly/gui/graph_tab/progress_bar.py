@@ -8,6 +8,7 @@ from typeguard import typechecked
 from ...interfaces import PytestProcessInfo, PytestRunnerState
 from ...pytest_runner.pytest_runner import PytestRunState
 from ..gui_util import get_text_dimensions, tool_tip_limiter
+from .time_axis import compute_grid_ticks, GRID_LINE_COLOR
 from ...logger import get_logger
 
 log = get_logger()
@@ -106,6 +107,12 @@ class PytestProgressBar(QWidget):
 
             painter = QPainter(self)
             painter.setRenderHint(QPainter.Antialiasing)
+
+            # Draw vertical grid lines (behind the bar)
+            grid_ticks = compute_grid_ticks(self.min_time_stamp, self.max_time_stamp, self.width())
+            painter.setPen(QPen(GRID_LINE_COLOR, 1))
+            for x, _label in grid_ticks:
+                painter.drawLine(int(x), 0, int(x), self.height())
 
             if pytest_run_state.get_state() == PytestRunnerState.QUEUED or len(self.status_list) < 2:
                 start_running_time = None

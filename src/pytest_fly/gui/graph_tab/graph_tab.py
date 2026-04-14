@@ -3,21 +3,28 @@ from PySide6.QtCore import Qt
 
 from ...tick_data import TickData
 from .progress_bar import PytestProgressBar
+from .time_axis import TimeAxisWidget
 
 
 class GraphTab(QGroupBox):
-    """Tab displaying a horizontal progress bar for each test module."""
+    """Tab displaying a horizontal progress bar for each test module with a shared time axis."""
 
     def __init__(self):
         super().__init__()
         self.setTitle("Progress")
         self.progress_bars: dict[str, PytestProgressBar] = {}
+
         layout = QVBoxLayout()
         layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         self.setLayout(layout)
 
+        self.time_axis = TimeAxisWidget()
+        layout.addWidget(self.time_axis)
+
     def update_tick(self, tick: TickData) -> None:
-        """Refresh all progress bars from pre-computed tick data."""
+        """Refresh the time axis and all progress bars from pre-computed tick data."""
+
+        self.time_axis.update_time_window(tick.min_time_stamp, tick.max_time_stamp)
 
         layout = self.layout()
 

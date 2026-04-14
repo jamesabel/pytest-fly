@@ -53,6 +53,8 @@ analogous to putting the tests in the same module in `pytest-fly`.
 
 `pytest-fly` orders tests to surface actionable information earlier:
 
-1. When prior run data is available, tests with higher coverage efficiency (lines/second) are run earlier. 
+1. Tests that failed in the prior run are re-run first, so developers get faster feedback on tests they are 
+likely fixing.
+2. When prior run data is available, tests with higher coverage efficiency (lines/second) are run earlier. 
 This way, if there is a problem in the code, it is more likely to be found earlier in the test run.
-2. `singleton` tests are run last to maximize parallel throughput before exclusive execution begins.
+3. `singleton` tests are run last to maximize parallel throughput before exclusive execution begins.

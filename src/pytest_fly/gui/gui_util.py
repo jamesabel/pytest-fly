@@ -50,15 +50,31 @@ class PlainTextWidget(QPlainTextEdit):
     def __init__(self, parent, initial_text: str):
         super().__init__(parent)
         self.setReadOnly(True)
+        self.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
         self.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.MinimumExpanding)
         self.set_text(initial_text)
 
     def set_text(self, text: str):
-        """Replace the displayed text and trigger a geometry update."""
+        """Replace the displayed text and resize to fit content without wrapping."""
         self.setPlainText(text)
-        # Tell layouts the size hint changed
+        # Calculate the width needed to display the longest line
+        doc = self.document()
+        margins = self.contentsMargins()
+        doc_margin = int(doc.documentMargin())
+        max_line_width = 0
+        block = doc.begin()
+        while block.isValid():
+            line_width = self.fontMetrics().horizontalAdvance(block.text())
+            max_line_width = max(max_line_width, line_width)
+            block = block.next()
+        # Add margins and scrollbar space
+        total_width = max_line_width + margins.left() + margins.right() + 2 * doc_margin + 10
+        line_count = doc.blockCount()
+        line_height = self.fontMetrics().lineSpacing()
+        total_height = line_count * line_height + margins.top() + margins.bottom() + 2 * doc_margin
+        self.setMinimumWidth(total_width)
+        self.setMinimumHeight(total_height)
         self.updateGeometry()
-        self.adjustSize()
 
 
 def group_process_infos_by_name(process_infos: list[PytestProcessInfo]) -> dict[str, list[PytestProcessInfo]]:

@@ -74,13 +74,13 @@ def _make_tick_data_with_tests():
 
 
 def test_status_window_empty(app):
-    """StatusWindow should display 'Tests not yet run' when there is no data."""
+    """StatusWindow should display 'Calculating...' when there is no data."""
     window = StatusWindow(None)
     tick = _make_tick_data_empty()
     window.update_tick(tick)
 
     text = window.status_widget.toPlainText()
-    assert "Tests not yet run" in text
+    assert "Calculating..." in text
 
 
 def test_status_window_with_data(app):
@@ -134,6 +134,33 @@ def test_table_tab_with_data(app):
     assert displayed["tests/test_a.py"] == PytestRunnerState.PASS.value
     assert displayed["tests/test_b.py"] == PytestRunnerState.FAIL.value
     assert displayed["tests/test_c.py"] == PytestRunnerState.QUEUED.value
+
+
+def test_table_tab_per_test_coverage(app):
+    """TableTab should display per-test coverage in the Coverage column with correct values."""
+    table = TableTab()
+    tick = _make_tick_data_with_tests()
+    # Simulate realistic per-test coverage where individual < combined
+    tick.per_test_coverage = {"tests/test_a.py": 0.123, "tests/test_b.py": 0.456}
+    tick.coverage_history = [(time.time(), 0.52)]  # combined is higher than any individual
+    table.update_tick(tick)
+
+    # Collect coverage values by test name
+    coverage_by_name = {}
+    for row in range(table.table_widget.rowCount()):
+        name_item = table.table_widget.item(row, 0)
+        cov_item = table.table_widget.item(row, 5)  # COVERAGE column
+        assert cov_item is not None, f"row {row} COVERAGE item is None"
+        coverage_by_name[name_item.text()] = cov_item.text()
+
+    assert coverage_by_name["tests/test_a.py"] == "12.3%"
+    assert coverage_by_name["tests/test_b.py"] == "45.6%"
+    assert coverage_by_name["tests/test_c.py"] == ""  # queued, no coverage yet
+
+    # Per-test values must be <= combined coverage
+    combined = tick.coverage_history[-1][1]
+    for test_name, pct in tick.per_test_coverage.items():
+        assert pct <= combined, f"{test_name} coverage {pct:.1%} exceeds combined {combined:.1%}"
 
 
 def test_table_tab_updates_on_second_tick(app):
@@ -221,17 +248,20 @@ def test_coverage_tab_empty(app):
 
 
 def test_coverage_tab_with_data(app):
-    """CoverageTab should store coverage history data for rendering."""
+    """CoverageTab should store coverage history and values should increase over time."""
     from pytest_fly.gui.coverage_tab import CoverageTab
 
     tab = CoverageTab()
     tick = _make_tick_data_with_tests()
     now = time.time()
-    tick.coverage_history = [(now - 5, 0.25), (now - 2, 0.55), (now, 0.78)]
+    tick.coverage_history = [(now - 5, 0.25), (now - 2, 0.40), (now, 0.52)]
     tab.update_tick(tick)
 
     assert tab.chart._coverage_history == tick.coverage_history
     assert len(tab.chart._coverage_history) == 3
+    # Coverage should be monotonically non-decreasing (each test adds coverage)
+    for i in range(1, len(tab.chart._coverage_history)):
+        assert tab.chart._coverage_history[i][1] >= tab.chart._coverage_history[i - 1][1]
 
 
 def test_coverage_tab_updates(app):
@@ -448,13 +478,55 @@ def test_status_window_with_eta(app):
 
 
 def test_status_window_with_coverage(app):
-    """StatusWindow should display coverage percentage when history is available."""
+    """StatusWindow should display coverage percentage with line counts."""
     window = StatusWindow(None)
     tick = _make_tick_data_with_tests()
-    tick.coverage_history = [(time.time(), 0.75)]
+    tick.coverage_history = [(time.time() - 5, 0.30), (time.time(), 0.52)]
+    tick.covered_lines = 260
+    tick.total_lines = 500
     window.update_tick(tick)
     text = window.status_widget.toPlainText()
-    assert "Coverage: 75.0%" in text
+    # Should show the latest value (52.0%), not the first (30.0%)
+    assert "Coverage: 52.0%" in text
+    assert "260/500 lines" in text
+    assert "30.0%" not in text
+
+
+def test_coverage_consistent_across_all_views(app):
+    """Coverage values should be consistent across Status pane, Table, and Coverage tab."""
+    now = time.time()
+    tick = _make_tick_data_with_tests()
+    combined_pct = 0.52
+    tick.coverage_history = [(now - 5, 0.30), (now, combined_pct)]
+    tick.per_test_coverage = {"tests/test_a.py": 0.35, "tests/test_b.py": 0.40}
+    tick.covered_lines = 260
+    tick.total_lines = 500
+
+    # All per-test values must be <= combined
+    for name, pct in tick.per_test_coverage.items():
+        assert pct <= combined_pct, f"{name} coverage {pct:.1%} > combined {combined_pct:.1%}"
+
+    # Status pane shows combined with line counts
+    status = StatusWindow(None)
+    status.update_tick(tick)
+    status_text = status.status_widget.toPlainText()
+    assert "Coverage: 52.0%" in status_text
+    assert "260/500 lines" in status_text
+
+    # Table shows per-test
+    table = TableTab()
+    table.update_tick(tick)
+    for row in range(table.table_widget.rowCount()):
+        name = table.table_widget.item(row, 0).text()
+        cov_text = table.table_widget.item(row, 5).text()
+        if name in tick.per_test_coverage:
+            expected = f"{tick.per_test_coverage[name]:.1%}"
+            assert cov_text == expected, f"Table shows {cov_text} for {name}, expected {expected}"
+
+    # Coverage tab chart has the history
+    coverage_tab = CoverageTab()
+    coverage_tab.update_tick(tick)
+    assert coverage_tab.chart._coverage_history[-1][1] == combined_pct
 
 
 # ---------------------------------------------------------------------------

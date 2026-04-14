@@ -19,7 +19,7 @@ class StatusWindow(QGroupBox):
         self.setTitle("Status")
         layout = QVBoxLayout()
         self.setLayout(layout)
-        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
         self.status_widget = PlainTextWidget(self, "Loading...")
         layout.addWidget(self.status_widget)
 
@@ -65,7 +65,10 @@ class StatusWindow(QGroupBox):
             # add current code coverage
             if tick.coverage_history:
                 latest_coverage = tick.coverage_history[-1][1]
-                lines.append(f"Coverage: {latest_coverage:.1%}")
+                cov_text = f"Coverage: {latest_coverage:.1%}"
+                if tick.total_lines > 0:
+                    cov_text += f"  ({tick.covered_lines}/{tick.total_lines} lines)"
+                lines.append(cov_text)
 
             # estimated time remaining based on prior run durations
             if tick.prior_durations and (counts[PytestRunnerState.QUEUED] + counts[PytestRunnerState.RUNNING]) > 0:
@@ -85,6 +88,6 @@ class StatusWindow(QGroupBox):
                     wall_clock = remaining_seconds / tick.num_processes
                     lines.append(f"Estimated remaining: {humanize.precisedelta(timedelta(seconds=wall_clock))}")
         else:
-            lines = ["Tests not yet run. Please run the tests."]
+            lines = ["Calculating..."]
 
         self.status_widget.set_text("\n".join(lines))

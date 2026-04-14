@@ -30,12 +30,16 @@ class _CoverageChart(QWidget):
         self._min_ts: float | None = None
         self._max_ts: float | None = None
         self._status_text: str = ""
+        self._covered_lines: int = 0
+        self._total_lines: int = 0
 
-    def update_data(self, coverage_history: list[tuple[float, float]], min_ts: float | None, max_ts: float | None, status_text: str):
+    def update_data(self, coverage_history: list[tuple[float, float]], min_ts: float | None, max_ts: float | None, status_text: str, covered_lines: int = 0, total_lines: int = 0):
         self._coverage_history = coverage_history
         self._min_ts = min_ts
         self._max_ts = max_ts
         self._status_text = status_text
+        self._covered_lines = covered_lines
+        self._total_lines = total_lines
         self.update()
 
     def paintEvent(self, event):
@@ -124,11 +128,15 @@ class _CoverageChart(QWidget):
         for i in range(len(points) - 1):
             painter.drawLine(points[i][0], points[i][1], points[i + 1][0], points[i + 1][1])
 
-        # Draw current coverage label
+        # Draw current coverage label with line counts and note
         latest_pct = self._coverage_history[-1][1]
         label = f"Coverage: {latest_pct:.1%}"
+        if self._total_lines > 0:
+            label += f"  ({self._covered_lines}/{self._total_lines} lines)"
+        label += "    (line count may increase as tests discover new source files)"
         painter.setPen(QPen(text_color, 1))
-        painter.drawText(margin_left + 10, get_text_dimensions("X").height(), label)
+        char_h = get_text_dimensions("X").height()
+        painter.drawText(margin_left + 10, char_h, label)
 
         painter.end()
 
@@ -161,4 +169,4 @@ class CoverageTab(QGroupBox):
         else:
             status_text = ""
 
-        self.chart.update_data(tick.coverage_history, tick.min_time_stamp, tick.max_time_stamp, status_text)
+        self.chart.update_data(tick.coverage_history, tick.min_time_stamp, tick.max_time_stamp, status_text, tick.covered_lines, tick.total_lines)

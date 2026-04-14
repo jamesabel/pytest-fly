@@ -19,7 +19,8 @@ from ..gui.about_tab.about import About
 from ..preferences import get_pref
 from ..__version__ import application_name
 from ..tick_data import TickData
-from ..interfaces import PytestRunnerState
+import shutil
+from ..interfaces import PytestRunnerState, RunMode
 from ..pytest_runner.pytest_runner import PytestRunState
 from ..pytest_runner.coverage import calculate_coverage
 from .gui_util import get_font, get_text_dimensions, group_process_infos_by_name, compute_time_window
@@ -112,6 +113,8 @@ class FlyAppMainWindow(QMainWindow):
         # Coverage tracking state
         self._completed_tests: set[str] = set()
         self._coverage_history: list[tuple[float, float]] = []
+        self._covered_lines: int = 0
+        self._total_lines: int = 0
         self._last_run_guid: str | None = None
 
         # Wrap the tab widget in a scroll area so that very tall tab contents produce scrollbars
@@ -172,18 +175,31 @@ class FlyAppMainWindow(QMainWindow):
             self._last_run_guid = current_guid
             self._completed_tests = set()
             self._coverage_history = []
+            self._covered_lines = 0
+            self._total_lines = 0
+
+            # In RESTART mode, clear old coverage files so the graph starts from zero
+            pref = get_pref()
+            if pref.run_mode != RunMode.RESUME:
+                coverage_dir = Path(self.data_dir, "coverage")
+                if coverage_dir.exists():
+                    shutil.rmtree(coverage_dir, ignore_errors=True)
 
         # Trigger coverage recalculation when new tests complete
         current_completed = {name for name, rs in tick.run_states.items() if rs.get_state() in (PytestRunnerState.PASS, PytestRunnerState.FAIL)}
         if current_completed and current_completed != self._completed_tests:
             self._completed_tests = current_completed
             try:
-                coverage_pct = calculate_coverage("current", self.data_dir, write_report=False)
+                coverage_pct, self._covered_lines, self._total_lines = calculate_coverage("current", self.data_dir, write_report=False)
                 if coverage_pct is not None:
                     self._coverage_history.append((time.time(), coverage_pct))
             except Exception as e:
                 log.warning(f"coverage calculation failed: {e}")
+
         tick.coverage_history = self._coverage_history
+        tick.per_test_coverage = {}  # per-test coverage removed — combined report is the source of truth
+        tick.covered_lines = self._covered_lines
+        tick.total_lines = self._total_lines
 
         self.graph_tab.update_tick(tick)
         self.table_tab.update_tick(tick)

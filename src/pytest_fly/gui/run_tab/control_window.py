@@ -95,11 +95,20 @@ class ControlWindow(QGroupBox):
 
         tests = get_tests.get_tests()
 
+        # Query prior results once (used by both RESUME filtering and failed-first ordering)
+        with PytestProcessInfoDB(self.data_dir) as db:
+            prior_results = db.query()  # most recent run
+
         if pref.run_mode == RunMode.RESUME:
-            with PytestProcessInfoDB(self.data_dir) as db:
-                prior_results = db.query()  # most recent run
             passed = {r.name for r in prior_results if r.exit_code == PyTestFlyExitCode.OK}
             tests = [t for t in tests if t.node_id not in passed]
+
+        # Reorder so previously-failed tests run first (within their singleton group)
+        if prior_results:
+            passed = {r.name for r in prior_results if r.exit_code == PyTestFlyExitCode.OK}
+            prior_names = {r.name for r in prior_results}
+            failed = prior_names - passed
+            tests = sorted(tests, key=lambda t: (t.singleton, t.node_id not in failed))
 
         self.pytest_runner = PytestRunner(self.run_guid, tests, processes, self.data_dir, refresh_rate)
         self.pytest_runner.start()

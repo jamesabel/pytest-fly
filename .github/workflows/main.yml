@@ -43,4 +43,3 @@ jobs:
         uses: codecov/codecov-action@v4
         with:
           files: coverage.xml
-          fail_ci_if_not_uploaded: false

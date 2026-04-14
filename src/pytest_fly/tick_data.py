@@ -25,3 +25,5 @@ class TickData:
     # Time window considering only records where pid is set (process has started)
     min_time_stamp_started: float | None = None
     max_time_stamp_started: float | None = None
+    prior_durations: dict[str, float] = field(default_factory=dict)
+    num_processes: int = 1

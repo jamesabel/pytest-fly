@@ -7,6 +7,8 @@ from typeguard import typechecked
 from ...pytest_runner.pytest_runner import PytestRunner
 from ...pytest_runner.test_list import GetTests
 from ...preferences import get_pref, ParallelismControl
+from ...interfaces import RunMode, PyTestFlyExitCode
+from ...db import PytestProcessInfoDB
 from ...logger import get_logger
 from ...guid import generate_uuid
 
@@ -92,6 +94,12 @@ class ControlWindow(QGroupBox):
         get_tests.join()
 
         tests = get_tests.get_tests()
+
+        if pref.run_mode == RunMode.RESUME:
+            with PytestProcessInfoDB(self.data_dir) as db:
+                prior_results = db.query()  # most recent run
+            passed = {r.name for r in prior_results if r.exit_code == PyTestFlyExitCode.OK}
+            tests = [t for t in tests if t.node_id not in passed]
 
         self.pytest_runner = PytestRunner(self.run_guid, tests, processes, self.data_dir, refresh_rate)
         self.pytest_runner.start()

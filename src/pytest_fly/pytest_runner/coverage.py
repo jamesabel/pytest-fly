@@ -7,7 +7,7 @@ from coverage import Coverage
 from coverage.exceptions import NoDataError, DataError
 
 from ..logger import get_logger
-from ..file_util import find_most_recent_file
+from ..file_util import find_most_recent_file, sanitize_test_name
 from pytest_fly.__version__ import application_name
 
 log = get_logger(application_name)
@@ -134,3 +134,47 @@ def calculate_coverage(test_identifier: str, coverage_parent_directory: Path, wr
         log.info(f"{test_identifier},{e}")
 
     return coverage_value, covered_statements, total_statements
+
+
+def compute_per_test_coverage(data_dir: Path, test_names: list[str]) -> dict[str, float]:
+    """Compute per-test coverage fractions from stored per-test coverage files.
+
+    Loads each test's individual ``.coverage`` file, counts executed lines,
+    and divides by the total lines across all tests to produce a fraction.
+
+    :param data_dir: The application data directory containing the ``coverage/`` subdirectory.
+    :param test_names: List of test node_ids (e.g. ``"tests/test_foo.py"``).
+    :return: Mapping of test name to coverage fraction (0.0--1.0).  Tests
+             without a coverage file are omitted.
+    """
+    coverage_dir = Path(data_dir, "coverage")
+    if not coverage_dir.exists():
+        return {}
+
+    # Load each test's coverage data and count executed lines
+    per_test_lines: dict[str, int] = {}
+    all_file_lines: dict[str, set[int]] = {}  # source_file -> set of executed line numbers (union across all tests)
+
+    for test_name in test_names:
+        safe_name = sanitize_test_name(test_name)
+        cov_file = coverage_dir / f"{safe_name}.coverage"
+        if not cov_file.exists():
+            continue
+        try:
+            cov = Coverage(cov_file)
+            cov.load()
+            data = cov.get_data()
+            executed = 0
+            for f in data.measured_files():
+                lines = data.lines(f) or []
+                executed += len(lines)
+                all_file_lines.setdefault(f, set()).update(lines)
+            per_test_lines[test_name] = executed
+        except Exception as e:
+            log.info(f"per-test coverage load for {test_name} failed: {e}")
+
+    total_lines = sum(len(lines) for lines in all_file_lines.values())
+    if total_lines == 0:
+        return {}
+
+    return {name: executed / total_lines for name, executed in per_test_lines.items()}

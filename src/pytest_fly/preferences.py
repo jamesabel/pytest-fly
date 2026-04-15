@@ -5,7 +5,7 @@ from pref import Pref
 
 from .__version__ import application_name, author
 from .platform import get_performance_core_count
-from .interfaces import RunMode
+from .interfaces import RunMode, TestOrder
 
 preferences_file_name = f"{application_name}_preferences.db"
 
@@ -41,6 +41,8 @@ class FlyPreferences(Pref):
     utilization_low_threshold: float = attrib(default=utilization_low_threshold_default)  # below this threshold is considered low utilization
 
     run_mode: RunMode = attrib(default=RunMode.CHECK)  # 0=restart all tests, 1=resume, 2=resume if possible (i.e., the program version under test has not changed)
+
+    test_order: TestOrder = attrib(default=TestOrder.PYTEST)  # 0=pytest default order, 1=coverage efficiency order
 
 
 def get_pref() -> FlyPreferences:

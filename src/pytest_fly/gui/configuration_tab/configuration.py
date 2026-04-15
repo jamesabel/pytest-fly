@@ -5,6 +5,7 @@ from PySide6.QtGui import QIntValidator, QDoubleValidator
 from tobool import to_bool_strict
 
 from pytest_fly.preferences import get_pref, refresh_rate_default, utilization_high_threshold_default, utilization_low_threshold_default
+from pytest_fly.interfaces import TestOrder
 from pytest_fly.platform.platform_info import get_performance_core_count
 from pytest_fly.logger import get_logger
 from pytest_fly.gui.gui_util import get_text_dimensions
@@ -33,6 +34,14 @@ class Configuration(QWidget):
         self.verbose_checkbox.setChecked(to_bool_strict(pref.verbose))
         self.verbose_checkbox.stateChanged.connect(self.update_verbose)
         layout.addWidget(self.verbose_checkbox)
+
+        layout.addWidget(QLabel(""))  # space
+
+        # Test order option
+        self.coverage_order_checkbox = QCheckBox("Order tests by coverage efficiency")
+        self.coverage_order_checkbox.setChecked(int(pref.test_order) == TestOrder.COVERAGE)
+        self.coverage_order_checkbox.stateChanged.connect(self.update_test_order)
+        layout.addWidget(self.coverage_order_checkbox)
 
         layout.addWidget(QLabel(""))  # space
 
@@ -85,6 +94,11 @@ class Configuration(QWidget):
         """Persist the verbose checkbox state to preferences."""
         pref = get_pref()
         pref.verbose = self.verbose_checkbox.isChecked()
+
+    def update_test_order(self):
+        """Persist the test order preference based on the checkbox state."""
+        pref = get_pref()
+        pref.test_order = TestOrder.COVERAGE if self.coverage_order_checkbox.isChecked() else TestOrder.PYTEST
 
     def update_processes(self, value: str):
         """Persist the process-count value to preferences."""

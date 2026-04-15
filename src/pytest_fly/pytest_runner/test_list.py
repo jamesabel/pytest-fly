@@ -70,7 +70,7 @@ class GetTests(Process):
                 # Restore the original stdout
                 sys.stdout = original_stdout
 
-        # todo: add test execution time and coverage to enable proper sorting
+        # Duration and coverage are populated later by ControlWindow when coverage ordering is enabled.
         for node_id, singleton in pytest_tests.items():
             self._scheduled_tests_queue.put(ScheduledTest(node_id, singleton, None, None))
 

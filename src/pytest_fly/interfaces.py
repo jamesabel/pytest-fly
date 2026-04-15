@@ -64,6 +64,11 @@ class ScheduledTest:
             return _lines_per_second(self.duration, self.coverage) > _lines_per_second(other.duration, other.coverage)
 
 
+class TestOrder(IntEnum):
+    PYTEST = 0  # use pytest's default collection order (alphabetical by node_id)
+    COVERAGE = 1  # order by coverage efficiency (lines covered per second), falling back to node_id when no prior data
+
+
 class RunMode(IntEnum):
     RESTART = 0  # rerun all tests
     RESUME = 1  # resume test run, and run tests that either failed or were not run

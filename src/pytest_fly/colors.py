@@ -17,6 +17,7 @@ BAR_COLORS: dict[PytestRunnerState, QColor] = {
     PytestRunnerState.PASS: QColor("lightgreen"),
     PytestRunnerState.FAIL: QColor("red"),
     PytestRunnerState.TERMINATED: QColor("orange"),
+    PytestRunnerState.STOPPED: QColor("gray"),
 }
 
 # Colors used for the foreground text on the Table tab.
@@ -26,4 +27,5 @@ TABLE_COLORS: dict[PytestRunnerState, QColor] = {
     PytestRunnerState.PASS: QColor("green"),
     PytestRunnerState.FAIL: QColor("red"),
     PytestRunnerState.TERMINATED: QColor("orange"),
+    PytestRunnerState.STOPPED: QColor("gray"),
 }

@@ -114,7 +114,7 @@ class PytestProgressBar(QWidget):
             for x, _label in grid_ticks:
                 painter.drawLine(int(x), 0, int(x), self.height())
 
-            if pytest_run_state.get_state() == PytestRunnerState.QUEUED or len(self.status_list) < 2:
+            if pytest_run_state.get_state() in (PytestRunnerState.QUEUED, PytestRunnerState.STOPPED) or len(self.status_list) < 2:
                 start_running_time = None
             else:
                 start_running_time = self.status_list[1].time_stamp
@@ -132,7 +132,7 @@ class PytestProgressBar(QWidget):
 
             bar_color = pytest_run_state.get_qt_bar_color()
 
-            if pytest_run_state.get_state() != PytestRunnerState.QUEUED:
+            if pytest_run_state.get_state() not in (PytestRunnerState.QUEUED, PytestRunnerState.STOPPED):
                 seconds_from_start = start_running_time - self.min_time_stamp
                 x1 = (seconds_from_start * horizontal_pixels_per_second) + self.bar_margin
                 y1 = outer_rect.y() + self.bar_margin

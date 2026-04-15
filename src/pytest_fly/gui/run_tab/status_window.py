@@ -47,7 +47,7 @@ class StatusWindow(QGroupBox):
                 lines.append(f"{prefix}(calculating...)")
             lines.append("")  # space
 
-            for state in [PytestRunnerState.PASS, PytestRunnerState.FAIL, PytestRunnerState.QUEUED, PytestRunnerState.RUNNING, PytestRunnerState.TERMINATED]:
+            for state in [PytestRunnerState.PASS, PytestRunnerState.FAIL, PytestRunnerState.QUEUED, PytestRunnerState.RUNNING, PytestRunnerState.TERMINATED, PytestRunnerState.STOPPED]:
                 count = counts[state]
                 lines.append(f"{state}: {count} ({count / total_tests:.2%})")
 

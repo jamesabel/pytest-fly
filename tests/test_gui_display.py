@@ -458,13 +458,14 @@ def test_run_tab(qtbot):
 
 
 def test_control_window_update(qtbot):
-    """ControlWindow.update() should enable Run and disable Stop when idle."""
+    """ControlWindow.update() should enable Run and disable Stop/Force Stop when idle."""
     data_dir = get_temp_dir("test_control_window")
     cw = ControlWindow(None, data_dir)
     qtbot.addWidget(cw)
     cw.update()
     assert cw.run_button.isEnabled()
     assert not cw.stop_button.isEnabled()
+    assert not cw.force_stop_button.isEnabled()
 
 
 # ---------------------------------------------------------------------------

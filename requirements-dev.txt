@@ -18,6 +18,7 @@ hashy
 # linters
 ruff
 ty
+pre-commit
 # testing
 pytest
 pytest-qt

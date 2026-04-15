@@ -1,8 +1,8 @@
+import textwrap
 from multiprocessing import Process
 from pathlib import Path
-import textwrap
-import pytest
 
+import pytest
 from ismain import is_main
 
 from pytest_fly import main

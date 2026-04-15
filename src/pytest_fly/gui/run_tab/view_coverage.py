@@ -3,9 +3,9 @@ from pathlib import Path
 
 from typeguard import typechecked
 
-from pytest_fly.logger import get_logger
-from pytest_fly.file_util import find_most_recent_file
 from pytest_fly.__version__ import application_name
+from pytest_fly.file_util import find_most_recent_file
+from pytest_fly.logger import get_logger
 
 log = get_logger(application_name)
 

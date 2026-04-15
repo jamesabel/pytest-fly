@@ -3,8 +3,8 @@ from pathlib import Path
 
 from typeguard import typechecked
 
-from pytest_fly.platform import mk_dirs
 from pytest_fly.const import PYTEST_FLY_DATA_DIR_STRING
+from pytest_fly.platform import mk_dirs
 
 
 @typechecked()

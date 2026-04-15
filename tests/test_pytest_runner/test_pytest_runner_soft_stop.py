@@ -1,9 +1,9 @@
 import time
 
-from pytest_fly.pytest_runner import PytestRunner, PytestRunState
-from pytest_fly.interfaces import ScheduledTest, PyTestFlyExitCode, PytestRunnerState
 from pytest_fly.db import PytestProcessInfoDB
 from pytest_fly.guid import generate_uuid
+from pytest_fly.interfaces import PyTestFlyExitCode, PytestRunnerState, ScheduledTest
+from pytest_fly.pytest_runner import PytestRunner, PytestRunState
 
 from ..paths import get_temp_dir
 

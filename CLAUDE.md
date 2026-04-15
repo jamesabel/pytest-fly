@@ -23,15 +23,15 @@ python -m pytest_fly
 pytest tests/                          # full suite
 pytest tests/test_foo.py               # single file
 pytest tests/test_foo.py::test_bar     # single test
-tox                                    # full matrix: py312, pypy3, flake8
+tox                                    # full matrix: py312, pypy3, ruff
 tox -e py312                           # single tox environment
 ```
 
 ### Code quality
 ```bash
-black src tests                        # format (line length 192)
-flake8 src tests                       # lint
-mypy src                               # type check
+ruff check src tests                   # lint
+ruff format src tests                  # format (line length 192)
+ty check src                           # type check
 ```
 
 ### Install for development
@@ -81,6 +81,7 @@ Tests are parallelised **at the module level**. All functions inside a module ru
 | File watching | watchdog |
 | Resource monitoring | psutil |
 | Data classes | attrs |
-| Formatting | black (len=192), flake8, mypy |
+| Linting/Formatting | ruff (len=192) |
+| Type checking | ty |
 | Build | hatchling |
 | CI | GitHub Actions + tox |

@@ -1,8 +1,8 @@
-from functools import cache
-import platform
 import getpass
+import platform
 import struct
 import sys
+from functools import cache
 
 import psutil
 from cpuinfo import get_cpu_info

@@ -4,10 +4,10 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from pytest_fly.pytest_runner.coverage import (
-    write_coverage_summary_file,
-    read_most_recent_coverage_summary_file,
-    calculate_coverage,
     _parse_report_totals,
+    calculate_coverage,
+    read_most_recent_coverage_summary_file,
+    write_coverage_summary_file,
 )
 
 

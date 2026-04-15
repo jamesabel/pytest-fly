@@ -1,20 +1,19 @@
 import sys
 from io import StringIO
-from pathlib import Path
 from multiprocessing import Process, Queue
+from pathlib import Path
 from queue import Empty
 
 import pytest
 from typeguard import typechecked
 
-from ..logger import get_logger
 from ..interfaces import ScheduledTest
+from ..logger import get_logger
 
 log = get_logger()
 
 
 class GetTests(Process):
-
     def __init__(self, test_dir: Path = Path("").resolve()):
         """
         Collects all pytest tests within the given directory (recursively) in a separate process and returns their node IDs as a list of strings.
@@ -35,7 +34,6 @@ class GetTests(Process):
 
         # singleton last
         for collect_singleton in (False, True):
-
             # Temporarily redirect stdout so we can parse pytest’s collection output.
             original_stdout = sys.stdout
             buffer = StringIO()

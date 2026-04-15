@@ -1,15 +1,16 @@
 # python
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QToolTip, QMenu
-from PySide6.QtCore import QRectF, QPointF
-from PySide6.QtGui import QPainter, QPen, QBrush, QPalette, QGuiApplication
 import time
+
+from PySide6.QtCore import QPointF, QRectF
+from PySide6.QtGui import QBrush, QGuiApplication, QPainter, QPalette, QPen
+from PySide6.QtWidgets import QMenu, QToolTip, QVBoxLayout, QWidget
 from typeguard import typechecked
 
 from ...interfaces import PytestProcessInfo, PytestRunnerState
+from ...logger import get_logger
 from ...pytest_runner.pytest_runner import PytestRunState
 from ..gui_util import get_text_dimensions, tool_tip_limiter
-from .time_axis import compute_grid_ticks, GRID_LINE_COLOR
-from ...logger import get_logger
+from .time_axis import GRID_LINE_COLOR, compute_grid_ticks
 
 log = get_logger()
 
@@ -69,16 +70,8 @@ class PytestProgressBar(QWidget):
         # O(1) change detection: skip repaint if nothing changed
         new_count = len(status_list)
         new_last_ts = status_list[-1].time_stamp if status_list else None
-        is_running = (
-            len(status_list) > 0 and status_list[-1].pid is not None and run_state.get_state() == PytestRunnerState.RUNNING
-        )
-        if (
-            not is_running
-            and new_count == self._prev_count
-            and new_last_ts == self._prev_last_ts
-            and min_time_stamp == self._prev_min_ts
-            and max_time_stamp == self._prev_max_ts
-        ):
+        is_running = len(status_list) > 0 and status_list[-1].pid is not None and run_state.get_state() == PytestRunnerState.RUNNING
+        if not is_running and new_count == self._prev_count and new_last_ts == self._prev_last_ts and min_time_stamp == self._prev_min_ts and max_time_stamp == self._prev_max_ts:
             return  # no change — skip repaint
         self._prev_count = new_count
         self._prev_last_ts = new_last_ts
@@ -102,7 +95,6 @@ class PytestProgressBar(QWidget):
 
     def paintEvent(self, event):
         if len(self.status_list) > 0:
-
             pytest_run_state = self._run_state
 
             painter = QPainter(self)

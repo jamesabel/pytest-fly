@@ -16,9 +16,8 @@ tobool
 uuid6
 hashy
 # linters
-black
-flake8
-mypy
+ruff
+ty
 # testing
 pytest
 pytest-qt

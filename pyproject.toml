@@ -1,7 +1,7 @@
 [project]
 name = "pytest-fly"
 description = "pytest runner and observer"
-version = "0.2.4"
+version = "0.2.5"
 readme = "README.md"
 requires-python = ">=3.12"
 authors = [
@@ -51,8 +51,11 @@ Home = "https://github.com/jamesabel/pytest-fly"
 Repository = "https://github.com/jamesabel/pytest-fly"
 Documentation = "https://github.com/jamesabel/pytest-fly#readme"
 
-[tool.black]
+[tool.ruff]
 line-length = 192
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
 
 [build-system]
 requires = ["hatchling"]

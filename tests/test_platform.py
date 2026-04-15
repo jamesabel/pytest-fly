@@ -4,8 +4,8 @@ import psutil
 
 from pytest_fly.platform.platform_info import (
     _get_p_core_count_windows,
-    get_performance_core_count,
     get_efficiency_core_count,
+    get_performance_core_count,
 )
 
 

@@ -1,7 +1,7 @@
-from pytest_fly.pytest_runner import PytestRunner
-from pytest_fly.interfaces import ScheduledTest, PyTestFlyExitCode
 from pytest_fly.db import PytestProcessInfoDB
 from pytest_fly.guid import generate_uuid
+from pytest_fly.interfaces import PyTestFlyExitCode, ScheduledTest
+from pytest_fly.pytest_runner import PytestRunner
 
 from ..paths import get_temp_dir
 

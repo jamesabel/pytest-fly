@@ -1,10 +1,12 @@
 from dataclasses import asdict
+
 import humanize
 from PySide6.QtCore import QObject, QThread, Signal
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QSizePolicy
-from pytest_fly.gui.gui_util import PlainTextWidget
+from PySide6.QtWidgets import QSizePolicy, QVBoxLayout, QWidget
+
 from pytest_fly.gui.about_tab.project_info import get_project_info
-from pytest_fly.platform.platform_info import get_platform_info, get_performance_core_count
+from pytest_fly.gui.gui_util import PlainTextWidget
+from pytest_fly.platform.platform_info import get_performance_core_count, get_platform_info
 
 
 class AboutDataWorker(QObject):

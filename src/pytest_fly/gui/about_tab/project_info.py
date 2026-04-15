@@ -1,7 +1,7 @@
-from pathlib import Path
 import tomllib
 from dataclasses import dataclass
 from functools import cache
+from pathlib import Path
 
 
 @dataclass(frozen=True)

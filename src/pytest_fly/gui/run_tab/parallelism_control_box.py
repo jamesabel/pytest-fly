@@ -1,6 +1,6 @@
-from PySide6.QtWidgets import QGroupBox, QVBoxLayout, QRadioButton, QButtonGroup
+from PySide6.QtWidgets import QButtonGroup, QGroupBox, QRadioButton, QVBoxLayout
 
-from pytest_fly.preferences import get_pref, ParallelismControl
+from pytest_fly.preferences import ParallelismControl, get_pref
 
 
 class ParallelismControlBox(QGroupBox):

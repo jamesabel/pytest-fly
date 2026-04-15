@@ -1,1 +1,1 @@
-from .run_tab import RunTab
+from .run_tab import RunTab as RunTab

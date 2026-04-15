@@ -1,10 +1,10 @@
 from balsa import Balsa
 
 from .__version__ import application_name, author
+from .gui import fly_main
 from .logger import get_logger
 from .paths import get_default_data_dir
 from .preferences import get_pref
-from .gui import fly_main
 
 log = get_logger(application_name)
 

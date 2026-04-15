@@ -1,7 +1,7 @@
-from pytest_fly.pytest_runner import PytestRunner
-from pytest_fly.guid import generate_uuid
-from pytest_fly.interfaces import ScheduledTest, PyTestFlyExitCode
 from pytest_fly.db import PytestProcessInfoDB
+from pytest_fly.guid import generate_uuid
+from pytest_fly.interfaces import PyTestFlyExitCode, ScheduledTest
+from pytest_fly.pytest_runner import PytestRunner
 
 from ..paths import get_temp_dir
 
@@ -57,6 +57,5 @@ def test_pytest_runner_singleton(app):
         final_record = records[-1]
         assert final_record.exit_code == PyTestFlyExitCode.OK, f"{test_name_key} did not pass: {final_record.exit_code}"
         assert final_record.time_stamp <= singleton_start_time, (
-            f"Singleton test started at {singleton_start_time} but "
-            f"{test_name_key} finished at {final_record.time_stamp} — singleton was not exclusive"
+            f"Singleton test started at {singleton_start_time} but {test_name_key} finished at {final_record.time_stamp} — singleton was not exclusive"
         )

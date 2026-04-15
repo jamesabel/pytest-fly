@@ -1,5 +1,5 @@
-from PySide6.QtWidgets import QGroupBox, QVBoxLayout, QWidget, QScrollArea
 from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QGroupBox, QScrollArea, QVBoxLayout, QWidget
 
 from ...tick_data import TickData
 from .progress_bar import PytestProgressBar

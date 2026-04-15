@@ -1,3 +1,4 @@
-from .const import TIMEOUT
-from .pytest_runner import PytestRunner, PytestRunState
-from .test_list import GetTests
+from .const import TIMEOUT as TIMEOUT
+from .pytest_runner import PytestRunner as PytestRunner
+from .pytest_runner import PytestRunState as PytestRunState
+from .test_list import GetTests as GetTests

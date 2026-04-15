@@ -1,9 +1,8 @@
 import time
 
 from pytest_fly.db import PytestProcessInfoDB
-from pytest_fly.interfaces import PytestProcessInfo, PyTestFlyExitCode
 from pytest_fly.guid import generate_uuid
-
+from pytest_fly.interfaces import PyTestFlyExitCode, PytestProcessInfo
 
 from .paths import get_temp_dir
 

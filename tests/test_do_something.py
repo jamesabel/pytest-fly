@@ -1,5 +1,5 @@
-import time
 import random
+import time
 
 
 def test_do_something():

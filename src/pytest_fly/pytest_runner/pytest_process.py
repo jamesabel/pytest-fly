@@ -11,10 +11,10 @@ from coverage import Coverage
 from typeguard import typechecked
 
 from ..__version__ import application_name
-from ..file_util import sanitize_test_name
-from ..interfaces import PytestProcessInfo, PyTestFlyExitCode
-from ..logger import get_logger
 from ..db import PytestProcessInfoDB
+from ..file_util import sanitize_test_name
+from ..interfaces import PyTestFlyExitCode, PytestProcessInfo
+from ..logger import get_logger
 from .process_monitor import ProcessMonitor
 
 log = get_logger(application_name)
@@ -57,7 +57,6 @@ class PytestProcess(Process):
         # Redirect stdout and stderr so nothing goes to the console.
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
-
             # create a temp coverage file and then move it so if the file exists, the content is complete (the save is not necessarily instantaneous and atomic)
             coverage_dir = Path(self.data_dir, "coverage")
             coverage_dir.mkdir(parents=True, exist_ok=True)

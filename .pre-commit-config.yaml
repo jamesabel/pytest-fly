@@ -1,0 +1,18 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.10
+    hooks:
+      - id: ruff
+        args: [--fix]
+        exclude: ^demo/
+      - id: ruff-format
+        exclude: ^demo/
+  - repo: local
+    hooks:
+      - id: ty
+        name: ty (informational)
+        entry: bash -c "python -m ty check src || true"
+        language: system
+        pass_filenames: false
+        types: [python]
+        verbose: true

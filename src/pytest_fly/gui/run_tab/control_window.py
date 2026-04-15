@@ -6,8 +6,9 @@ from typeguard import typechecked
 
 from ...pytest_runner.pytest_runner import PytestRunner
 from ...pytest_runner.test_list import GetTests
+from ...pytest_runner.coverage import compute_per_test_coverage
 from ...preferences import get_pref, ParallelismControl
-from ...interfaces import RunMode, PyTestFlyExitCode
+from ...interfaces import RunMode, TestOrder, PyTestFlyExitCode, ScheduledTest
 from ...db import PytestProcessInfoDB
 from ...logger import get_logger
 from ...guid import generate_uuid
@@ -111,6 +112,11 @@ class ControlWindow(QGroupBox):
         self.prior_durations = self._compute_prior_durations(prior_results)
         self.num_processes = processes
 
+        # Populate coverage/duration for coverage-efficiency ordering
+        if pref.test_order == TestOrder.COVERAGE:
+            tests = self._apply_coverage_order(tests)
+            tests.sort()
+
         self.pytest_runner = PytestRunner(self.run_guid, tests, processes, self.data_dir, refresh_rate)
         self.pytest_runner.start()
 
@@ -143,6 +149,27 @@ class ControlWindow(QGroupBox):
             failed = prior_names - passed
             tests = sorted(tests, key=lambda t: (t.singleton, t.node_id not in failed))
         return tests
+
+    def _apply_coverage_order(self, tests):
+        """Replace ScheduledTest objects with ones carrying prior duration and coverage data.
+
+        When both values are available the existing ``ScheduledTest.__lt__`` sorts
+        by lines-per-second efficiency.  Tests without prior data keep ``None``
+        and fall back to alphabetical ordering.
+
+        :param tests: List of scheduled tests.
+        :return: New list with duration/coverage populated where available.
+        """
+        per_test_cov = compute_per_test_coverage(self.data_dir, [t.node_id for t in tests])
+        return [
+            ScheduledTest(
+                node_id=t.node_id,
+                singleton=t.singleton,
+                duration=self.prior_durations.get(t.node_id),
+                coverage=per_test_cov.get(t.node_id),
+            )
+            for t in tests
+        ]
 
     def _compute_prior_durations(self, prior_results):
         """Compute durations from prior results for ETA estimation.

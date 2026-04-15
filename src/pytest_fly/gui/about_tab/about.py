@@ -25,7 +25,7 @@ class AboutDataWorker(QObject):
         for key, value in get_platform_info().items():
             key_string = " ".join([s.capitalize() for s in key.split("_")]).replace("Cpu", "CPU")
             if any([descriptor in key.lower() for descriptor in ["cache", "memory"]]):
-                text_lines.append(f"{key_string}: {humanize.naturalsize(value)}")
+                text_lines.append(f"{key_string}: {humanize.naturalsize(value) if isinstance(value, (int, float)) else value}")
             elif "freq" in key:
                 text_lines.append(f"{key_string}: {value / 1000.0} GHz")
             else:

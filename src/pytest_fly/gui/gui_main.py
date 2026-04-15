@@ -7,7 +7,6 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QApplication,
     QTabWidget,
-    QScrollArea,
     QSizePolicy,
 )
 from PySide6.QtCore import QCoreApplication, QRect, QTimer
@@ -124,13 +123,7 @@ class FlyAppMainWindow(QMainWindow):
         self._total_lines: int = 0
         self._last_run_guid: str | None = None
 
-        # Wrap the tab widget in a scroll area so that very tall tab contents produce scrollbars
-        self.scroll_area = QScrollArea()
-        self.scroll_area.setWidgetResizable(True)
-        # QScrollArea takes ownership / reparents the widget
-        self.scroll_area.setWidget(self.tab_widget)
-
-        self.setCentralWidget(self.scroll_area)
+        self.setCentralWidget(self.tab_widget)
 
         # timer for periodic updates
         self.timer = QTimer(self, interval=int(round(pref.refresh_rate * 1000)))

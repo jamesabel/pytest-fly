@@ -207,6 +207,40 @@ def test_table_tab_updates_on_second_tick(app):
     assert state_2 == PytestRunnerState.PASS.value
 
 
+def test_table_tab_last_pass_columns(app):
+    """TableTab should display last pass start time and duration from last_pass_data."""
+    from pytest_fly.gui.table_tab.table_tab import Columns
+
+    table = TableTab()
+    tick = _make_tick_data_with_tests()
+    now = time.time()
+    tick.last_pass_data = {
+        "tests/test_a.py": (now - 3600, 4.5),  # passed 1 hour ago, took 4.5s
+    }
+    table.update_tick(tick)
+
+    assert table.table_widget.columnCount() == len(Columns)
+
+    # Collect last-pass data by test name
+    last_pass_by_name = {}
+    for row in range(table.table_widget.rowCount()):
+        name_item = table.table_widget.item(row, Columns.NAME.value)
+        start_item = table.table_widget.item(row, Columns.LAST_PASS_START.value)
+        dur_item = table.table_widget.item(row, Columns.LAST_PASS_DURATION.value)
+        assert start_item is not None
+        assert dur_item is not None
+        last_pass_by_name[name_item.text()] = (start_item.text(), dur_item.text())
+
+    # test_a has last-pass data
+    start_text, dur_text = last_pass_by_name["tests/test_a.py"]
+    assert start_text != ""  # should have a formatted datetime
+    assert "4" in dur_text  # should contain "4" from "4.5 seconds"
+
+    # test_b and test_c have no last-pass data
+    assert last_pass_by_name["tests/test_b.py"] == ("", "")
+    assert last_pass_by_name["tests/test_c.py"] == ("", "")
+
+
 # ---------------------------------------------------------------------------
 # GraphTab tests
 # ---------------------------------------------------------------------------

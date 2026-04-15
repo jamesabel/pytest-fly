@@ -12,7 +12,6 @@ from ...preferences import ParallelismControl, get_pref
 from ...pytest_runner.coverage import compute_per_test_coverage
 from ...pytest_runner.pytest_runner import PytestRunner
 from ...pytest_runner.test_list import GetTests
-from ..gui_util import extract_test_duration
 from .control_pushbutton import ControlButton
 from .parallelism_control_box import ParallelismControlBox
 from .run_mode_control_box import RunModeControlBox
@@ -115,14 +114,15 @@ class ControlWindow(QGroupBox):
         # Query prior results once (used by both RESUME filtering and failed-first ordering)
         with PytestProcessInfoDB(self.data_dir) as db:
             prior_results = db.query()  # most recent run
+            last_pass_data = db.query_last_pass()  # most recent passing run per test
 
         tests = self._filter_for_resume(tests, prior_results, pref)
 
         # Reorder so previously-failed tests run first (within their singleton group)
         tests = self._reorder_failed_first(tests, prior_results)
 
-        # Compute prior durations for ETA estimation
-        self.prior_durations = self._compute_prior_durations(prior_results)
+        # Use last-pass durations for ETA estimation (from the most recent passing run)
+        self.prior_durations = {name: duration for name, (_, duration) in last_pass_data.items()}
         self.num_processes = processes
 
         # Populate coverage/duration for coverage-efficiency ordering
@@ -185,22 +185,6 @@ class ControlWindow(QGroupBox):
             )
             for t in tests
         ]
-
-    def _compute_prior_durations(self, prior_results):
-        """Compute durations from prior results for ETA estimation.
-
-        :param prior_results: List of prior PytestProcessInfo records.
-        :return: Dictionary mapping test name to duration in seconds.
-        """
-        durations = {}
-        prior_by_name: dict[str, list] = {}
-        for r in prior_results:
-            prior_by_name.setdefault(r.name, []).append(r)
-        for name, infos in prior_by_name.items():
-            start, end = extract_test_duration(infos)
-            if start is not None and end is not None:
-                durations[name] = end - start
-        return durations
 
     def soft_stop(self):
         """Stop scheduling new tests but let running tests finish."""

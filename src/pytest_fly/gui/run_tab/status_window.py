@@ -56,6 +56,9 @@ class StatusWindow(QGroupBox):
                 overall_time = max_time_stamp - min_time_stamp
                 lines.append(f"Total time: {format_runtime(overall_time)}")
 
+            if tick.average_parallelism is not None:
+                lines.append(f"Avg parallelism: {tick.average_parallelism:.1f}x")
+
             # add current code coverage
             if tick.coverage_history:
                 latest_coverage = tick.coverage_history[-1][1]

@@ -31,4 +31,5 @@ class TickData:
     per_test_coverage: dict[str, float] = field(default_factory=dict)  # test_name -> coverage_pct 0.0-1.0
     covered_lines: int = 0  # lines executed by all completed tests combined
     total_lines: int = 0  # total executable lines in the source
+    average_parallelism: float | None = None  # average number of simultaneously running test processes
     last_pass_data: dict[str, tuple[float, float]] = field(default_factory=dict)  # test_name -> (start_timestamp, duration_seconds) from most recent passing run

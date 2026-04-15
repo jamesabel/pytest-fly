@@ -226,9 +226,11 @@ class FlyAppMainWindow(QMainWindow):
         """
         with PytestProcessInfoDB(self.data_dir) as db:
             process_infos = db.query(self.run_tab.control_window.run_guid)
+            last_pass_data = db.query_last_pass()
 
         control = self.run_tab.control_window
         tick = build_tick_data(process_infos, prior_durations=control.prior_durations, num_processes=control.num_processes)
+        tick.last_pass_data = last_pass_data
 
         self._handle_new_run(control.run_guid)
         self._update_coverage(tick)

@@ -1,4 +1,5 @@
 import time
+from datetime import datetime
 from enum import Enum
 
 from PySide6.QtCore import QPoint, Qt, Signal
@@ -19,6 +20,8 @@ class Columns(Enum):
     MEMORY = 3
     RUNTIME = 4
     COVERAGE = 5
+    LAST_PASS_START = 6
+    LAST_PASS_DURATION = 7
 
 
 def set_utilization_color(item: QTableWidgetItem, value: float):
@@ -58,7 +61,7 @@ class TableTab(QGroupBox):
         # Create a table widget to hold the content
         self.table_widget = QTableWidget(parent=scroll_area)
         self.table_widget.setColumnCount(len(Columns))
-        self.table_widget.setHorizontalHeaderLabels(["Name", "State", "CPU", "Memory", "Runtime", "Coverage"])
+        self.table_widget.setHorizontalHeaderLabels(["Name", "State", "CPU", "Memory", "Runtime", "Coverage", "Last Pass Start", "Last Pass Duration"])
         self.table_widget.horizontalHeader().setStretchLastSection(True)
         self.table_widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table_widget.customContextMenuRequested.connect(self.show_context_menu)
@@ -194,5 +197,17 @@ class TableTab(QGroupBox):
             coverage_pct = tick.per_test_coverage.get(test_name)
             coverage_text = f"{coverage_pct:.1%}" if coverage_pct is not None else ""
             self.table_widget.setItem(row_number, Columns.COVERAGE.value, QTableWidgetItem(coverage_text))
+
+            # Last pass data (persists across runs)
+            last_pass = tick.last_pass_data.get(test_name)
+            if last_pass is not None:
+                last_pass_start_ts, last_pass_duration = last_pass
+                last_pass_start_text = datetime.fromtimestamp(last_pass_start_ts).strftime("%Y-%m-%d %H:%M:%S")
+                last_pass_duration_text = format_runtime(last_pass_duration)
+            else:
+                last_pass_start_text = ""
+                last_pass_duration_text = ""
+            self.table_widget.setItem(row_number, Columns.LAST_PASS_START.value, QTableWidgetItem(last_pass_start_text))
+            self.table_widget.setItem(row_number, Columns.LAST_PASS_DURATION.value, QTableWidgetItem(last_pass_duration_text))
 
         self.table_widget.resizeColumnsToContents()

@@ -111,6 +111,48 @@ class PytestProcessInfoDB(MSQLite):
 
         return rows
 
+    def query_last_pass(self) -> dict[str, tuple[float, float]]:
+        """
+        For each test name, find the most recent run where the test passed.
+
+        Searches across all ``run_guid`` values to locate the latest passing
+        result (``exit_code == OK``) for every test.
+
+        :return: Dictionary mapping test name to ``(start_timestamp, duration_seconds)``.
+        """
+
+        ok_val = int(PyTestFlyExitCode.OK)
+        statement = f"""
+            SELECT p.name, s.start_ts, p.time_stamp AS end_ts
+            FROM (
+                SELECT name, MAX(run_guid) AS run_guid
+                FROM {self.table_name}
+                WHERE exit_code = ?
+                GROUP BY name
+            ) latest
+            JOIN {self.table_name} p
+                ON p.name = latest.name
+                AND p.run_guid = latest.run_guid
+                AND p.exit_code = ?
+            JOIN (
+                SELECT name, run_guid, MIN(time_stamp) AS start_ts
+                FROM {self.table_name}
+                WHERE pid IS NOT NULL
+                GROUP BY name, run_guid
+            ) s
+                ON s.name = latest.name
+                AND s.run_guid = latest.run_guid
+        """
+        result = {}
+        try:
+            for row in self.execute(statement, [ok_val, ok_val]):
+                name, start_ts, end_ts = row[0], row[1], row[2]
+                if start_ts is not None and end_ts is not None:
+                    result[name] = (start_ts, end_ts - start_ts)
+        except sqlite3.OperationalError as e:
+            log.debug(f"query_last_pass failed (table may not exist yet): {e}")
+        return result
+
     def delete(self, run_guid: str | None = None):
         """
         Delete records.  If *run_guid* is ``None`` the entire table is dropped;

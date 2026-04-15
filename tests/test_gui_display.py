@@ -14,6 +14,7 @@ from pytest_fly.gui.graph_tab.graph_tab import GraphTab
 from pytest_fly.gui.graph_tab.progress_bar import PytestProgressBar
 from pytest_fly.gui.graph_tab.time_axis import TimeAxisWidget
 from pytest_fly.gui.gui_main import build_tick_data
+from pytest_fly.gui.gui_util import compute_average_parallelism
 from pytest_fly.gui.run_tab.control_pushbutton import ControlButton
 from pytest_fly.gui.run_tab.control_window import ControlWindow
 from pytest_fly.gui.run_tab.parallelism_control_box import ParallelismControlBox
@@ -542,6 +543,33 @@ def test_status_window_with_coverage(app):
     assert "Coverage: 52.0%" in text
     assert "260/500 lines" in text
     assert "30.0%" not in text
+
+
+def test_average_parallelism_calculation(app):
+    """compute_average_parallelism should return correct value for overlapping tests."""
+    tick = _make_tick_data_with_tests()
+    # test_a: started at now-9, ended at now-5 → 4s
+    # test_b: started at now-8, ended at now-3 → 5s
+    # test_c: queued only → 0s
+    # wall clock: (now-9) to (now-3) = 6s
+    # avg parallelism = (4+5)/6 = 1.5
+    assert tick.average_parallelism is not None
+    assert abs(tick.average_parallelism - 1.5) < 0.01
+
+
+def test_average_parallelism_empty():
+    """compute_average_parallelism should return None for empty data."""
+    assert compute_average_parallelism({}) is None
+
+
+def test_status_window_shows_parallelism(app):
+    """StatusWindow should display average parallelism when available."""
+    window = StatusWindow(None)
+    tick = _make_tick_data_with_tests()
+    window.update_tick(tick)
+    text = window.status_widget.toPlainText()
+    assert "Avg parallelism:" in text
+    assert "1.5x" in text
 
 
 def test_coverage_consistent_across_all_views(app):

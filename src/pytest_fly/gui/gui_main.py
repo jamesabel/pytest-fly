@@ -25,7 +25,7 @@ from ..pytest_runner.pytest_runner import PytestRunState
 from ..tick_data import TickData
 from .coverage_tab import CoverageTab
 from .graph_tab import GraphTab
-from .gui_util import compute_time_window, get_font, get_text_dimensions, group_process_infos_by_name
+from .gui_util import compute_average_parallelism, compute_time_window, get_font, get_text_dimensions, group_process_infos_by_name
 from .run_tab import RunTab
 from .table_tab import TableTab
 
@@ -59,6 +59,7 @@ def build_tick_data(process_infos: list, prior_durations: dict[str, float] | Non
         max_time_stamp_started=max_ts_s,
         prior_durations=prior_durations if prior_durations is not None else {},
         num_processes=num_processes,
+        average_parallelism=compute_average_parallelism(infos_by_name),
     )
 
 

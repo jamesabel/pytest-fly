@@ -1,3 +1,4 @@
+import time
 from collections import defaultdict
 from datetime import timedelta
 from functools import cache, lru_cache
@@ -145,6 +146,42 @@ def extract_test_duration(infos: list) -> tuple[float | None, float | None]:
         if info.exit_code != PyTestFlyExitCode.NONE:
             end = info.time_stamp
     return start, end
+
+
+def compute_average_parallelism(infos_by_name: dict[str, list[PytestProcessInfo]]) -> float | None:
+    """
+    Compute the average number of simultaneously running test processes.
+
+    Average parallelism = total_test_time / wall_clock_time.
+
+    For in-progress tests (started but not finished), the current time is used
+    as the end time so the metric updates live during a run.
+
+    :param infos_by_name: Process info records grouped by test name.
+    :return: Average parallelism, or ``None`` if insufficient data.
+    """
+    total_test_time = 0.0
+    all_starts: list[float] = []
+    all_ends: list[float] = []
+    now = time.time()
+
+    for infos in infos_by_name.values():
+        start, end = extract_test_duration(infos)
+        if start is not None:
+            if end is None:
+                end = now  # test still running
+            total_test_time += end - start
+            all_starts.append(start)
+            all_ends.append(end)
+
+    if not all_starts:
+        return None
+
+    wall_clock = max(all_ends) - min(all_starts)
+    if wall_clock <= 0:
+        return None
+
+    return total_test_time / wall_clock
 
 
 @typechecked

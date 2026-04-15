@@ -81,6 +81,7 @@ class PytestRunnerState(StrEnum):
     PASS = "Pass"
     FAIL = "Fail"
     TERMINATED = "Terminated"
+    STOPPED = "Stopped"
 
 
 class PyTestFlyExitCode(IntEnum):
@@ -98,6 +99,7 @@ class PyTestFlyExitCode(IntEnum):
     # pytest-fly specific exit codes
     NONE = 100  # not yet set
     TERMINATED = 101  # test run was forcefully terminated
+    STOPPED = 102  # test was queued but never ran (soft stop)
 
 
 @dataclass(frozen=True)

@@ -44,8 +44,14 @@ class ControlWindow(QGroupBox):
         self.run_button.clicked.connect(self.run)
 
         self.stop_button = ControlButton(self, "Stop", False)
+        self.stop_button.setToolTip("Wait for the running tests and then stop")
         layout.addWidget(self.stop_button)
-        self.stop_button.clicked.connect(self.stop)
+        self.stop_button.clicked.connect(self.soft_stop)
+
+        self.force_stop_button = ControlButton(self, "Force Stop", False)
+        self.force_stop_button.setToolTip("Immediately terminate all running tests")
+        layout.addWidget(self.force_stop_button)
+        self.force_stop_button.clicked.connect(self.force_stop)
 
         layout.addStretch()
 
@@ -58,24 +64,32 @@ class ControlWindow(QGroupBox):
         self.pytest_runner: PytestRunner | None = None
         self.prior_durations: dict[str, float] = {}
         self.num_processes: int = 1
+        self._soft_stop_requested: bool = False
 
         self.set_fixed_width()  # calculate and set the widget width
 
     def set_fixed_width(self):
         """Calculate and set a fixed width based on the widest child widget."""
-        max_width = max(self.run_button.sizeHint().width(), self.stop_button.sizeHint().width(), self.parallelism_box.sizeHint().width())
+        max_width = max(self.run_button.sizeHint().width(), self.stop_button.sizeHint().width(), self.force_stop_button.sizeHint().width(), self.parallelism_box.sizeHint().width())
         # Add some padding
         max_width += 30
         self.setFixedWidth(max_width)
 
     def update(self):
-        """Enable/disable run and stop buttons based on the runner state."""
+        """Enable/disable run, stop, and force stop buttons based on the runner state."""
         if self.pytest_runner is None or not self.pytest_runner.is_running():
             self.run_button.setEnabled(True)
             self.stop_button.setEnabled(False)
+            self.force_stop_button.setEnabled(False)
+            self._soft_stop_requested = False
+        elif self._soft_stop_requested:
+            self.run_button.setEnabled(False)
+            self.stop_button.setEnabled(False)
+            self.force_stop_button.setEnabled(True)
         else:
             self.run_button.setEnabled(False)
             self.stop_button.setEnabled(True)
+            self.force_stop_button.setEnabled(True)
 
     def run(self):
         """Discover tests and launch a new :class:`PytestRunner`."""
@@ -122,6 +136,8 @@ class ControlWindow(QGroupBox):
 
         self.run_button.setEnabled(False)
         self.stop_button.setEnabled(True)
+        self.force_stop_button.setEnabled(True)
+        self._soft_stop_requested = False
 
     def _filter_for_resume(self, tests, prior_results, pref):
         """Filter out already-passed tests when running in RESUME mode.
@@ -187,9 +203,16 @@ class ControlWindow(QGroupBox):
                 durations[name] = end - start
         return durations
 
-    def stop(self):
-        """Stop the currently running test suite."""
+    def soft_stop(self):
+        """Stop scheduling new tests but let running tests finish."""
+        self.pytest_runner.soft_stop()
+        self._soft_stop_requested = True
+        self.stop_button.setEnabled(False)
+
+    def force_stop(self):
+        """Immediately terminate all running tests."""
         self.pytest_runner.stop()
         self.run_button.setEnabled(True)
         self.stop_button.setEnabled(False)
+        self.force_stop_button.setEnabled(False)
         self.run_guid = None

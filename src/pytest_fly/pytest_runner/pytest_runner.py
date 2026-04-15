@@ -36,6 +36,8 @@ class PytestRunState:
                 self._state = PytestRunnerState.FAIL
             elif exit_code == PyTestFlyExitCode.TERMINATED:
                 self._state = PytestRunnerState.TERMINATED
+            elif exit_code == PyTestFlyExitCode.STOPPED:
+                self._state = PytestRunnerState.STOPPED
             elif exit_code == PyTestFlyExitCode.NONE:
                 if last_run_info.pid is None:
                     self._state = PytestRunnerState.QUEUED
@@ -140,6 +142,14 @@ class PytestRunner(Thread):
         except (OSError, RuntimeError, PermissionError) as e:
             log.error(f"error stopping pytest runner,{self.run_guid=},{e}", exc_info=True, stack_info=True)
 
+    def soft_stop(self):
+        """Signal workers to finish their current test and stop picking up new ones."""
+        try:
+            for test_runner in self._test_runners.values():
+                test_runner.soft_stop()
+        except (OSError, RuntimeError, PermissionError) as e:
+            log.error(f"error soft-stopping pytest runner,{self.run_guid=},{e}", exc_info=True, stack_info=True)
+
 
 class _TestRunner(Thread):
     """
@@ -179,6 +189,7 @@ class _TestRunner(Thread):
 
         self.process: Optional[PytestProcess] = None
         self._stop_event = Event()
+        self._soft_stop_event = Event()
 
         # Singleton enforcement (shared across all workers)
         self._singleton_event = singleton_event
@@ -311,7 +322,7 @@ class _TestRunner(Thread):
     def run(self):
         """Consume tests from the queue until it is empty or a stop is requested."""
 
-        while not self._stop_event.is_set():
+        while not self._stop_event.is_set() and not self._soft_stop_event.is_set():
             try:
                 scheduled_test = self.pytest_test_queue.get(False)
             except Empty:
@@ -323,10 +334,14 @@ class _TestRunner(Thread):
                 # Singleton protocol: block others, drain active workers, run exclusively, resume.
                 self._singleton_event.clear()
                 while not self._all_idle_event.wait(timeout=self.update_rate):
-                    if self._stop_event.is_set():
+                    if self._stop_event.is_set() or self._soft_stop_event.is_set():
                         break
                 if self._stop_event.is_set():
                     self._handle_stop_request(test)
+                    break
+                if self._soft_stop_event.is_set():
+                    self._singleton_event.set()
+                    self._drain_queue()
                     break
                 log.info(f'Running singleton test "{test}" ({self.run_guid=})')
                 self._run_single_test(test)
@@ -334,13 +349,34 @@ class _TestRunner(Thread):
             else:
                 # Normal protocol: wait until no singleton is running.
                 while not self._singleton_event.wait(timeout=self.update_rate):
-                    if self._stop_event.is_set():
+                    if self._stop_event.is_set() or self._soft_stop_event.is_set():
                         break
                 if self._stop_event.is_set():
                     self._handle_stop_request(test)
                     break
+                if self._soft_stop_event.is_set():
+                    self._drain_queue()
+                    break
                 self._run_single_test(test)
+
+        if self._soft_stop_event.is_set() and not self._stop_event.is_set():
+            self._drain_queue()
 
     def stop(self):
         """Signal all work to stop as soon as possible."""
         self._stop_event.set()
+
+    def soft_stop(self):
+        """Signal the worker to finish its current test and stop picking up new ones."""
+        self._soft_stop_event.set()
+
+    def _drain_queue(self):
+        """Drain remaining tests from the queue and mark them as STOPPED in the DB."""
+        with PytestProcessInfoDB(self.data_dir) as db:
+            while True:
+                try:
+                    scheduled_test = self.pytest_test_queue.get(False)
+                except Empty:
+                    break
+                info = PytestProcessInfo(self.run_guid, scheduled_test.node_id, None, PyTestFlyExitCode.STOPPED, None, time_stamp=time.time())
+                db.write(info)

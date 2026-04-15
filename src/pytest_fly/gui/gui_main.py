@@ -122,6 +122,8 @@ class FlyAppMainWindow(QMainWindow):
         self._total_lines: int = 0
         self._last_run_guid: str | None = None
 
+        self.table_tab.force_stop_test_requested.connect(self._force_stop_single_test)
+
         self.setCentralWidget(self.tab_widget)
 
         # timer for periodic updates
@@ -152,6 +154,12 @@ class FlyAppMainWindow(QMainWindow):
             pytest_runner.join(30.0)
 
         event.accept()
+
+    def _force_stop_single_test(self, test_name: str):
+        """Handle request to terminate a single running test from the table tab."""
+        control = self.run_tab.control_window
+        if control.pytest_runner is not None and control.pytest_runner.is_running():
+            control.pytest_runner.force_stop_test(test_name)
 
     def _handle_new_run(self, current_guid: str | None):
         """Reset coverage state when a new run starts and clear old coverage files.

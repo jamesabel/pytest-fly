@@ -150,6 +150,22 @@ class PytestRunner(Thread):
         except (OSError, RuntimeError, PermissionError) as e:
             log.error(f"error soft-stopping pytest runner,{self.run_guid=},{e}", exc_info=True, stack_info=True)
 
+    def force_stop_test(self, test_name: str) -> None:
+        """Terminate a single running test identified by its node_id.
+
+        Iterates worker threads and signals the one currently running the
+        given test to terminate its process.  Other workers are unaffected.
+
+        :param test_name: The test node_id to terminate.
+        """
+        for test_runner in self._test_runners.values():
+            proc = test_runner.process
+            if proc is not None and proc.name == test_name:
+                test_runner.force_stop_current()
+                log.info(f'force stop requested for test "{test_name}" ({self.run_guid=})')
+                return
+        log.warning(f'force stop: no running process found for test "{test_name}" ({self.run_guid=})')
+
 
 class _TestRunner(Thread):
     """
@@ -190,6 +206,7 @@ class _TestRunner(Thread):
         self.process: Optional[PytestProcess] = None
         self._stop_event = Event()
         self._soft_stop_event = Event()
+        self._force_stop_current_event = Event()
 
         # Singleton enforcement (shared across all workers)
         self._singleton_event = singleton_event
@@ -298,7 +315,7 @@ class _TestRunner(Thread):
             self.process.start()
 
             while self.process.is_alive():
-                if self._stop_event.is_set():
+                if self._stop_event.is_set() or self._force_stop_current_event.is_set():
                     self._handle_stop_request(test)
 
                 # Poll / yield to avoid busy-looping
@@ -313,6 +330,7 @@ class _TestRunner(Thread):
             else:
                 log.info(f'process for test "{self.process.name}" completed ({self.run_guid=})')
         finally:
+            self._force_stop_current_event.clear()
             self._decrement_active()
 
     # ------------------------------------------------------------------
@@ -369,6 +387,10 @@ class _TestRunner(Thread):
     def soft_stop(self):
         """Signal the worker to finish its current test and stop picking up new ones."""
         self._soft_stop_event.set()
+
+    def force_stop_current(self):
+        """Signal this worker to terminate its currently running test."""
+        self._force_stop_current_event.set()
 
     def _drain_queue(self):
         """Drain remaining tests from the queue and mark them as STOPPED in the DB."""

@@ -1,12 +1,12 @@
 import time
 from enum import Enum
 
-from PySide6.QtCore import QPoint, Qt
+from PySide6.QtCore import QPoint, Qt, Signal
 from PySide6.QtGui import QColor, QGuiApplication
 from PySide6.QtWidgets import QGroupBox, QMenu, QScrollArea, QTableWidget, QTableWidgetItem, QVBoxLayout
 
 from ...gui.gui_util import format_runtime, tool_tip_limiter
-from ...interfaces import PyTestFlyExitCode
+from ...interfaces import PyTestFlyExitCode, PytestRunnerState
 from ...platform.platform_info import get_performance_core_count
 from ...preferences import get_pref
 from ...tick_data import TickData
@@ -43,6 +43,8 @@ def set_utilization_color(item: QTableWidgetItem, value: float):
 class TableTab(QGroupBox):
     """Tab showing a per-test table with state, CPU, memory, and runtime columns."""
 
+    force_stop_test_requested = Signal(str)  # emits the test node_id
+
     def __init__(self):
         super().__init__()
 
@@ -65,20 +67,37 @@ class TableTab(QGroupBox):
         layout.addWidget(scroll_area)
         self.setLayout(layout)
 
+        self._current_run_states: dict = {}
+
     def show_context_menu(self, position: QPoint):
-        """Show a right-click context menu allowing the user to copy pytest output.
+        """Show a right-click context menu allowing the user to copy pytest output or force-stop a running test.
 
         :param position: Click position relative to the table viewport.
         """
+        item = self.table_widget.itemAt(position)
+        if item is None:
+            item = self.table_widget.currentItem()
+
+        # Determine the test node_id and state for the right-clicked row
+        row = item.row() if item is not None else -1
+        test_node_id = None
+        is_running = False
+        if row >= 0:
+            name_item = self.table_widget.item(row, Columns.NAME.value)
+            if name_item is not None:
+                test_node_id = name_item.data(Qt.ItemDataRole.UserRole)
+            if test_node_id is not None and test_node_id in self._current_run_states:
+                is_running = self._current_run_states[test_node_id].get_state() == PytestRunnerState.RUNNING
+
         menu = QMenu()
         copy_tooltip_action = menu.addAction("Copy Pytest Output")
+        force_stop_action = None
+        if test_node_id is not None and is_running:
+            force_stop_action = menu.addAction("Force Stop")
+
         action = menu.exec_(self.table_widget.viewport().mapToGlobal(position))
 
         if action == copy_tooltip_action:
-            # try the item under the mouse; fallback to current item
-            item = self.table_widget.itemAt(position)
-            if item is None:
-                item = self.table_widget.currentItem()
             if item is not None:
                 tooltip = item.toolTip()
                 # fallback to ItemDataRole if toolTip() is empty
@@ -87,6 +106,8 @@ class TableTab(QGroupBox):
                 if tooltip:
                     clipboard = QGuiApplication.clipboard()
                     clipboard.setText(tooltip)
+        elif action is not None and action == force_stop_action:
+            self.force_stop_test_requested.emit(test_node_id)
 
     def copy_selected_text(self):
         selected_ranges = self.table_widget.selectedRanges()
@@ -110,6 +131,8 @@ class TableTab(QGroupBox):
     def update_tick(self, tick: TickData):
         """Refresh the table from pre-computed tick data."""
 
+        self._current_run_states = tick.run_states
+
         self.table_widget.clearContents()
         self.table_widget.setRowCount(len(tick.infos_by_name))
 
@@ -117,7 +140,9 @@ class TableTab(QGroupBox):
             process_infos = tick.infos_by_name[test_name]
             pytest_run_state = tick.run_states[test_name]
 
-            self.table_widget.setItem(row_number, Columns.NAME.value, QTableWidgetItem(pytest_run_state.get_name()))
+            name_item = QTableWidgetItem(pytest_run_state.get_name())
+            name_item.setData(Qt.ItemDataRole.UserRole, test_name)  # store node_id for context menu
+            self.table_widget.setItem(row_number, Columns.NAME.value, name_item)
 
             state_item = QTableWidgetItem()
             state_text = pytest_run_state.get_string()

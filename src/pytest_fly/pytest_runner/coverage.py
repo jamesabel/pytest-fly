@@ -1,14 +1,14 @@
-from pathlib import Path
 import io
-
-from hashy import get_string_sha256
+from pathlib import Path
 
 from coverage import Coverage
-from coverage.exceptions import NoDataError, DataError
+from coverage.exceptions import DataError, NoDataError
+from hashy import get_string_sha256
 
-from ..logger import get_logger
-from ..file_util import find_most_recent_file, sanitize_test_name
 from pytest_fly.__version__ import application_name
+
+from ..file_util import find_most_recent_file, sanitize_test_name
+from ..logger import get_logger
 
 log = get_logger(application_name)
 
@@ -61,7 +61,6 @@ def read_most_recent_coverage_summary_file(coverage_parent_directory: Path) -> f
 
 
 class PytestFlyCoverage(Coverage):
-
     def __init__(self, data_file: Path, **kwargs) -> None:
         super().__init__(data_file, timid=True, concurrency=["thread", "multiprocessing"], check_preimported=True, **kwargs)
         # avoid: "CoverageWarning: Couldn't parse '...': No source for code: '...'. (couldnt-parse)"

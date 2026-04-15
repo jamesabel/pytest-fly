@@ -1,14 +1,13 @@
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QCheckBox, QLabel, QLineEdit
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QIntValidator, QDoubleValidator
-
+from PySide6.QtGui import QDoubleValidator, QIntValidator
+from PySide6.QtWidgets import QCheckBox, QLabel, QLineEdit, QVBoxLayout, QWidget
 from tobool import to_bool_strict
 
-from pytest_fly.preferences import get_pref, refresh_rate_default, utilization_high_threshold_default, utilization_low_threshold_default
-from pytest_fly.interfaces import TestOrder
-from pytest_fly.platform.platform_info import get_performance_core_count
-from pytest_fly.logger import get_logger
 from pytest_fly.gui.gui_util import get_text_dimensions
+from pytest_fly.interfaces import TestOrder
+from pytest_fly.logger import get_logger
+from pytest_fly.platform.platform_info import get_performance_core_count
+from pytest_fly.preferences import get_pref, refresh_rate_default, utilization_high_threshold_default, utilization_low_threshold_default
 
 log = get_logger()
 

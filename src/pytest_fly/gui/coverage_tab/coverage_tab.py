@@ -2,14 +2,14 @@
 Coverage tab — displays a step-function line chart of combined code coverage over time.
 """
 
-from PySide6.QtWidgets import QGroupBox, QVBoxLayout, QWidget, QSizePolicy
-from PySide6.QtGui import QPainter, QPen, QColor, QPalette, QBrush, QPolygonF
-from PySide6.QtCore import Qt, QPointF
+from PySide6.QtCore import QPointF, Qt
+from PySide6.QtGui import QBrush, QColor, QPainter, QPalette, QPen, QPolygonF
+from PySide6.QtWidgets import QGroupBox, QSizePolicy, QVBoxLayout, QWidget
 
-from ...tick_data import TickData
 from ...interfaces import PytestRunnerState
+from ...tick_data import TickData
 from ..graph_tab.time_axis import compute_grid_ticks
-from ..gui_util import get_text_dimensions, count_test_states
+from ..gui_util import count_test_states, get_text_dimensions
 
 GRID_LINE_COLOR = QColor(180, 180, 180, 100)
 COVERAGE_LINE_COLOR = QColor(34, 139, 34)  # forest green

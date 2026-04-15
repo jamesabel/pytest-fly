@@ -1,19 +1,18 @@
 from pathlib import Path
 
-from PySide6.QtWidgets import QGroupBox, QVBoxLayout, QSizePolicy, QApplication
 from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QApplication, QGroupBox, QSizePolicy, QVBoxLayout
 from typeguard import typechecked
 
+from ...db import PytestProcessInfoDB
+from ...guid import generate_uuid
+from ...interfaces import PyTestFlyExitCode, RunMode, ScheduledTest, TestOrder
+from ...logger import get_logger
+from ...preferences import ParallelismControl, get_pref
+from ...pytest_runner.coverage import compute_per_test_coverage
 from ...pytest_runner.pytest_runner import PytestRunner
 from ...pytest_runner.test_list import GetTests
-from ...pytest_runner.coverage import compute_per_test_coverage
-from ...preferences import get_pref, ParallelismControl
-from ...interfaces import RunMode, TestOrder, PyTestFlyExitCode, ScheduledTest
-from ...db import PytestProcessInfoDB
-from ...logger import get_logger
-from ...guid import generate_uuid
 from ..gui_util import extract_test_duration
-
 from .control_pushbutton import ControlButton
 from .parallelism_control_box import ParallelismControlBox
 from .run_mode_control_box import RunModeControlBox

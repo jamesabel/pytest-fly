@@ -3,32 +3,31 @@ import shutil
 import time
 from pathlib import Path
 
-from PySide6.QtWidgets import (
-    QMainWindow,
-    QApplication,
-    QTabWidget,
-    QSizePolicy,
-)
 from PySide6.QtCore import QCoreApplication, QRect, QTimer
+from PySide6.QtWidgets import (
+    QApplication,
+    QMainWindow,
+    QSizePolicy,
+    QTabWidget,
+)
 from typeguard import typechecked
 
-from ..db import PytestProcessInfoDB
-from ..logger import get_logger
-from ..gui.configuration_tab.configuration import Configuration
-from ..gui.about_tab.about import About
-from ..preferences import get_pref
 from ..__version__ import application_name
-from ..tick_data import TickData
-from ..interfaces import PytestRunnerState, RunMode
-from ..pytest_runner.pytest_runner import PytestRunState
-from ..pytest_runner.coverage import calculate_coverage
+from ..db import PytestProcessInfoDB
 from ..file_util import sanitize_test_name
-from .gui_util import get_font, get_text_dimensions, group_process_infos_by_name, compute_time_window
+from ..gui.about_tab.about import About
+from ..gui.configuration_tab.configuration import Configuration
+from ..interfaces import PytestRunnerState, RunMode
+from ..logger import get_logger
+from ..preferences import get_pref
+from ..pytest_runner.coverage import calculate_coverage
+from ..pytest_runner.pytest_runner import PytestRunState
+from ..tick_data import TickData
+from .coverage_tab import CoverageTab
+from .graph_tab import GraphTab
+from .gui_util import compute_time_window, get_font, get_text_dimensions, group_process_infos_by_name
 from .run_tab import RunTab
 from .table_tab import TableTab
-from .graph_tab import GraphTab
-from .coverage_tab import CoverageTab
-
 
 log = get_logger()
 
@@ -181,7 +180,6 @@ class FlyAppMainWindow(QMainWindow):
         """
         current_completed = {name for name, rs in tick.run_states.items() if rs.get_state() in (PytestRunnerState.PASS, PytestRunnerState.FAIL)}
         if current_completed and current_completed != self._completed_tests:
-            new_tests = current_completed - self._completed_tests
             self._completed_tests = current_completed
             try:
                 coverage_pct, self._covered_lines, self._total_lines = calculate_coverage("current", self.data_dir, write_report=False)
@@ -194,6 +192,7 @@ class FlyAppMainWindow(QMainWindow):
             # (total_lines) may have changed as new tests discover new source files.
             if self._total_lines > 0:
                 from coverage import Coverage
+
                 coverage_dir = Path(self.data_dir, "coverage")
                 for test_name in self._completed_tests:
                     safe_name = sanitize_test_name(test_name)

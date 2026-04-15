@@ -1,10 +1,10 @@
-from tempfile import TemporaryDirectory
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
+from pytest_fly.db import PytestProcessInfoDB
+from pytest_fly.guid import generate_uuid
 from pytest_fly.interfaces import PyTestFlyExitCode
 from pytest_fly.pytest_runner.pytest_process import PytestProcess
-from pytest_fly.guid import generate_uuid
-from pytest_fly.db import PytestProcessInfoDB
 
 
 def test_pytest_process():

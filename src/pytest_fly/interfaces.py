@@ -6,7 +6,6 @@ from pytest import ExitCode
 
 from .logger import get_logger
 
-
 log = get_logger()
 
 
@@ -85,7 +84,6 @@ class PytestRunnerState(StrEnum):
 
 
 class PyTestFlyExitCode(IntEnum):
-
     # pytest exit codes
     OK = ExitCode.OK
     TESTS_FAILED = ExitCode.TESTS_FAILED

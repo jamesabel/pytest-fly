@@ -3,8 +3,6 @@ from pathlib import Path
 import pytest
 from PySide6.QtWidgets import QApplication
 
-from pytest_fly.db import PytestProcessInfoDB
-
 pytest_plugins = "pytester"
 
 

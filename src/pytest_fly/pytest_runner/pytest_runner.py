@@ -1,18 +1,18 @@
-from pathlib import Path
-from queue import Queue, Empty
-from typing import Optional
-from threading import Event, Lock, Thread
 import time
+from pathlib import Path
+from queue import Empty, Queue
+from threading import Event, Lock, Thread
+from typing import Optional
 
-from typeguard import typechecked
 from PySide6.QtGui import QColor
+from typeguard import typechecked
 
-from ..logger import get_logger
-from ..interfaces import PytestRunnerState, PyTestFlyExitCode, ScheduledTest
 from ..colors import BAR_COLORS, TABLE_COLORS
-from .pytest_process import PytestProcess, PytestProcessInfo
 from ..db import PytestProcessInfoDB
+from ..interfaces import PyTestFlyExitCode, PytestRunnerState, ScheduledTest
+from ..logger import get_logger
 from .const import TIMEOUT
+from .pytest_process import PytestProcess, PytestProcessInfo
 
 log = get_logger()
 

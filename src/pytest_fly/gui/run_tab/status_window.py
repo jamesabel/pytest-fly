@@ -1,6 +1,6 @@
 import time
 
-from PySide6.QtWidgets import QGroupBox, QVBoxLayout, QSizePolicy
+from PySide6.QtWidgets import QGroupBox, QSizePolicy, QVBoxLayout
 
 from ...gui.gui_util import PlainTextWidget, count_test_states, format_runtime
 from ...interfaces import PytestRunnerState

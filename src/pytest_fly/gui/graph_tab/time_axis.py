@@ -6,11 +6,10 @@ individual progress bars) and :class:`TimeAxisWidget` (the header painted
 at the top of the progress-bar list).
 """
 
+from PySide6.QtGui import QColor, QPainter, QPalette, QPen
 from PySide6.QtWidgets import QWidget
-from PySide6.QtGui import QPainter, QPen, QColor, QPalette
 
 from ..gui_util import get_text_dimensions
-
 
 # Candidate intervals in seconds — chosen so labels stay readable.
 _INTERVALS = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600]

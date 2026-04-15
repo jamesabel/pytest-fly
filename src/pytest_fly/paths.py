@@ -1,10 +1,11 @@
 import os
-from pathlib import Path
-from platformdirs import user_data_dir
 from functools import cache
+from pathlib import Path
 
-from .const import PYTEST_FLY_DATA_DIR_STRING
+from platformdirs import user_data_dir
+
 from .__version__ import application_name, author
+from .const import PYTEST_FLY_DATA_DIR_STRING
 
 
 @cache

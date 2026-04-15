@@ -1,13 +1,13 @@
 from pathlib import Path
 
-from PySide6.QtWidgets import QWidget, QHBoxLayout
 from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QHBoxLayout, QWidget
 from typeguard import typechecked
 
+from ...logger import get_logger
+from ...tick_data import TickData
 from .control_window import ControlWindow
 from .status_window import StatusWindow
-from ...tick_data import TickData
-from ...logger import get_logger
 
 log = get_logger()
 

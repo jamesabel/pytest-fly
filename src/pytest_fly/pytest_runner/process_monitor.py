@@ -1,8 +1,9 @@
 import time
-from multiprocessing import Process, Queue, Event
 from dataclasses import dataclass
+from multiprocessing import Event, Process, Queue
 
-from psutil import NoSuchProcess, Process as PsutilProcess
+from psutil import NoSuchProcess
+from psutil import Process as PsutilProcess
 from typeguard import typechecked
 
 

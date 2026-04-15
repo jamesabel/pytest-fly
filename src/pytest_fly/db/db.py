@@ -1,15 +1,14 @@
-from pathlib import Path
-from enum import IntEnum, StrEnum
 import sqlite3
 from dataclasses import asdict
+from enum import IntEnum, StrEnum
+from pathlib import Path
 
 from msqlite import MSQLite
 from typeguard import typechecked
 
-from ..logger import get_logger
 from ..__version__ import application_name
-from ..interfaces import PytestProcessInfo, PyTestFlyExitCode
-
+from ..interfaces import PyTestFlyExitCode, PytestProcessInfo
+from ..logger import get_logger
 
 log = get_logger()
 

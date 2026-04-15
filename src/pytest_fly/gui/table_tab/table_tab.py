@@ -1,15 +1,15 @@
 import time
 from enum import Enum
 
-from PySide6.QtWidgets import QGroupBox, QVBoxLayout, QScrollArea, QTableWidget, QTableWidgetItem, QMenu
-from PySide6.QtCore import Qt, QPoint
+from PySide6.QtCore import QPoint, Qt
 from PySide6.QtGui import QColor, QGuiApplication
+from PySide6.QtWidgets import QGroupBox, QMenu, QScrollArea, QTableWidget, QTableWidgetItem, QVBoxLayout
 
-from ...preferences import get_pref
+from ...gui.gui_util import format_runtime, tool_tip_limiter
 from ...interfaces import PyTestFlyExitCode
-from ...tick_data import TickData
-from ...gui.gui_util import tool_tip_limiter, format_runtime
 from ...platform.platform_info import get_performance_core_count
+from ...preferences import get_pref
+from ...tick_data import TickData
 
 
 class Columns(Enum):

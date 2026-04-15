@@ -4,8 +4,8 @@ from attr import attrib, attrs
 from pref import Pref
 
 from .__version__ import application_name, author
-from .platform import get_performance_core_count
 from .interfaces import RunMode, TestOrder
+from .platform import get_performance_core_count
 
 preferences_file_name = f"{application_name}_preferences.db"
 

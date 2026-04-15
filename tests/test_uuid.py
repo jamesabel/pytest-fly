@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from pytest_fly.guid import generate_uuid, decode_uuid_timestamp
+from pytest_fly.guid import decode_uuid_timestamp, generate_uuid
 
 
 def test_generate_uuid():

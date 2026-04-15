@@ -1,12 +1,11 @@
 from collections import defaultdict
 from datetime import timedelta
-from functools import lru_cache, cache
-
-from PySide6.QtWidgets import QPlainTextEdit, QSizePolicy
-from PySide6.QtGui import QFont, QFontMetrics
-from PySide6.QtCore import QSize
+from functools import cache, lru_cache
 
 import humanize
+from PySide6.QtCore import QSize
+from PySide6.QtGui import QFont, QFontMetrics
+from PySide6.QtWidgets import QPlainTextEdit, QSizePolicy
 from typeguard import typechecked
 
 from ..const import TOOLTIP_LINE_LIMIT

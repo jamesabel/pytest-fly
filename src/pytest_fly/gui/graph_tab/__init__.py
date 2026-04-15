@@ -1,1 +1,1 @@
-from .graph_tab import GraphTab
+from .graph_tab import GraphTab as GraphTab

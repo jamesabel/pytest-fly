@@ -2,8 +2,9 @@
 Centralized color definitions for test-state visualization.
 
 Bar colors are used on the graph-tab progress bars; table colors are used in the
-text of the table-tab status column.  Keeping them in one place makes it easy to
-adjust the palette without hunting through multiple modules.
+text of the table-tab status column.  Grid and chart colors are shared across
+the graph and coverage tabs.  Keeping them in one place makes it easy to adjust
+the palette without hunting through multiple modules.
 """
 
 from PySide6.QtGui import QColor
@@ -29,3 +30,11 @@ TABLE_COLORS: dict[PytestRunnerState, QColor] = {
     PytestRunnerState.TERMINATED: QColor("orange"),
     PytestRunnerState.STOPPED: QColor("gray"),
 }
+
+# Grid line color — light gray, semi-transparent so bars and charts remain readable.
+# Shared by the graph-tab time axis, progress bars, and the coverage chart.
+GRID_LINE_COLOR = QColor(180, 180, 180, 100)
+
+# Coverage chart colors (used on the Coverage tab).
+COVERAGE_LINE_COLOR = QColor(34, 139, 34)  # forest green
+COVERAGE_FILL_COLOR = QColor(34, 139, 34, 40)  # translucent green fill

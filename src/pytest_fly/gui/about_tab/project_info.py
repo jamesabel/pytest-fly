@@ -1,3 +1,5 @@
+"""Reads project metadata (name, version, author) from ``pyproject.toml``."""
+
 import tomllib
 from dataclasses import dataclass
 from functools import cache

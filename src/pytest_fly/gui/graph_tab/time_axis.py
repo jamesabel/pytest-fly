@@ -6,9 +6,10 @@ individual progress bars) and :class:`TimeAxisWidget` (the header painted
 at the top of the progress-bar list).
 """
 
-from PySide6.QtGui import QColor, QPainter, QPalette, QPen
+from PySide6.QtGui import QPainter, QPalette, QPen
 from PySide6.QtWidgets import QWidget
 
+from ...colors import GRID_LINE_COLOR
 from ..gui_util import get_text_dimensions
 
 # Candidate intervals in seconds — chosen so labels stay readable.
@@ -61,10 +62,6 @@ def compute_grid_ticks(min_ts: float | None, max_ts: float | None, width_pixels:
         elapsed += interval
 
     return ticks
-
-
-# Grid line color — light gray, semi-transparent so bars remain readable.
-GRID_LINE_COLOR = QColor(180, 180, 180, 100)
 
 
 class TimeAxisWidget(QWidget):

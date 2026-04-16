@@ -1,3 +1,12 @@
+"""
+Test-run orchestration — coordinates a pool of worker threads that execute
+tests in parallel via :class:`PytestProcess` subprocesses.
+
+:class:`PytestRunner` is the top-level thread; each worker is a
+:class:`_TestRunner` thread that pulls from a shared queue.
+:class:`PytestRunState` converts raw DB records into a display-friendly state.
+"""
+
 import time
 from pathlib import Path
 from queue import Empty, Queue

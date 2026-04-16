@@ -1,3 +1,11 @@
+"""
+Core data structures and enumerations shared across the application.
+
+Defines the fundamental types used by the runner, database, and GUI layers:
+:class:`ScheduledTest`, :class:`PytestProcessInfo`, :class:`PytestRunnerState`,
+:class:`RunMode`, :class:`TestOrder`, and :class:`PyTestFlyExitCode`.
+"""
+
 from dataclasses import dataclass
 from enum import IntEnum, StrEnum
 from functools import total_ordering

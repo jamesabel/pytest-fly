@@ -1,3 +1,11 @@
+"""
+Coverage aggregation and per-test coverage computation.
+
+Combines individual ``.coverage`` files produced by each :class:`PytestProcess`
+into a unified report and calculates per-test coverage fractions used for
+coverage-efficiency ordering.
+"""
+
 import io
 from pathlib import Path
 

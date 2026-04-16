@@ -1,3 +1,8 @@
+"""
+Test discovery subprocess — collects pytest test node IDs via
+``pytest --collect-only`` and returns them as :class:`ScheduledTest` objects.
+"""
+
 import sys
 from io import StringIO
 from multiprocessing import Process, Queue

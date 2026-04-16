@@ -1,3 +1,5 @@
+"""Radio-button group for selecting serial or parallel test execution."""
+
 from PySide6.QtWidgets import QButtonGroup, QGroupBox, QRadioButton, QVBoxLayout
 
 from pytest_fly.preferences import ParallelismControl, get_pref

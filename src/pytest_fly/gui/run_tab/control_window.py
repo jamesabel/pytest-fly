@@ -1,3 +1,10 @@
+"""
+Control window — Run/Stop buttons and parallelism/run-mode selectors.
+
+Houses the run-preparation logic: test discovery, RESUME filtering,
+failed-first reordering, and coverage-efficiency ordering.
+"""
+
 from dataclasses import replace
 from pathlib import Path
 

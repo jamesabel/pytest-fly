@@ -1,3 +1,10 @@
+"""
+SQLite persistence layer for :class:`PytestProcessInfo` records.
+
+Uses `msqlite <https://pypi.org/project/msqlite/>`_ for thread-safe access
+and derives the table schema automatically from the dataclass fields.
+"""
+
 import sqlite3
 from dataclasses import asdict
 from enum import IntEnum, StrEnum

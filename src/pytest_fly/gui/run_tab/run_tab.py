@@ -1,3 +1,5 @@
+"""Run tab — combines the control panel (Run/Stop buttons) with the status summary."""
+
 from pathlib import Path
 
 from PySide6.QtCore import Qt

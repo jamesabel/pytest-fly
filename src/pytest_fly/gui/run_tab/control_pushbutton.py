@@ -1,3 +1,5 @@
+"""Fixed-size push button used in the Run tab control panel."""
+
 from PySide6.QtWidgets import QPushButton, QSizePolicy
 
 

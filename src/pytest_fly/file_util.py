@@ -1,3 +1,5 @@
+"""File-system utility functions (name sanitization, recent-file lookup)."""
+
 from pathlib import Path
 
 

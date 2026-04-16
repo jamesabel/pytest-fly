@@ -1,4 +1,8 @@
-# python
+"""
+Progress bar widget — custom-painted horizontal bar showing a single test's
+execution timeline with change-detection optimization to skip unnecessary repaints.
+"""
+
 import time
 
 from PySide6.QtCore import QPointF, QRectF
@@ -6,11 +10,12 @@ from PySide6.QtGui import QBrush, QGuiApplication, QPainter, QPalette, QPen
 from PySide6.QtWidgets import QMenu, QToolTip, QVBoxLayout, QWidget
 from typeguard import typechecked
 
+from ...colors import GRID_LINE_COLOR
 from ...interfaces import PytestProcessInfo, PytestRunnerState
 from ...logger import get_logger
 from ...pytest_runner.pytest_runner import PytestRunState
 from ..gui_util import get_text_dimensions, tool_tip_limiter
-from .time_axis import GRID_LINE_COLOR, compute_grid_ticks
+from .time_axis import compute_grid_ticks
 
 log = get_logger()
 

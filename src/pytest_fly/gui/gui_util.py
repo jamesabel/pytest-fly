@@ -1,3 +1,10 @@
+"""
+Shared GUI utility functions and widgets.
+
+Provides font/text measurement helpers, data-grouping utilities, and
+reusable widgets used across multiple tabs.
+"""
+
 import time
 from collections import defaultdict
 from datetime import timedelta

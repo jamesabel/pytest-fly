@@ -1,8 +1,17 @@
+"""
+Cross-platform file-system helpers with retry logic.
+
+Functions in this module retry transient failures (locked files, pending
+deletes on Windows, etc.) with configurable back-off so callers don't have
+to manage this themselves.
+"""
+
 import os
 import shutil
 import stat
 import sys
 import time
+from collections.abc import Callable
 from functools import cache
 from pathlib import Path
 from typing import Union
@@ -15,69 +24,102 @@ log = get_logger()
 
 
 class RemoveDirectoryException(Exception):
-    pass
+    """Raised when a directory cannot be removed after exhausting retries."""
 
 
 @cache
-def is_windows():
+def is_windows() -> bool:
+    """Return ``True`` when running on Windows."""
     return sys.platform.lower().startswith("win")
 
 
 @cache
-def is_linux():
+def is_linux() -> bool:
+    """Return ``True`` when running on Linux."""
     return sys.platform.lower().startswith("linux")
 
 
 @typechecked()
 def remove_readonly(path: Union[Path, str]):
+    """Remove the read-only flag from *path* so it can be deleted."""
     os.chmod(path, stat.S_IWRITE)
 
 
-# sometimes needed for Windows
 def remove_readonly_onerror(func, path, excinfo):
+    """``onerror`` callback for :func:`shutil.rmtree` — strips read-only and retries."""
     remove_readonly(path)
     func(path)
 
 
+def _retry_operation(
+    operation: Callable[[], None],
+    exists_check: Callable[[], bool],
+    attempt_limit: int,
+    initial_delay: float,
+    exponential_backoff: bool = False,
+) -> tuple[bool, int, Exception | None]:
+    """Retry *operation* until *exists_check* returns ``False`` or attempts are exhausted.
+
+    :param operation: Callable that performs the removal (may raise ``FileNotFoundError``,
+                      ``PermissionError``, or ``OSError``).
+    :param exists_check: Callable returning ``True`` while the target still exists.
+    :param attempt_limit: Maximum number of attempts.
+    :param initial_delay: Seconds to wait between attempts.
+    :param exponential_backoff: If ``True``, double the delay after each attempt.
+    :return: ``(success, attempt_count, last_exception)``.
+    """
+    attempt_count = 0
+    delay = initial_delay
+    reason: Exception | None = None
+    while exists_check() and attempt_count < attempt_limit:
+        attempt_count += 1
+        try:
+            operation()
+        except FileNotFoundError as e:
+            reason = e
+            log.debug(f"retry {attempt_count}: {e}")
+        except (PermissionError, OSError) as e:
+            reason = e
+            log.info(f"retry {attempt_count}: {e}")
+        if exists_check():
+            time.sleep(delay)
+        if exponential_backoff:
+            delay *= 2.0
+    success = not exists_check()
+    return success, attempt_count, reason
+
+
 @typechecked()
 def rm_file(p: Union[Path, str], log_function=log.error) -> bool:
+    """Remove a single file, retrying with exponential back-off on transient errors.
+
+    :param p: Path to the file to remove.
+    :param log_function: Logging function called on final failure.
+    :return: ``True`` if the file no longer exists.
+    """
     if isinstance(p, str):
         p = Path(p)
 
-    retry_count = 0
-    retry_limit = 5
-    delete_ok = False
-    delay = 1.0
-    reason = None  # type: FileNotFoundError | PermissionError | OSError | None
-    while p.exists() and retry_count < retry_limit:
-        try:
-            remove_readonly(p)
-            p.unlink(True)
-            delete_ok = True
-        except FileNotFoundError as e:
-            reason = e
-            log.debug(f"{p} ({retry_count=}, {reason=})")  # this can happen when first doing the shutil.rmtree()
-            time.sleep(delay)
-        except (PermissionError, OSError) as e:
-            reason = e
-            log.info(f"{p} ({retry_count=}, {reason=})")
-            time.sleep(delay)
-        time.sleep(0.1)
-        if p.exists():
-            time.sleep(delay)
-        retry_count += 1
-        delay *= 2.0
-    if p.exists():
-        log_function(f"could not remove {p} ({retry_count=}, {reason=})", stack_info=True)
-    else:
-        delete_ok = True
-    return delete_ok
+    def _do_remove():
+        remove_readonly(p)
+        p.unlink(True)
+
+    success, attempt_count, reason = _retry_operation(
+        operation=_do_remove,
+        exists_check=p.exists,
+        attempt_limit=5,
+        initial_delay=1.0,
+        exponential_backoff=True,
+    )
+    if not success:
+        log_function(f"could not remove {p} ({attempt_count=}, {reason=})", stack_info=True)
+    return success
 
 
 def is_file_locked(file_path: Path) -> bool:
-    """Check if a file is locked."""
+    """Return ``True`` if *file_path* is currently locked by another process."""
     if not file_path.exists():
-        return False  # File does not exist, so it's not locked
+        return False
 
     try:
         with file_path.open("a"):
@@ -88,79 +130,77 @@ def is_file_locked(file_path: Path) -> bool:
 
 
 def set_read_only(path: Path):
+    """Make *path* read-only (platform-aware permissions)."""
     if is_windows():
         os.chmod(path, stat.S_IREAD)
     else:
-        # Unix-like systems
         os.chmod(path, 0o444)
 
 
 def set_read_write(path: Path):
+    """Make *path* readable and writable (platform-aware permissions)."""
     if is_windows():
         os.chmod(path, stat.S_IWRITE | stat.S_IREAD)
     else:
-        # Unix-like systems
         os.chmod(path, 0o666)
 
 
 def is_read_only(path: Path) -> bool:
-    if is_windows():  # Windows
+    """Return ``True`` if *path* is read-only."""
+    if is_windows():
         return not os.access(path, os.W_OK)
     else:
-        # Unix-like systems
         return not (path.stat().st_mode & stat.S_IWUSR)
 
 
 def is_read_write(path: Path) -> bool:
-    if is_windows():  # Windows
+    """Return ``True`` if *path* is both readable and writable."""
+    if is_windows():
         return os.access(path, os.R_OK) and os.access(path, os.W_OK)
-    else:  # Unix-like systems
+    else:
         path_stat = path.stat()
         return bool(path_stat.st_mode & stat.S_IWRITE and path_stat.st_mode & stat.S_IREAD)
 
 
 @typechecked()
 def rm_dir(p: Union[Path, str], log_function=log.warning, attempt_limit: int = 20, delay: float = 0.1) -> bool:
-    """
-    Remove a directory and all its contents. Retry if there are errors.
+    """Remove a directory tree, retrying on transient errors.
 
-    :param p: the directory to remove
-    :param log_function: the function to log messages
-    :param attempt_limit: the number of times to attempt to remove the directory
-    :param delay: the delay between retries
+    :param p: Directory to remove.
+    :param log_function: Logging function called on final failure.
+    :param attempt_limit: Maximum removal attempts.
+    :param delay: Seconds between retries (fixed, no exponential back-off).
+    :return: ``True`` if the directory no longer exists.
+    :raises RemoveDirectoryException: If removal fails after all attempts.
     """
-
     start = time.time()
     if isinstance(p, str):
         p = Path(p)
-    attempt_count = 0
-    reason = None  # type: FileNotFoundError | PermissionError | OSError | None
-    while p.exists() and attempt_count < attempt_limit:
-        attempt_count += 1
-        try:
-            shutil.rmtree(p, onerror=remove_readonly_onerror)
-        except FileNotFoundError as e:
-            reason = e  # assign error to a variable so we can use it later in this function
-            log.debug(f"{p} ({attempt_count=}, {reason=})")  # this can happen when first doing the shutil.rmtree()
-        except (PermissionError, OSError) as e:
-            reason = e  # assign error to a variable so we can use it later in this function
-            log.info(f"{p} ({attempt_count=}, {reason=})")
-        if p.exists():
-            time.sleep(delay)
-    if p.exists():
-        duration = time.time() - start
-        delete_ok = False
-        log_function(f'could not remove "{p}",{delete_ok=},{attempt_count=},{duration=},{reason=},{attempt_limit=},{delay=}')
-    else:
-        delete_ok = True
+
+    success, attempt_count, reason = _retry_operation(
+        operation=lambda: shutil.rmtree(p, onerror=remove_readonly_onerror),
+        exists_check=p.exists,
+        attempt_limit=attempt_limit,
+        initial_delay=delay,
+    )
     duration = time.time() - start
-    log.info(f'"{p}",{delete_ok=},{attempt_count=},{duration=},{reason=},{attempt_limit=},{delay=}')
-    if not delete_ok:
+    log.info(f'"{p}",{success=},{attempt_count=},{duration=},{reason=},{attempt_limit=},{delay=}')
+    if not success:
+        log_function(f'could not remove "{p}",{success=},{attempt_count=},{duration=},{reason=},{attempt_limit=},{delay=}')
         raise RemoveDirectoryException(f'Could not remove "{p}"')
-    return delete_ok
+    return success
 
 
 def mk_dirs(d, remove_first=False, log_function=log.error):
+    """Create a directory tree, optionally removing it first.
+
+    Retries ``os.makedirs`` in a loop because, on Windows, the directory may
+    not be visible immediately after creation.
+
+    :param d: Directory path to create.
+    :param remove_first: If ``True``, remove the directory before creating it.
+    :param log_function: Logging function called on final failure.
+    """
     if remove_first:
         rm_dir(d, log_function)
     # sometimes when os.makedirs exits the dir is not actually there

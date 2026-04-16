@@ -1,3 +1,8 @@
+"""
+Resource monitor subprocess — periodically samples CPU and memory usage
+of a target process and makes readings available via a shared queue.
+"""
+
 import time
 from dataclasses import dataclass
 from multiprocessing import Event, Process, Queue

@@ -1,3 +1,5 @@
+"""Status window — aggregate summary of test run progress, pass rate, ETA, and coverage."""
+
 import time
 
 from PySide6.QtWidgets import QGroupBox, QSizePolicy, QVBoxLayout

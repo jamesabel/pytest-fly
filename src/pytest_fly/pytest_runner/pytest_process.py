@@ -1,3 +1,8 @@
+"""
+Single-test subprocess — runs one pytest module with coverage collection
+and a :class:`ProcessMonitor` that samples CPU/memory usage.
+"""
+
 import contextlib
 import io
 import shutil

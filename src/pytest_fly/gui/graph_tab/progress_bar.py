@@ -52,7 +52,7 @@ class PytestProgressBar(QWidget):
         self.bar_margin = 1
         self.bar_height = name_text_dimensions.height() + 2 * self.bar_margin
         self.setFixedHeight(self.bar_height)
-        log.info(f"{self.bar_height=},{name_text_dimensions=}")
+        log.debug(f"{self.bar_height=},{name_text_dimensions=}")
 
         # --- Tooltip-related state ---
         self.setMouseTracking(True)  # receive mouseMoveEvent even with no button pressed

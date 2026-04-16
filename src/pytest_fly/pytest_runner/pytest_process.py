@@ -2,6 +2,7 @@ import contextlib
 import io
 import shutil
 import time
+import traceback
 from multiprocessing import Process
 from pathlib import Path
 from queue import Empty
@@ -67,7 +68,11 @@ class PytestProcess(Process):
             coverage = Coverage(coverage_temp_file_path)
             coverage.start()
 
-            exit_code = pytest.main([self.name])
+            try:
+                exit_code = pytest.main([self.name])
+            except Exception:
+                exit_code = PyTestFlyExitCode.INTERNAL_ERROR
+                buf.write(f"\n\npytest.main raised an exception:\n{traceback.format_exc()}")
 
             coverage.stop()
             coverage.save()

@@ -13,7 +13,8 @@ from ...colors import GRID_LINE_COLOR
 from ..gui_util import get_text_dimensions
 
 # Candidate intervals in seconds — chosen so labels stay readable.
-_INTERVALS = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600]
+# Extends up to 24h so multi-hour runs don't collapse to minute-granularity grid lines.
+_INTERVALS = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200, 10800, 21600, 43200, 86400]
 
 
 def _choose_interval(time_window: float) -> float:
@@ -25,14 +26,20 @@ def _choose_interval(time_window: float) -> float:
 
 
 def _format_tick_label(elapsed_seconds: float) -> str:
-    """Format an elapsed-time value into a compact label (e.g. ``'30s'``, ``'2m'``)."""
+    """Format an elapsed-time value into a compact label (e.g. ``'30s'``, ``'2m'``, ``'3h'``, ``'1h30m'``)."""
     if elapsed_seconds < 60:
         return f"{int(elapsed_seconds)}s"
-    minutes = int(elapsed_seconds // 60)
-    seconds = int(elapsed_seconds % 60)
-    if seconds == 0:
-        return f"{minutes}m"
-    return f"{minutes}m{seconds}s"
+    if elapsed_seconds < 3600:
+        minutes = int(elapsed_seconds // 60)
+        seconds = int(elapsed_seconds % 60)
+        if seconds == 0:
+            return f"{minutes}m"
+        return f"{minutes}m{seconds}s"
+    hours = int(elapsed_seconds // 3600)
+    minutes = int((elapsed_seconds % 3600) // 60)
+    if minutes == 0:
+        return f"{hours}h"
+    return f"{hours}h{minutes}m"
 
 
 def compute_grid_ticks(min_ts: float | None, max_ts: float | None, width_pixels: int) -> list[tuple[float, str]]:

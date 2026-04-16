@@ -21,7 +21,6 @@ from typeguard import typechecked
 
 from ..__version__ import application_name
 from ..db import PytestProcessInfoDB
-from ..interfaces import PyTestFlyExitCode
 from ..logger import get_logger
 from ..preferences import get_pref
 from ..pytest_runner.pytest_runner import PytestRunState
@@ -38,7 +37,7 @@ from .table_tab import TableTab
 log = get_logger()
 
 
-def build_tick_data(process_infos: list, prior_durations: dict[str, float] | None = None, num_processes: int = 1) -> TickData:
+def build_tick_data(process_infos: list, prior_durations: dict[str, float] | None = None, num_processes: int = 1, current_run_start: float | None = None) -> TickData:
     """
     Build a :class:`TickData` bundle from a flat list of process info records.
 
@@ -48,18 +47,16 @@ def build_tick_data(process_infos: list, prior_durations: dict[str, float] | Non
     :param process_infos: Flat list of :class:`PytestProcessInfo` objects from the DB.
     :param prior_durations: Optional mapping of test name to prior run duration (seconds), used for ETA.
     :param num_processes: Number of parallel worker processes (used for ETA wall-clock estimation).
+    :param current_run_start: Wall-clock timestamp captured when the Run button was pressed, used
+        as the graph time-axis origin.  Passed in explicitly because RESUME mode copies prior-run
+        records (including their original QUEUED records with ``exit_code == NONE``), so the origin
+        cannot be derived reliably from DB records alone.
     :return: A fully populated :class:`TickData` instance.
     """
     infos_by_name = group_process_infos_by_name(process_infos)
     run_states = {name: PytestRunState(infos) for name, infos in infos_by_name.items()}
     min_ts, max_ts = compute_time_window(process_infos)
     min_ts_s, max_ts_s = compute_time_window(process_infos, require_pid=True)
-
-    # Earliest QUEUED record timestamp — identifies when the current session
-    # started.  Copied prior-run records (from RESUME mode) never have
-    # exit_code == NONE, so this cleanly excludes them.
-    queued_timestamps = [info.time_stamp for info in process_infos if info.exit_code == PyTestFlyExitCode.NONE]
-    current_run_start = min(queued_timestamps) if queued_timestamps else None
 
     return TickData(
         process_infos=process_infos,
@@ -188,7 +185,12 @@ class FlyAppMainWindow(QMainWindow):
             last_pass_data = db.query_last_pass()
 
         control = self.run_tab.control_window
-        tick = build_tick_data(process_infos, prior_durations=control.prior_durations, num_processes=control.num_processes)
+        tick = build_tick_data(
+            process_infos,
+            prior_durations=control.prior_durations,
+            num_processes=control.num_processes,
+            current_run_start=control.current_run_start,
+        )
         tick.last_pass_data = last_pass_data
         tick.soft_stop_requested = control._soft_stop_requested
 

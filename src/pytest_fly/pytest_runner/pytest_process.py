@@ -77,7 +77,10 @@ class PytestProcess(Process):
                 exit_code = pytest.main([self.name])
             except Exception:
                 exit_code = PyTestFlyExitCode.INTERNAL_ERROR
-                buf.write(f"\n\npytest.main raised an exception:\n{traceback.format_exc()}")
+                try:
+                    buf.write(f"\n\npytest.main raised an exception:\n{traceback.format_exc()}")
+                except (ValueError, OSError):
+                    pass  # buf may be closed if the test redirected/closed stderr
 
             coverage.stop()
             coverage.save()

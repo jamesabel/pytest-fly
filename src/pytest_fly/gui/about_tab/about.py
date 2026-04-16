@@ -1,3 +1,5 @@
+"""About tab — shows project metadata and system/hardware information."""
+
 from dataclasses import asdict
 
 import humanize
@@ -6,6 +8,7 @@ from PySide6.QtWidgets import QSizePolicy, QVBoxLayout, QWidget
 
 from pytest_fly.gui.about_tab.project_info import get_project_info
 from pytest_fly.gui.gui_util import PlainTextWidget
+from pytest_fly.logger import get_log_directory
 from pytest_fly.platform.platform_info import get_performance_core_count, get_platform_info
 
 
@@ -30,6 +33,9 @@ class AboutDataWorker(QObject):
                 text_lines.append(f"{key_string}: {value / 1000.0} GHz")
             else:
                 text_lines.append(f"{key_string}: {value}")
+
+        text_lines.append("")
+        text_lines.append(f"log_directory: {get_log_directory()}")
 
         text_lines.append("")
         text_lines.append("Notes:")

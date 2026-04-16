@@ -1,5 +1,12 @@
+"""
+Configuration tab — exposes user-editable preferences such as verbosity,
+parallelism, refresh rate, and utilization thresholds.
+"""
+
+from collections.abc import Callable
+
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QDoubleValidator, QIntValidator
+from PySide6.QtGui import QDoubleValidator, QIntValidator, QValidator
 from PySide6.QtWidgets import QCheckBox, QLabel, QLineEdit, QVBoxLayout, QWidget
 from tobool import to_bool_strict
 
@@ -12,6 +19,37 @@ from pytest_fly.preferences import get_pref, refresh_rate_default, utilization_h
 log = get_logger()
 
 minimum_refresh_rate = 1.0
+
+
+def _add_labeled_lineedit(
+    layout: QVBoxLayout,
+    label_text: str,
+    initial_value: str,
+    validator: QValidator,
+    on_changed: Callable[[str], None],
+    char_width: int = 4,
+) -> QLineEdit:
+    """Create a labelled :class:`QLineEdit` with a validator and add it to *layout*.
+
+    Eliminates the repeated label + line-edit + validator + connect pattern
+    used for each numeric preference field.
+
+    :param layout: Parent layout to append widgets to.
+    :param label_text: Descriptive label shown above the input.
+    :param initial_value: Text to pre-fill.
+    :param validator: Input validator (e.g. ``QIntValidator``).
+    :param on_changed: Slot connected to ``textChanged``.
+    :param char_width: Number of monospace characters used to size the field.
+    :return: The created :class:`QLineEdit`.
+    """
+    layout.addWidget(QLabel(label_text))
+    lineedit = QLineEdit()
+    lineedit.setText(initial_value)
+    lineedit.setValidator(validator)
+    lineedit.setFixedWidth(get_text_dimensions(char_width * "X", True).width())
+    lineedit.textChanged.connect(on_changed)
+    layout.addWidget(lineedit)
+    return lineedit
 
 
 class Configuration(QWidget):
@@ -44,50 +82,22 @@ class Configuration(QWidget):
 
         layout.addWidget(QLabel(""))  # space
 
-        # Processes option
-        self.processes_label = QLabel(f"Processes (recommended: {get_performance_core_count()})")
-        layout.addWidget(self.processes_label)
-        self.processes_lineedit = QLineEdit()
-        self.processes_lineedit.setText(str(pref.processes))
-        self.processes_lineedit.setValidator(QIntValidator())  # only integers allowed
-        processes_width = get_text_dimensions(4 * "X", True)  # 4 digits for number of processes should be plenty
-        self.processes_lineedit.setFixedWidth(processes_width.width())
-        self.processes_lineedit.textChanged.connect(self.update_processes)
-        layout.addWidget(self.processes_lineedit)
+        # Numeric preference fields — use the shared helper to avoid repetition.
+        self.processes_lineedit = _add_labeled_lineedit(layout, f"Processes (recommended: {get_performance_core_count()})", str(pref.processes), QIntValidator(), self.update_processes)
 
         layout.addWidget(QLabel(""))  # space
 
-        # Refresh Rate option
-        self.refresh_rate_label = QLabel(f"Refresh Rate (seconds, {minimum_refresh_rate} minimum, {refresh_rate_default} default)")
-        layout.addWidget(self.refresh_rate_label)
-        self.refresh_rate_lineedit = QLineEdit()
-        self.refresh_rate_lineedit.setText(str(pref.refresh_rate))
-        self.refresh_rate_lineedit.setValidator(QDoubleValidator())  # allow floats
-        refresh_rate_width = get_text_dimensions(4 * "X", True)  # 4 digits for refresh rate should be plenty
-        self.refresh_rate_lineedit.setFixedWidth(refresh_rate_width.width())
-        self.refresh_rate_lineedit.textChanged.connect(self.update_refresh_rate)
-        layout.addWidget(self.refresh_rate_lineedit)
+        self.refresh_rate_lineedit = _add_labeled_lineedit(
+            layout, f"Refresh Rate (seconds, {minimum_refresh_rate} minimum, {refresh_rate_default} default)", str(pref.refresh_rate), QDoubleValidator(), self.update_refresh_rate
+        )
 
         layout.addWidget(QLabel(""))  # space
 
-        # utilization thresholds
-        self.utilization_high_threshold_label = QLabel(f"High Utilization Threshold (0.0-1.0, {utilization_high_threshold_default} default)")
-        layout.addWidget(self.utilization_high_threshold_label)
-        self.utilization_high_threshold_lineedit = QLineEdit()
-        self.utilization_high_threshold_lineedit.setText(str(pref.utilization_high_threshold))
-        self.utilization_high_threshold_lineedit.setValidator(QDoubleValidator())  # allow floats
-        self.utilization_high_threshold_lineedit.setFixedWidth(get_text_dimensions(4 * "X", True).width())
-        self.utilization_high_threshold_lineedit.textChanged.connect(self.update_utilization_high_threshold)
-        layout.addWidget(self.utilization_high_threshold_lineedit)
+        high_label = f"High Utilization Threshold (0.0-1.0, {utilization_high_threshold_default} default)"
+        self.utilization_high_threshold_lineedit = _add_labeled_lineedit(layout, high_label, str(pref.utilization_high_threshold), QDoubleValidator(), self.update_utilization_high_threshold)
 
-        self.update_utilization_low_threshold_label = QLabel(f"Low Utilization Threshold (0.0-1.0, {utilization_low_threshold_default} default)")
-        layout.addWidget(self.update_utilization_low_threshold_label)
-        self.utilization_low_threshold_lineedit = QLineEdit()
-        self.utilization_low_threshold_lineedit.setText(str(pref.utilization_low_threshold))
-        self.utilization_low_threshold_lineedit.setValidator(QDoubleValidator())  # allow floats
-        self.utilization_low_threshold_lineedit.setFixedWidth(get_text_dimensions(4 * "X", True).width())
-        self.utilization_low_threshold_lineedit.textChanged.connect(self.update_utilization_low_threshold)
-        layout.addWidget(self.utilization_low_threshold_lineedit)
+        low_label = f"Low Utilization Threshold (0.0-1.0, {utilization_low_threshold_default} default)"
+        self.utilization_low_threshold_lineedit = _add_labeled_lineedit(layout, low_label, str(pref.utilization_low_threshold), QDoubleValidator(), self.update_utilization_low_threshold)
 
     def update_verbose(self):
         """Persist the verbose checkbox state to preferences."""

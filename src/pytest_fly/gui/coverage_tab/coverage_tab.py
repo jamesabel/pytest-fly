@@ -3,17 +3,14 @@ Coverage tab — displays a step-function line chart of combined code coverage o
 """
 
 from PySide6.QtCore import QPointF, Qt
-from PySide6.QtGui import QBrush, QColor, QPainter, QPalette, QPen, QPolygonF
+from PySide6.QtGui import QBrush, QPainter, QPalette, QPen, QPolygonF
 from PySide6.QtWidgets import QGroupBox, QSizePolicy, QVBoxLayout, QWidget
 
+from ...colors import COVERAGE_FILL_COLOR, COVERAGE_LINE_COLOR, GRID_LINE_COLOR
 from ...interfaces import PytestRunnerState
 from ...tick_data import TickData
 from ..graph_tab.time_axis import compute_grid_ticks
 from ..gui_util import count_test_states, get_text_dimensions
-
-GRID_LINE_COLOR = QColor(180, 180, 180, 100)
-COVERAGE_LINE_COLOR = QColor(34, 139, 34)  # forest green
-COVERAGE_FILL_COLOR = QColor(34, 139, 34, 40)  # translucent green fill
 
 # Horizontal grid lines at these percentages
 _Y_GRID_PCTS = [0.25, 0.50, 0.75, 1.00]

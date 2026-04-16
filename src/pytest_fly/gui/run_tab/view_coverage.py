@@ -1,3 +1,5 @@
+"""Opens the most recent HTML coverage report in the user's default browser."""
+
 import webbrowser
 from pathlib import Path
 

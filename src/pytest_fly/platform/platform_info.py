@@ -1,3 +1,11 @@
+"""
+Platform and hardware introspection — CPU core classification, memory, and
+system metadata.
+
+On Windows, uses ``GetLogicalProcessorInformationEx`` to distinguish
+performance (P) and efficiency (E) cores on hybrid CPUs.
+"""
+
 import getpass
 import platform
 import struct

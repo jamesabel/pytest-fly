@@ -1,3 +1,11 @@
+"""
+Persistent user preferences backed by a local SQLite file via the *pref* library.
+
+Default values for parallelism, refresh rate, and utilization thresholds are
+defined here so both the preference class and the configuration tab can share
+them without circular imports.
+"""
+
 from enum import IntEnum
 
 from attr import attrib, attrs
@@ -17,6 +25,8 @@ run_with_coverage_default = True
 
 
 class ParallelismControl(IntEnum):
+    """How test parallelism is determined."""
+
     SERIAL = 0  # run tests serially (processes=1)
     PARALLEL = 1  # run "processes" number of tests in parallel
     DYNAMIC = 2  # automatically dynamically determine max number of processes to run in parallel, while trying to avoid high utilization thresholds (see utilization_high_threshold)

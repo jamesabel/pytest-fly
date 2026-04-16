@@ -1,6 +1,12 @@
-# python
-import shutil
-import time
+"""
+Main application window for pytest-fly.
+
+Houses the tab widget, periodic refresh timer, and coordinates data flow
+between the :class:`~pytest_fly.db.PytestProcessInfoDB`, the
+:class:`~pytest_fly.gui.coverage_tracker.CoverageTracker`, and the individual
+GUI tabs.
+"""
+
 from pathlib import Path
 
 from PySide6.QtCore import QCoreApplication, QRect, QTimer
@@ -15,16 +21,15 @@ from typeguard import typechecked
 
 from ..__version__ import application_name
 from ..db import PytestProcessInfoDB
-from ..file_util import sanitize_test_name
-from ..gui.about_tab.about import About
-from ..gui.configuration_tab.configuration import Configuration
-from ..interfaces import PyTestFlyExitCode, PytestRunnerState, RunMode
+from ..interfaces import PyTestFlyExitCode
 from ..logger import get_logger
 from ..preferences import get_pref
-from ..pytest_runner.coverage import calculate_coverage
 from ..pytest_runner.pytest_runner import PytestRunState
 from ..tick_data import TickData
+from .about_tab.about import About
+from .configuration_tab.configuration import Configuration
 from .coverage_tab import CoverageTab
+from .coverage_tracker import CoverageTracker
 from .graph_tab import GraphTab
 from .gui_util import compute_average_parallelism, compute_time_window, get_font, get_text_dimensions, group_process_infos_by_name
 from .run_tab import RunTab
@@ -129,13 +134,7 @@ class FlyAppMainWindow(QMainWindow):
         self.tab_widget.addTab(self.configuration, "Configuration")
         self.tab_widget.addTab(self.about, "About")
 
-        # Coverage tracking state
-        self._completed_tests: set[str] = set()
-        self._coverage_history: list[tuple[float, float]] = []
-        self._per_test_coverage: dict[str, float] = {}
-        self._covered_lines: int = 0
-        self._total_lines: int = 0
-        self._last_run_guid: str | None = None
+        self._coverage_tracker = CoverageTracker(self.data_dir)
 
         self.table_tab.force_stop_test_requested.connect(self._force_stop_single_test)
 
@@ -176,63 +175,8 @@ class FlyAppMainWindow(QMainWindow):
         if control.pytest_runner is not None and control.pytest_runner.is_running():
             control.pytest_runner.force_stop_test(test_name)
 
-    def _handle_new_run(self, current_guid: str | None):
-        """Reset coverage state when a new run starts and clear old coverage files.
-
-        :param current_guid: The GUID of the current run.
-        """
-        if current_guid != self._last_run_guid:
-            self._last_run_guid = current_guid
-            self._completed_tests = set()
-            self._coverage_history = []
-            self._per_test_coverage = {}
-            self._covered_lines = 0
-            self._total_lines = 0
-
-            # In RESTART mode, clear old coverage files so the graph starts from zero
-            pref = get_pref()
-            if pref.run_mode != RunMode.RESUME:
-                coverage_dir = Path(self.data_dir, "coverage")
-                if coverage_dir.exists():
-                    shutil.rmtree(coverage_dir, ignore_errors=True)
-
-    def _update_coverage(self, tick: TickData):
-        """Recalculate combined and per-test coverage when new tests complete.
-
-        :param tick: Pre-computed data for this refresh cycle.
-        """
-        current_completed = {name for name, rs in tick.run_states.items() if rs.get_state() in (PytestRunnerState.PASS, PytestRunnerState.FAIL)}
-        if current_completed and current_completed != self._completed_tests:
-            self._completed_tests = current_completed
-            try:
-                coverage_pct, self._covered_lines, self._total_lines = calculate_coverage("current", self.data_dir, write_report=False)
-                if coverage_pct is not None:
-                    self._coverage_history.append((time.time(), coverage_pct))
-            except Exception as e:
-                log.warning(f"coverage calculation failed: {e}")
-
-            # Recompute per-test coverage for ALL completed tests since the denominator
-            # (total_lines) may have changed as new tests discover new source files.
-            if self._total_lines > 0:
-                from coverage import Coverage
-
-                coverage_dir = Path(self.data_dir, "coverage")
-                for test_name in self._completed_tests:
-                    safe_name = sanitize_test_name(test_name)
-                    cov_file = coverage_dir / f"{safe_name}.coverage"
-                    if cov_file.exists():
-                        try:
-                            cov = Coverage(cov_file)
-                            cov.load()
-                            data = cov.get_data()
-                            executed = sum(len(data.lines(f) or []) for f in data.measured_files())
-                            self._per_test_coverage[test_name] = executed / self._total_lines
-                        except Exception as e:
-                            log.info(f"per-test coverage for {test_name} failed: {e}")
-
     def _update_tick(self):
-        """
-        Timer event handler — query the DB and refresh all tabs.
+        """Timer event handler — query the DB and refresh all tabs.
 
         The query runs synchronously on the GUI thread (sub-millisecond for
         typical result sets).  Grouping, time-window, and run-state computation
@@ -248,13 +192,9 @@ class FlyAppMainWindow(QMainWindow):
         tick.last_pass_data = last_pass_data
         tick.soft_stop_requested = control._soft_stop_requested
 
-        self._handle_new_run(control.run_guid)
-        self._update_coverage(tick)
-
-        tick.coverage_history = self._coverage_history
-        tick.per_test_coverage = self._per_test_coverage
-        tick.covered_lines = self._covered_lines
-        tick.total_lines = self._total_lines
+        self._coverage_tracker.handle_new_run(control.run_guid)
+        self._coverage_tracker.update(tick)
+        self._coverage_tracker.apply_to_tick(tick)
 
         self.graph_tab.update_tick(tick)
         self.table_tab.update_tick(tick)

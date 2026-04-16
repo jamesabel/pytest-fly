@@ -1,3 +1,8 @@
+"""
+Table tab — per-test status grid showing state, CPU, memory, runtime,
+coverage, and last-pass information.
+"""
+
 import time
 from datetime import datetime
 from enum import Enum

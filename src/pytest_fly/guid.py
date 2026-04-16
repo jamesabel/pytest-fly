@@ -1,3 +1,5 @@
+"""UUIDv7 generation and decoding utilities for time-ordered run identifiers."""
+
 import uuid
 from datetime import datetime, timezone
 

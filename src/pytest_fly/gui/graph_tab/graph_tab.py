@@ -1,3 +1,5 @@
+"""Graph tab — horizontal progress bars showing test execution timelines."""
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QGroupBox, QScrollArea, QVBoxLayout, QWidget
 

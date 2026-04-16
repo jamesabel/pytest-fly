@@ -35,7 +35,11 @@ class GraphTab(QGroupBox):
     def update_tick(self, tick: TickData) -> None:
         """Refresh the time axis and all progress bars from pre-computed tick data."""
 
-        self.time_axis.update_time_window(tick.min_time_stamp, tick.max_time_stamp)
+        # Use current_run_start as the effective graph origin so that copied
+        # prior-run records (from RESUME mode) don't stretch the time axis.
+        effective_min = tick.current_run_start if tick.current_run_start is not None else tick.min_time_stamp
+
+        self.time_axis.update_time_window(effective_min, tick.max_time_stamp)
 
         # Remove bars for tests no longer in the current tick
         removed_names = set(self.progress_bars) - set(tick.infos_by_name)
@@ -49,9 +53,9 @@ class GraphTab(QGroupBox):
             run_state = tick.run_states[test_name]
             if test_name in self.progress_bars:
                 progress_bar = self.progress_bars[test_name]
-                progress_bar.update_pytest_process_info(infos, tick.min_time_stamp, tick.max_time_stamp, run_state)
+                progress_bar.update_pytest_process_info(infos, effective_min, tick.max_time_stamp, run_state)
             else:
-                progress_bar = PytestProgressBar(infos, tick.min_time_stamp, tick.max_time_stamp, run_state)
+                progress_bar = PytestProgressBar(infos, effective_min, tick.max_time_stamp, run_state)
                 self.progress_bars[test_name] = progress_bar
 
         # Ensure layout order matches tick.infos_by_name order (same as table tab)

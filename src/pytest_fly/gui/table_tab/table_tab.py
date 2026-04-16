@@ -98,9 +98,17 @@ class TableTab(QGroupBox):
         if test_node_id is not None and is_running:
             force_stop_action = menu.addAction("Force Stop")
 
+        # Save row/col before exec_() — the nested event loop lets timer
+        # refreshes destroy the underlying C++ QTableWidgetItem.
+        item_row = item.row() if item is not None else -1
+        item_col = item.column() if item is not None else -1
+
         action = menu.exec_(self.table_widget.viewport().mapToGlobal(position))
 
         if action == copy_tooltip_action:
+            # Re-fetch the item after exec_() to avoid stale C++ pointer
+            if item_row >= 0 and item_col >= 0:
+                item = self.table_widget.item(item_row, item_col)
             if item is not None:
                 tooltip = item.toolTip()
                 # fallback to ItemDataRole if toolTip() is empty

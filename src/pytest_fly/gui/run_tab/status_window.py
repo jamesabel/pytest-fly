@@ -73,10 +73,47 @@ class StatusWindow(QGroupBox):
                 if remaining_seconds > 0 and tick.num_processes > 0:
                     wall_clock = remaining_seconds / tick.num_processes
                     lines.append(f"Estimated remaining: {format_runtime(wall_clock)}")
+
+            if tick.soft_stop_requested:
+                running_count = counts[PytestRunnerState.RUNNING]
+                if running_count > 0:
+                    lines.append("")
+                    lines.append(f"Stopping — {running_count} test{'s' if running_count != 1 else ''} still running")
+                    stopping_eta = self._calculate_stopping_eta(tick)
+                    if stopping_eta is not None:
+                        lines.append(f"Estimated finish: {format_runtime(stopping_eta)}")
+                    else:
+                        lines.append("Estimated finish: unknown")
         else:
             lines = ["Calculating..."]
 
         self.status_widget.set_text("\n".join(lines))
+
+    def _calculate_stopping_eta(self, tick: TickData) -> float | None:
+        """Estimate wall-clock seconds until all running tests finish after a soft stop.
+
+        Since running tests execute in parallel, the wall time is the maximum
+        individual remaining time (not the sum).
+
+        :param tick: Pre-computed data for this refresh cycle.
+        :return: Estimated seconds until the last running test finishes, or ``None`` if no prior data is available.
+        """
+        now = time.time()
+        max_remaining = 0.0
+        any_estimated = False
+        for test_name, run_state in tick.run_states.items():
+            if run_state.get_state() != PytestRunnerState.RUNNING:
+                continue
+            prior = tick.prior_durations.get(test_name)
+            if prior is None or prior <= 0.0:
+                continue
+            any_estimated = True
+            infos = tick.infos_by_name.get(test_name, [])
+            started_at = next((i.time_stamp for i in infos if i.pid is not None), None)
+            if started_at is not None:
+                remaining = max(0.0, prior - (now - started_at))
+                max_remaining = max(max_remaining, remaining)
+        return max_remaining if any_estimated else None
 
     def _calculate_remaining_seconds(self, tick: TickData) -> float:
         """Estimate the total remaining CPU-seconds for queued and running tests.

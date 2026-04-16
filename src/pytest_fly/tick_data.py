@@ -33,3 +33,4 @@ class TickData:
     total_lines: int = 0  # total executable lines in the source
     average_parallelism: float | None = None  # average number of simultaneously running test processes
     last_pass_data: dict[str, tuple[float, float]] = field(default_factory=dict)  # test_name -> (start_timestamp, duration_seconds) from most recent passing run
+    soft_stop_requested: bool = False

@@ -12,8 +12,8 @@ from functools import cache, lru_cache
 
 import humanize
 from PySide6.QtCore import QSize
-from PySide6.QtGui import QFont, QFontMetrics
-from PySide6.QtWidgets import QPlainTextEdit, QSizePolicy
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QPalette
+from PySide6.QtWidgets import QPlainTextEdit, QSizePolicy, QWidget
 from typeguard import typechecked
 
 from ..const import TOOLTIP_LINE_LIMIT
@@ -189,6 +189,11 @@ def compute_average_parallelism(infos_by_name: dict[str, list[PytestProcessInfo]
         return None
 
     return total_test_time / wall_clock
+
+
+def window_text_color(widget: QWidget) -> QColor:
+    """Return the palette's foreground text color for *widget* (respects light/dark themes)."""
+    return widget.palette().color(QPalette.WindowText)
 
 
 @typechecked

@@ -156,11 +156,14 @@ class TableTab(QGroupBox):
         self.table_widget.clearContents()
         self.table_widget.setRowCount(len(tick.infos_by_name))
 
-        for row_number, test_name in enumerate(sorted(tick.infos_by_name)):
+        for row_number, test_name in enumerate(tick.infos_by_name):
             process_infos = tick.infos_by_name[test_name]
             pytest_run_state = tick.run_states[test_name]
 
-            name_item = QTableWidgetItem(pytest_run_state.get_name())
+            display_name = pytest_run_state.get_name()
+            if test_name in tick.singleton_names:
+                display_name = f"{display_name} (singleton)"
+            name_item = QTableWidgetItem(display_name)
             name_item.setData(Qt.ItemDataRole.UserRole, test_name)  # store node_id for context menu
             self.table_widget.setItem(row_number, Columns.NAME.value, name_item)
 

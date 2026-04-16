@@ -32,6 +32,7 @@ class PytestProgressBar(QWidget):
         min_time_stamp: float,
         max_time_stamp: float,
         run_state: PytestRunState,
+        is_singleton: bool = False,
     ) -> None:
 
         super().__init__()
@@ -43,6 +44,7 @@ class PytestProgressBar(QWidget):
         self.min_time_stamp = min_time_stamp
         self.max_time_stamp = max_time_stamp
         self._run_state = run_state
+        self._is_singleton = is_singleton
 
         if len(status_list) > 0:
             name = status_list[0].name
@@ -65,9 +67,9 @@ class PytestProgressBar(QWidget):
         self._prev_min_ts: float | None = None
         self._prev_max_ts: float | None = None
 
-        self.update_pytest_process_info(status_list, min_time_stamp, max_time_stamp, run_state)
+        self.update_pytest_process_info(status_list, min_time_stamp, max_time_stamp, run_state, is_singleton)
 
-    def update_pytest_process_info(self, status_list: list[PytestProcessInfo], min_time_stamp: float, max_time_stamp: float, run_state: PytestRunState):
+    def update_pytest_process_info(self, status_list: list[PytestProcessInfo], min_time_stamp: float, max_time_stamp: float, run_state: PytestRunState, is_singleton: bool = False):
         """
         Update the bar's data and schedule a repaint — but only if the data
         actually changed or the test is still running (its bar grows over time).
@@ -76,7 +78,16 @@ class PytestProgressBar(QWidget):
         new_count = len(status_list)
         new_last_ts = status_list[-1].time_stamp if status_list else None
         is_running = len(status_list) > 0 and status_list[-1].pid is not None and run_state.get_state() == PytestRunnerState.RUNNING
-        if not is_running and new_count == self._prev_count and new_last_ts == self._prev_last_ts and min_time_stamp == self._prev_min_ts and max_time_stamp == self._prev_max_ts:
+        singleton_changed = is_singleton != self._is_singleton
+        unchanged = (
+            not is_running
+            and not singleton_changed
+            and new_count == self._prev_count
+            and new_last_ts == self._prev_last_ts
+            and min_time_stamp == self._prev_min_ts
+            and max_time_stamp == self._prev_max_ts
+        )
+        if unchanged:
             return  # no change — skip repaint
         self._prev_count = new_count
         self._prev_last_ts = new_last_ts
@@ -87,6 +98,7 @@ class PytestProgressBar(QWidget):
         self.min_time_stamp = min_time_stamp
         self.max_time_stamp = max_time_stamp
         self._run_state = run_state
+        self._is_singleton = is_singleton
 
         if len(self.status_list) > 0:
             name = self.status_list[0].name
@@ -121,7 +133,10 @@ class PytestProgressBar(QWidget):
             else:
                 end_time = self.status_list[-1].time_stamp
 
-            bar_text = f"{pytest_run_state.get_name()} - {pytest_run_state.get_string()}"
+            name_label = pytest_run_state.get_name()
+            if self._is_singleton:
+                name_label = f"{name_label} (singleton)"
+            bar_text = f"{name_label} - {pytest_run_state.get_string()}"
 
             outer_rect = self.rect()
             mapping = TimeAxisMapping(min_ts=self.min_time_stamp, max_ts=self.max_time_stamp, width_pixels=outer_rect.width())

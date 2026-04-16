@@ -32,7 +32,7 @@ class FailedTestsWindow(QGroupBox):
 
     def update_tick(self, tick: TickData):
         """Rebuild the failed test list from pre-computed tick data."""
-        failed_names = sorted(test_name for test_name, run_state in tick.run_states.items() if run_state.get_state() == PytestRunnerState.FAIL)
+        failed_names = [test_name for test_name, run_state in tick.run_states.items() if run_state.get_state() == PytestRunnerState.FAIL]
 
         if failed_names != self._failed_names:
             self._failed_names = failed_names

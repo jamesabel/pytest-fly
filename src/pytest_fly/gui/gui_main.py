@@ -232,6 +232,7 @@ class FlyAppMainWindow(QMainWindow):
         control = self.run_tab.control_window
         tick = build_tick_data(process_infos, prior_durations=control.prior_durations, num_processes=control.num_processes)
         tick.last_pass_data = last_pass_data
+        tick.soft_stop_requested = control._soft_stop_requested
 
         self._handle_new_run(control.run_guid)
         self._update_coverage(tick)

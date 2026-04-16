@@ -1,4 +1,4 @@
-import time
+from dataclasses import replace
 from pathlib import Path
 
 from PySide6.QtCore import Qt
@@ -7,7 +7,7 @@ from typeguard import typechecked
 
 from ...db import PytestProcessInfoDB
 from ...guid import generate_uuid
-from ...interfaces import PyTestFlyExitCode, PytestProcessInfo, RunMode, ScheduledTest, TestOrder
+from ...interfaces import PyTestFlyExitCode, RunMode, ScheduledTest, TestOrder
 from ...logger import get_logger
 from ...preferences import ParallelismControl, get_pref
 from ...pytest_runner.coverage import compute_per_test_coverage
@@ -120,16 +120,19 @@ class ControlWindow(QGroupBox):
         all_node_ids = {t.node_id for t in tests}
         tests = self._filter_for_resume(tests, prior_results, pref)
 
-        # In RESUME mode, write DB records for previously-passed tests so they
-        # appear in all GUI tabs (table, graph, status) alongside the re-run tests.
+        # In RESUME mode, copy the complete prior-run records for previously-passed
+        # tests into the current run so they appear in all GUI tabs (table, graph,
+        # status) with their original data (runtime, CPU, memory, output, etc.).
         if pref.run_mode == RunMode.RESUME:
             skipped_node_ids = all_node_ids - {t.node_id for t in tests}
             if skipped_node_ids:
-                now = time.time()
+                prior_by_name = {}
+                for r in prior_results:
+                    prior_by_name.setdefault(r.name, []).append(r)
                 with PytestProcessInfoDB(self.data_dir) as db:
                     for node_id in sorted(skipped_node_ids):
-                        info = PytestProcessInfo(run_guid=self.run_guid, name=node_id, pid=None, exit_code=PyTestFlyExitCode.OK, output=None, time_stamp=now)
-                        db.write(info)
+                        for record in prior_by_name.get(node_id, []):
+                            db.write(replace(record, run_guid=self.run_guid))
 
         # Reorder so previously-failed tests run first (within their singleton group)
         tests = self._reorder_failed_first(tests, prior_results)

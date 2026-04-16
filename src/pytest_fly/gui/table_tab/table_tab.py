@@ -110,7 +110,11 @@ class TableTab(QGroupBox):
             if item_row >= 0 and item_col >= 0:
                 item = self.table_widget.item(item_row, item_col)
             if item is not None:
-                tooltip = item.toolTip()
+                try:
+                    tooltip = item.toolTip()
+                except RuntimeError:
+                    return  # item's C++ object was deleted between retrieval and access
+
                 # fallback to ItemDataRole if toolTip() is empty
                 if not tooltip:
                     tooltip = item.data(Qt.ItemDataRole.ToolTipRole) or ""

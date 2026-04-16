@@ -51,6 +51,23 @@ Home = "https://github.com/jamesabel/pytest-fly"
 Repository = "https://github.com/jamesabel/pytest-fly"
 Documentation = "https://github.com/jamesabel/pytest-fly#readme"
 
+[dependency-groups]
+dev = [
+    "ruff",
+    "ty",
+    "pre-commit",
+    "pytest-qt",
+    "pytest-pycharm",
+    "pytest-cov",
+    "pytest-xdist",
+    "pytest-benchmark",
+    "pytest-rerunfailures",
+    "pytest-randomly",
+    "flit",
+    "hatch",
+    "pip-tools",
+]
+
 [tool.ruff]
 line-length = 192
 

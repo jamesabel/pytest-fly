@@ -17,7 +17,7 @@ from ..db import PytestProcessInfoDB
 from ..file_util import sanitize_test_name
 from ..gui.about_tab.about import About
 from ..gui.configuration_tab.configuration import Configuration
-from ..interfaces import PytestRunnerState, RunMode
+from ..interfaces import PyTestFlyExitCode, PytestRunnerState, RunMode
 from ..logger import get_logger
 from ..preferences import get_pref
 from ..pytest_runner.coverage import calculate_coverage
@@ -49,6 +49,12 @@ def build_tick_data(process_infos: list, prior_durations: dict[str, float] | Non
     min_ts, max_ts = compute_time_window(process_infos)
     min_ts_s, max_ts_s = compute_time_window(process_infos, require_pid=True)
 
+    # Earliest QUEUED record timestamp — identifies when the current session
+    # started.  Copied prior-run records (from RESUME mode) never have
+    # exit_code == NONE, so this cleanly excludes them.
+    queued_timestamps = [info.time_stamp for info in process_infos if info.exit_code == PyTestFlyExitCode.NONE]
+    current_run_start = min(queued_timestamps) if queued_timestamps else None
+
     return TickData(
         process_infos=process_infos,
         infos_by_name=infos_by_name,
@@ -60,6 +66,7 @@ def build_tick_data(process_infos: list, prior_durations: dict[str, float] | Non
         prior_durations=prior_durations if prior_durations is not None else {},
         num_processes=num_processes,
         average_parallelism=compute_average_parallelism(infos_by_name),
+        current_run_start=current_run_start,
     )
 
 

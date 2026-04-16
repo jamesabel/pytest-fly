@@ -124,7 +124,7 @@ class PytestProgressBar(QWidget):
 
             bar_color = pytest_run_state.get_qt_bar_color()
 
-            if pytest_run_state.get_state() not in (PytestRunnerState.QUEUED, PytestRunnerState.STOPPED) and start_running_time is not None:
+            if pytest_run_state.get_state() not in (PytestRunnerState.QUEUED, PytestRunnerState.STOPPED) and start_running_time is not None and end_time >= self.min_time_stamp:
                 seconds_from_start = start_running_time - self.min_time_stamp
                 x1 = (seconds_from_start * horizontal_pixels_per_second) + self.bar_margin
                 y1 = outer_rect.y() + self.bar_margin

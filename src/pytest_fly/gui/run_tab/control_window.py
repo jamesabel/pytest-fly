@@ -5,6 +5,7 @@ Houses the run-preparation logic: test discovery, RESUME filtering,
 failed-first reordering, and coverage-efficiency ordering.
 """
 
+import time
 from dataclasses import replace
 from pathlib import Path
 
@@ -71,6 +72,7 @@ class ControlWindow(QGroupBox):
         self.prior_durations: dict[str, float] = {}
         self.num_processes: int = 1
         self._soft_stop_requested: bool = False
+        self.current_run_start: float | None = None
 
         self.set_fixed_width()  # calculate and set the widget width
 
@@ -105,6 +107,11 @@ class ControlWindow(QGroupBox):
         pref = get_pref()
         refresh_rate = pref.refresh_rate
         self.run_guid = generate_uuid()
+        # Capture start time before any prior records are copied so the graph
+        # time axis can use it as the origin, rather than trying to infer it
+        # from DB records (copied RESUME records also have exit_code == NONE,
+        # which made the DB-derived origin fall back to a prior-run timestamp).
+        self.current_run_start = time.time()
 
         if self.pytest_runner is not None and self.pytest_runner.is_running():
             self.pytest_runner.stop()

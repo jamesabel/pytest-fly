@@ -1,3 +1,4 @@
+import time
 from pathlib import Path
 
 from PySide6.QtCore import Qt
@@ -6,7 +7,7 @@ from typeguard import typechecked
 
 from ...db import PytestProcessInfoDB
 from ...guid import generate_uuid
-from ...interfaces import PyTestFlyExitCode, RunMode, ScheduledTest, TestOrder
+from ...interfaces import PyTestFlyExitCode, PytestProcessInfo, RunMode, ScheduledTest, TestOrder
 from ...logger import get_logger
 from ...preferences import ParallelismControl, get_pref
 from ...pytest_runner.coverage import compute_per_test_coverage
@@ -116,7 +117,19 @@ class ControlWindow(QGroupBox):
             prior_results = db.query()  # most recent run
             last_pass_data = db.query_last_pass()  # most recent passing run per test
 
+        all_node_ids = {t.node_id for t in tests}
         tests = self._filter_for_resume(tests, prior_results, pref)
+
+        # In RESUME mode, write DB records for previously-passed tests so they
+        # appear in all GUI tabs (table, graph, status) alongside the re-run tests.
+        if pref.run_mode == RunMode.RESUME:
+            skipped_node_ids = all_node_ids - {t.node_id for t in tests}
+            if skipped_node_ids:
+                now = time.time()
+                with PytestProcessInfoDB(self.data_dir) as db:
+                    for node_id in sorted(skipped_node_ids):
+                        info = PytestProcessInfo(run_guid=self.run_guid, name=node_id, pid=None, exit_code=PyTestFlyExitCode.OK, output=None, time_stamp=now)
+                        db.write(info)
 
         # Reorder so previously-failed tests run first (within their singleton group)
         tests = self._reorder_failed_first(tests, prior_results)

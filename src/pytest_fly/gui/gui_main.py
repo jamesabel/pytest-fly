@@ -4,6 +4,7 @@ import time
 from pathlib import Path
 
 from PySide6.QtCore import QCoreApplication, QRect, QTimer
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QApplication,
     QMainWindow,
@@ -103,6 +104,12 @@ class FlyAppMainWindow(QMainWindow):
         self.setGeometry(restore_rect)
 
         self.setWindowTitle(application_name)
+
+        icon_path = Path(__file__).parent / "icons" / "app_icon.ico"
+        if icon_path.exists():
+            app_icon = QIcon(str(icon_path))
+            self.setWindowIcon(app_icon)
+            QApplication.instance().setWindowIcon(app_icon)
 
         # add tab windows
         self.tab_widget = QTabWidget()

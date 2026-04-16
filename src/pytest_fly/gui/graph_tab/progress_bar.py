@@ -6,7 +6,7 @@ execution timeline with change-detection optimization to skip unnecessary repain
 import time
 
 from PySide6.QtCore import QPointF, QRectF
-from PySide6.QtGui import QBrush, QGuiApplication, QPainter, QPalette, QPen
+from PySide6.QtGui import QBrush, QGuiApplication, QPainter, QPen
 from PySide6.QtWidgets import QMenu, QToolTip, QVBoxLayout, QWidget
 from typeguard import typechecked
 
@@ -14,8 +14,8 @@ from ...colors import GRID_LINE_COLOR
 from ...interfaces import PytestProcessInfo, PytestRunnerState
 from ...logger import get_logger
 from ...pytest_runner.pytest_runner import PytestRunState
-from ..gui_util import get_text_dimensions, tool_tip_limiter
-from .time_axis import compute_grid_ticks
+from ..gui_util import get_text_dimensions, tool_tip_limiter, window_text_color
+from .time_axis import TimeAxisMapping, compute_grid_ticks
 
 log = get_logger()
 
@@ -124,16 +124,14 @@ class PytestProgressBar(QWidget):
             bar_text = f"{pytest_run_state.get_name()} - {pytest_run_state.get_string()}"
 
             outer_rect = self.rect()
-            overall_time_window = max(self.max_time_stamp - self.min_time_stamp, 1)
-            horizontal_pixels_per_second = outer_rect.width() / overall_time_window
+            mapping = TimeAxisMapping(min_ts=self.min_time_stamp, max_ts=self.max_time_stamp, width_pixels=outer_rect.width())
 
             bar_color = pytest_run_state.get_qt_bar_color()
 
             if pytest_run_state.get_state() not in (PytestRunnerState.QUEUED, PytestRunnerState.STOPPED) and start_running_time is not None and end_time >= self.min_time_stamp:
-                seconds_from_start = start_running_time - self.min_time_stamp
-                x1 = (seconds_from_start * horizontal_pixels_per_second) + self.bar_margin
+                x1 = mapping.ts_to_x(start_running_time) + self.bar_margin
                 y1 = outer_rect.y() + self.bar_margin
-                w = ((end_time - start_running_time) * horizontal_pixels_per_second) - (2 * self.bar_margin)
+                w = mapping.elapsed_to_x(end_time - start_running_time) - (2 * self.bar_margin)
                 h = self.one_character_dimensions.height()
                 painter.setPen(QPen(bar_color, 1))
                 bar_rect = QRectF(x1, y1, w, h)
@@ -150,9 +148,7 @@ class PytestProgressBar(QWidget):
             text_left_margin = self.one_character_dimensions.width()
             text_y_margin = int(round((0.5 * self.one_character_dimensions.height() + self.bar_margin + 1)))
 
-            palette = self.palette()
-            text_color = palette.color(QPalette.WindowText)
-            painter.setPen(QPen(text_color, 1))
+            painter.setPen(QPen(window_text_color(self), 1))
             painter.drawText(outer_rect.x() + text_left_margin, outer_rect.y() + text_y_margin, bar_text)
 
             painter.end()

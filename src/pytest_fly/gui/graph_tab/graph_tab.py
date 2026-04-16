@@ -37,9 +37,7 @@ class GraphTab(QGroupBox):
     def update_tick(self, tick: TickData) -> None:
         """Refresh the time axis and all progress bars from pre-computed tick data."""
 
-        # Use current_run_start as the effective graph origin so that copied
-        # prior-run records (from RESUME mode) don't stretch the time axis.
-        effective_min = tick.current_run_start if tick.current_run_start is not None else tick.min_time_stamp
+        effective_min = tick.effective_min_time_stamp
 
         self.time_axis.update_time_window(effective_min, tick.max_time_stamp)
 

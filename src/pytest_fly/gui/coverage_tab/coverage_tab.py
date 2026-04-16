@@ -3,14 +3,14 @@ Coverage tab — displays a step-function line chart of combined code coverage o
 """
 
 from PySide6.QtCore import QPointF, Qt
-from PySide6.QtGui import QBrush, QPainter, QPalette, QPen, QPolygonF
+from PySide6.QtGui import QBrush, QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import QGroupBox, QSizePolicy, QVBoxLayout, QWidget
 
 from ...colors import COVERAGE_FILL_COLOR, COVERAGE_LINE_COLOR, GRID_LINE_COLOR
 from ...interfaces import PytestRunnerState
 from ...tick_data import TickData
-from ..graph_tab.time_axis import compute_grid_ticks
-from ..gui_util import count_test_states, get_text_dimensions
+from ..graph_tab.time_axis import TimeAxisMapping, compute_grid_ticks
+from ..gui_util import count_test_states, get_text_dimensions, window_text_color
 
 # Horizontal grid lines at these percentages
 _Y_GRID_PCTS = [0.25, 0.50, 0.75, 1.00]
@@ -55,8 +55,7 @@ class _CoverageChart(QWidget):
             painter.end()
             return
 
-        palette = self.palette()
-        text_color = palette.color(QPalette.WindowText)
+        text_color = window_text_color(self)
 
         # Draw Y-axis labels and horizontal grid lines
         painter.setPen(QPen(GRID_LINE_COLOR, 1))
@@ -93,11 +92,10 @@ class _CoverageChart(QWidget):
             painter.end()
             return
 
-        time_window = max(self._max_ts - self._min_ts, 1.0)
-        px_per_sec = chart_w / time_window
+        mapping = TimeAxisMapping(min_ts=self._min_ts, max_ts=self._max_ts, width_pixels=chart_w)
 
         def to_pixel(ts: float, pct: float) -> tuple[int, int]:
-            x = margin_left + int((ts - self._min_ts) * px_per_sec)
+            x = margin_left + int(mapping.ts_to_x(ts))
             y = margin_top + int(chart_h * (1.0 - pct))
             return x, y
 
@@ -167,4 +165,4 @@ class CoverageTab(QGroupBox):
         else:
             status_text = ""
 
-        self.chart.update_data(tick.coverage_history, tick.min_time_stamp, tick.max_time_stamp, status_text, tick.covered_lines, tick.total_lines)
+        self.chart.update_data(tick.coverage_history, tick.effective_min_time_stamp, tick.max_time_stamp, status_text, tick.covered_lines, tick.total_lines)

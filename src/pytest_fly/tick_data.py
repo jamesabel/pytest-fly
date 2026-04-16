@@ -35,3 +35,10 @@ class TickData:
     current_run_start: float | None = None  # wall-clock timestamp captured when Run was pressed; used as the graph time-axis origin
     last_pass_data: dict[str, tuple[float, float]] = field(default_factory=dict)  # test_name -> (start_timestamp, duration_seconds) from most recent passing run
     soft_stop_requested: bool = False
+
+    @property
+    def effective_min_time_stamp(self) -> float | None:
+        """Graph time-axis origin: prefer the explicit run-start timestamp so copied
+        prior-run records (RESUME mode) don't stretch the axis; otherwise fall back
+        to the earliest observed record timestamp."""
+        return self.current_run_start if self.current_run_start is not None else self.min_time_stamp

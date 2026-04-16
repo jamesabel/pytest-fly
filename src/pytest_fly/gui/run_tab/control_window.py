@@ -162,9 +162,13 @@ class ControlWindow(QGroupBox):
         :param pref: User preferences object.
         :return: Filtered list of tests.
         """
+        original_count = len(tests)
         if pref.run_mode == RunMode.RESUME:
             passed = {r.name for r in prior_results if r.exit_code == PyTestFlyExitCode.OK}
             tests = [t for t in tests if t.node_id not in passed]
+            log.info(f"RESUME filter: {original_count} discovered, {len(passed)} passed in prior run, {len(tests)} to re-run")
+        else:
+            log.info(f"run_mode={pref.run_mode!r} (not RESUME), skipping filter — all {original_count} tests will run")
         return tests
 
     def _reorder_failed_first(self, tests, prior_results):

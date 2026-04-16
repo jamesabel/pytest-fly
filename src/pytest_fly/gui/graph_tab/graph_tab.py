@@ -51,11 +51,12 @@ class GraphTab(QGroupBox):
         # Create or update bars
         for test_name, infos in tick.infos_by_name.items():
             run_state = tick.run_states[test_name]
+            is_singleton = test_name in tick.singleton_names
             if test_name in self.progress_bars:
                 progress_bar = self.progress_bars[test_name]
-                progress_bar.update_pytest_process_info(infos, effective_min, tick.max_time_stamp, run_state)
+                progress_bar.update_pytest_process_info(infos, effective_min, tick.max_time_stamp, run_state, is_singleton)
             else:
-                progress_bar = PytestProgressBar(infos, effective_min, tick.max_time_stamp, run_state)
+                progress_bar = PytestProgressBar(infos, effective_min, tick.max_time_stamp, run_state, is_singleton)
                 self.progress_bars[test_name] = progress_bar
 
         # Ensure layout order matches tick.infos_by_name order (same as table tab)

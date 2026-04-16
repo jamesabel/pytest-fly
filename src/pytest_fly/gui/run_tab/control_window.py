@@ -73,6 +73,7 @@ class ControlWindow(QGroupBox):
         self.num_processes: int = 1
         self._soft_stop_requested: bool = False
         self.current_run_start: float | None = None
+        self.singleton_names: set[str] = set()
 
         self.set_fixed_width()  # calculate and set the widget width
 
@@ -148,8 +149,11 @@ class ControlWindow(QGroupBox):
                         for record in prior_by_name.get(node_id, []):
                             db.write(replace(record, run_guid=self.run_guid))
 
-        # Reorder so previously-failed tests run first (within their singleton group)
-        tests = self._reorder_failed_first(tests, prior_results)
+        # Reorder so previously-failed tests run first (within their singleton group).
+        # RESTART means "start over" — ignore prior results entirely so execution order
+        # matches the alphabetical table display.
+        if pref.run_mode != RunMode.RESTART:
+            tests = self._reorder_failed_first(tests, prior_results)
 
         # Use last-pass durations for ETA estimation (from the most recent passing run)
         self.prior_durations = {name: duration for name, (_, duration) in last_pass_data.items()}
@@ -159,6 +163,8 @@ class ControlWindow(QGroupBox):
         if pref.test_order == TestOrder.COVERAGE:
             tests = self._apply_coverage_order(tests)
             tests.sort()
+
+        self.singleton_names = {t.node_id for t in tests if t.singleton}
 
         self.pytest_runner = PytestRunner(self.run_guid, tests, processes, self.data_dir, refresh_rate)
         self.pytest_runner.start()

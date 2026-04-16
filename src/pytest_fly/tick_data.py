@@ -35,6 +35,7 @@ class TickData:
     current_run_start: float | None = None  # wall-clock timestamp captured when Run was pressed; used as the graph time-axis origin
     last_pass_data: dict[str, tuple[float, float]] = field(default_factory=dict)  # test_name -> (start_timestamp, duration_seconds) from most recent passing run
     soft_stop_requested: bool = False
+    singleton_names: set[str] = field(default_factory=set)  # node_ids of tests marked with @pytest.mark.singleton — displayed last in test-listing tabs
 
     @property
     def effective_min_time_stamp(self) -> float | None:

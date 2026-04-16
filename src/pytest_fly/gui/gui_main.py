@@ -37,12 +37,22 @@ from .table_tab import TableTab
 log = get_logger()
 
 
-def build_tick_data(process_infos: list, prior_durations: dict[str, float] | None = None, num_processes: int = 1, current_run_start: float | None = None) -> TickData:
+def build_tick_data(
+    process_infos: list,
+    prior_durations: dict[str, float] | None = None,
+    num_processes: int = 1,
+    current_run_start: float | None = None,
+    singleton_names: set[str] | None = None,
+) -> TickData:
     """
     Build a :class:`TickData` bundle from a flat list of process info records.
 
     Performs grouping, time-window computation, and run-state construction
     once so that all tabs can share the pre-computed results.
+
+    ``infos_by_name`` and ``run_states`` are ordered alphabetically by test name
+    with singleton tests last, so all tabs that iterate these dicts render in
+    the same order (matching the runner's execution order).
 
     :param process_infos: Flat list of :class:`PytestProcessInfo` objects from the DB.
     :param prior_durations: Optional mapping of test name to prior run duration (seconds), used for ETA.
@@ -51,10 +61,15 @@ def build_tick_data(process_infos: list, prior_durations: dict[str, float] | Non
         as the graph time-axis origin.  Passed in explicitly because RESUME mode copies prior-run
         records (including their original QUEUED records with ``exit_code == NONE``), so the origin
         cannot be derived reliably from DB records alone.
+    :param singleton_names: Node ids of tests marked ``@pytest.mark.singleton``; these are sorted
+        last in the output dicts to match the runner's end-of-queue placement.
     :return: A fully populated :class:`TickData` instance.
     """
-    infos_by_name = group_process_infos_by_name(process_infos)
-    run_states = {name: PytestRunState(infos) for name, infos in infos_by_name.items()}
+    singletons = singleton_names if singleton_names is not None else set()
+    grouped = group_process_infos_by_name(process_infos)
+    ordered_names = sorted(grouped, key=lambda n: (n in singletons, n))
+    infos_by_name = {name: grouped[name] for name in ordered_names}
+    run_states = {name: PytestRunState(infos_by_name[name]) for name in ordered_names}
     min_ts, max_ts = compute_time_window(process_infos)
     min_ts_s, max_ts_s = compute_time_window(process_infos, require_pid=True)
 
@@ -70,6 +85,7 @@ def build_tick_data(process_infos: list, prior_durations: dict[str, float] | Non
         num_processes=num_processes,
         average_parallelism=compute_average_parallelism(infos_by_name),
         current_run_start=current_run_start,
+        singleton_names=singletons,
     )
 
 
@@ -190,6 +206,7 @@ class FlyAppMainWindow(QMainWindow):
             prior_durations=control.prior_durations,
             num_processes=control.num_processes,
             current_run_start=control.current_run_start,
+            singleton_names=control.singleton_names,
         )
         tick.last_pass_data = last_pass_data
         tick.soft_stop_requested = control._soft_stop_requested

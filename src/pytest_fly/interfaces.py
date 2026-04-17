@@ -126,6 +126,7 @@ class PutVersionInfo:
     git_branch: str | None
     git_dirty: bool | None  # True if working tree has uncommitted changes
     project_root: str  # absolute path used for detection
+    author: str | None = None  # first author listed in pyproject.toml or setup.cfg, if any
 
     def fingerprint(self) -> str:
         """Stable string for equality comparison in :attr:`RunMode.CHECK`.

@@ -22,7 +22,7 @@ refresh_rate_default = 3.0
 utilization_high_threshold_default = 0.8
 utilization_low_threshold_default = 0.5
 run_with_coverage_default = True
-tooltip_line_limit_default = 200  # max lines shown in pytest-output tooltips before truncation
+tooltip_line_limit_default = 40  # max lines shown in pytest-output tooltips before truncation
 
 
 class ParallelismControl(IntEnum):

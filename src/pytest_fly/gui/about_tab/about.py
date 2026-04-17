@@ -7,6 +7,7 @@ import humanize
 from PySide6.QtCore import QObject, QThread, Signal
 from PySide6.QtWidgets import QSizePolicy, QVBoxLayout, QWidget
 
+from pytest_fly.gui.about_tab.project_info import get_project_info
 from pytest_fly.gui.gui_util import PlainTextWidget
 from pytest_fly.logger import get_log_directory
 from pytest_fly.platform.platform_info import get_performance_core_count, get_platform_info
@@ -16,6 +17,9 @@ from pytest_fly.put_version import detect_put_version
 # Preferred display order for Program Under Test fields; any fields not listed
 # here are appended in dataclass declaration order.
 _PUT_FIELD_ORDER = ("name", "version", "author", "source", "git_describe", "git_sha", "git_branch", "git_dirty", "project_root")
+
+# Display order for pytest-fly's own metadata fields.
+_PYTEST_FLY_FIELD_ORDER = ("name", "version", "description", "author", "license", "home_url", "repository_url")
 
 
 class AboutDataWorker(QObject):
@@ -27,6 +31,23 @@ class AboutDataWorker(QObject):
 
     def run(self):
         text_lines = []
+
+        fly_info = get_project_info()
+        fly_fields = {
+            "name": fly_info.application_name,
+            "version": fly_info.version,
+            "description": fly_info.description,
+            "author": fly_info.author,
+            "license": fly_info.license,
+            "home_url": fly_info.home_url,
+            "repository_url": fly_info.repository_url,
+        }
+        text_lines.append("pytest-fly:")
+        for key in _PYTEST_FLY_FIELD_ORDER:
+            value = fly_fields.get(key)
+            if value:
+                text_lines.append(f"    {key}: {value}")
+        text_lines.append("")
 
         pref = get_pref()
         project_root = Path(pref.target_project_path).resolve() if pref.target_project_path else Path.cwd()

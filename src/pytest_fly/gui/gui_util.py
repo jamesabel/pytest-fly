@@ -227,6 +227,10 @@ def tool_tip_limiter(text: str | None, line_limit: int | None = None) -> str:
         line_limit = get_pref().tooltip_line_limit
     source = _extract_pytest_failure_section(text) or text
     lines = source.splitlines()
+    # Trailing whitespace-only lines would otherwise dominate the tooltip — stripping them
+    # here keeps the line-limit budget spent on meaningful content.
+    while lines and not lines[-1].strip():
+        lines.pop()
     if len(lines) > line_limit:
-        return "...\n" + "\n".join(lines[len(lines) - line_limit :])
-    return source
+        return "...\n" + "\n".join(lines[-line_limit:])
+    return "\n".join(lines)

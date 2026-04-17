@@ -15,7 +15,7 @@ class FailedTestsWindow(QGroupBox):
         self.setTitle("Failed Tests")
         layout = QVBoxLayout()
         self.setLayout(layout)
-        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
 
         self._failed_names: list[str] = []
 

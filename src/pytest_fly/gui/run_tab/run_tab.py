@@ -23,7 +23,6 @@ class RunTab(QWidget):
         super().__init__(parent)
 
         outer_layout = QVBoxLayout()
-        outer_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         self.setLayout(outer_layout)
 
         top_layout = QHBoxLayout()
@@ -42,8 +41,7 @@ class RunTab(QWidget):
         top_layout.addStretch()
 
         outer_layout.addLayout(top_layout)
-        outer_layout.addWidget(self.failed_tests_window, alignment=Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
-        outer_layout.addStretch()
+        outer_layout.addWidget(self.failed_tests_window, stretch=1)
 
     def update_tick(self, tick: TickData):
         """Forward pre-computed tick data to the status window, failed tests pane, and control panel."""

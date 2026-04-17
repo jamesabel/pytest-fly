@@ -88,12 +88,23 @@ class PytestRunner(Thread):
     """
 
     @typechecked()
-    def __init__(self, run_guid: str, tests: list[ScheduledTest], number_of_processes: int, data_dir: Path, update_rate: float):
+    def __init__(
+        self,
+        run_guid: str,
+        tests: list[ScheduledTest],
+        number_of_processes: int,
+        data_dir: Path,
+        update_rate: float,
+        put_version: str = "",
+        put_fingerprint: str = "",
+    ):
         self.run_guid = run_guid
         self.tests = tests
         self.number_of_processes = number_of_processes
         self.data_dir = data_dir
         self.update_rate = update_rate
+        self.put_version = put_version
+        self.put_fingerprint = put_fingerprint
 
         self._test_runners = {}
         self._started_event = Event()
@@ -108,7 +119,16 @@ class PytestRunner(Thread):
         with PytestProcessInfoDB(self.data_dir) as db:
             for test in self.tests:
                 test_queue.put(test)
-                pytest_process_info = PytestProcessInfo(self.run_guid, test.node_id, None, PyTestFlyExitCode.NONE, None, time_stamp=time.time())  # queued
+                pytest_process_info = PytestProcessInfo(
+                    self.run_guid,
+                    test.node_id,
+                    None,
+                    PyTestFlyExitCode.NONE,
+                    None,
+                    time_stamp=time.time(),
+                    put_version=self.put_version,
+                    put_fingerprint=self.put_fingerprint,
+                )  # queued
                 db.write(pytest_process_info)
 
         # Singleton enforcement primitives (shared across all workers)
@@ -120,7 +140,18 @@ class PytestRunner(Thread):
         all_idle_event.set()  # no workers active initially
 
         for thread_number in range(self.number_of_processes):
-            test_runner = _TestRunner(self.run_guid, test_queue, self.data_dir, self.update_rate, singleton_event, active_count_lock, active_workers, all_idle_event)
+            test_runner = _TestRunner(
+                self.run_guid,
+                test_queue,
+                self.data_dir,
+                self.update_rate,
+                singleton_event,
+                active_count_lock,
+                active_workers,
+                all_idle_event,
+                put_version=self.put_version,
+                put_fingerprint=self.put_fingerprint,
+            )
             test_runner.start()
             self._test_runners[thread_number] = test_runner
         self._started_event.set()
@@ -194,6 +225,8 @@ class _TestRunner(Thread):
         active_count_lock: Lock,
         active_workers: list,
         all_idle_event: Event,
+        put_version: str = "",
+        put_fingerprint: str = "",
     ) -> None:
         """
         :param run_guid: GUID identifying the overall test run.
@@ -211,6 +244,8 @@ class _TestRunner(Thread):
         self.pytest_test_queue = pytest_test_queue
         self.data_dir = data_dir
         self.update_rate = update_rate
+        self.put_version = put_version
+        self.put_fingerprint = put_fingerprint
 
         self.process: Optional[PytestProcess] = None
         self._stop_event = Event()
@@ -265,7 +300,16 @@ class _TestRunner(Thread):
         if not proc.is_alive():
             log.info(f'process for test "{proc_name}" terminated ({self.run_guid=})')
             with PytestProcessInfoDB(self.data_dir) as db:
-                info = PytestProcessInfo(self.run_guid, test, None, PyTestFlyExitCode.TERMINATED, None, time_stamp=time.time())
+                info = PytestProcessInfo(
+                    self.run_guid,
+                    test,
+                    None,
+                    PyTestFlyExitCode.TERMINATED,
+                    None,
+                    time_stamp=time.time(),
+                    put_version=self.put_version,
+                    put_fingerprint=self.put_fingerprint,
+                )
                 db.write(info)
         else:
             self._force_kill_process(proc, proc_name)
@@ -319,7 +363,7 @@ class _TestRunner(Thread):
 
         self._increment_active()
         try:
-            self.process = PytestProcess(self.run_guid, test, self.data_dir, self.update_rate)
+            self.process = PytestProcess(self.run_guid, test, self.data_dir, self.update_rate, self.put_version, self.put_fingerprint)
             log.info(f'Starting process for test "{test}" ({self.run_guid=})')
             self.process.start()
 
@@ -409,5 +453,14 @@ class _TestRunner(Thread):
                     scheduled_test = self.pytest_test_queue.get(False)
                 except Empty:
                     break
-                info = PytestProcessInfo(self.run_guid, scheduled_test.node_id, None, PyTestFlyExitCode.STOPPED, None, time_stamp=time.time())
+                info = PytestProcessInfo(
+                    self.run_guid,
+                    scheduled_test.node_id,
+                    None,
+                    PyTestFlyExitCode.STOPPED,
+                    None,
+                    time_stamp=time.time(),
+                    put_version=self.put_version,
+                    put_fingerprint=self.put_fingerprint,
+                )
                 db.write(info)

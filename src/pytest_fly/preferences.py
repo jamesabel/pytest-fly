@@ -57,6 +57,8 @@ class FlyPreferences(Pref):
 
     tooltip_line_limit: int = attrib(default=tooltip_line_limit_default)  # max lines of pytest output shown in a tooltip before truncation
 
+    target_project_path: str = attrib(default="")  # absolute path to the program under test; empty means auto-detect from cwd at run time
+
 
 def get_pref() -> FlyPreferences:
     """Return a :class:`FlyPreferences` instance (reads from / auto-saves to disk)."""

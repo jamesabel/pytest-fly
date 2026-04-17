@@ -38,7 +38,18 @@ class PytestProcessInfoDB(MSQLite):
         self._columns = []
         # fake to fill out all the fields since the underlying data structure is a dataclass
         # use concrete non-None values for optional fields so the schema maps to the correct SQLite types
-        dummy_pytest_process_info = PytestProcessInfo(run_guid="", name="", pid=0, exit_code=PyTestFlyExitCode.NONE, output="", time_stamp=0.0, cpu_percent=0.0, memory_percent=0.0)
+        dummy_pytest_process_info = PytestProcessInfo(
+            run_guid="",
+            name="",
+            pid=0,
+            exit_code=PyTestFlyExitCode.NONE,
+            output="",
+            time_stamp=0.0,
+            cpu_percent=0.0,
+            memory_percent=0.0,
+            put_version="",
+            put_fingerprint="",
+        )
         for column, value in asdict(dummy_pytest_process_info).items():
             # "equivalent" SQLite types
             if isinstance(value, IntEnum):

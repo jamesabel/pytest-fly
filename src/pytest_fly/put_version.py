@@ -50,19 +50,21 @@ def detect_put_version(project_root: Path | None = None, override: PutVersionInf
 
     root = (project_root or Path.cwd()).resolve()
 
-    name, version, source = None, None, "unknown"
+    name, version, author, source = None, None, None, "unknown"
 
-    pyproject_name, pyproject_version, pyproject_root = _read_pyproject(root)
+    pyproject_name, pyproject_version, pyproject_author, pyproject_root = _read_pyproject(root)
     if pyproject_name is not None or pyproject_version is not None:
         name, version, source = pyproject_name, pyproject_version, "pyproject"
+        author = pyproject_author
         if pyproject_root is not None:
             root = pyproject_root
 
     if version is None:
-        cfg_name, cfg_version, cfg_root = _read_setup_cfg(root)
+        cfg_name, cfg_version, cfg_author, cfg_root = _read_setup_cfg(root)
         if cfg_name is not None or cfg_version is not None:
             name = name or cfg_name
             version = cfg_version
+            author = author or cfg_author
             source = "setup.cfg"
             if cfg_root is not None:
                 root = cfg_root
@@ -84,6 +86,7 @@ def detect_put_version(project_root: Path | None = None, override: PutVersionInf
         git_branch=git_branch,
         git_dirty=git_dirty,
         project_root=str(root),
+        author=author,
     )
 
 
@@ -103,17 +106,17 @@ def _walk_up_for_file(start: Path, filename: str) -> Path | None:
     return None
 
 
-def _read_pyproject(start: Path) -> tuple[str | None, str | None, Path | None]:
-    """Return ``(name, version_or_None_if_dynamic, project_root)`` from the nearest ``pyproject.toml``."""
+def _read_pyproject(start: Path) -> tuple[str | None, str | None, str | None, Path | None]:
+    """Return ``(name, version_or_None_if_dynamic, author, project_root)`` from the nearest ``pyproject.toml``."""
     project_dir = _walk_up_for_file(start, "pyproject.toml")
     if project_dir is None:
-        return None, None, None
+        return None, None, None, None
     try:
         with open(project_dir / "pyproject.toml", "rb") as f:
             data = tomllib.load(f)
     except (OSError, tomllib.TOMLDecodeError) as e:
         log.debug(f"could not parse pyproject.toml at {project_dir}: {e}")
-        return None, None, project_dir
+        return None, None, None, project_dir
 
     project = data.get("project", {}) or {}
     name = project.get("name")
@@ -126,29 +129,39 @@ def _read_pyproject(start: Path) -> tuple[str | None, str | None, Path | None]:
         name = None
     if not isinstance(version, str):
         version = None
-    return name, version, project_dir
+    authors = project.get("authors") or []
+    author: str | None = None
+    if isinstance(authors, list):
+        for entry in authors:
+            if isinstance(entry, dict):
+                candidate = entry.get("name") or entry.get("email")
+                if isinstance(candidate, str) and candidate:
+                    author = candidate
+                    break
+    return name, version, author, project_dir
 
 
-def _read_setup_cfg(start: Path) -> tuple[str | None, str | None, Path | None]:
-    """Return ``(name, version, project_root)`` from the nearest ``setup.cfg``."""
+def _read_setup_cfg(start: Path) -> tuple[str | None, str | None, str | None, Path | None]:
+    """Return ``(name, version, author, project_root)`` from the nearest ``setup.cfg``."""
     project_dir = _walk_up_for_file(start, "setup.cfg")
     if project_dir is None:
-        return None, None, None
+        return None, None, None, None
     parser = configparser.ConfigParser()
     try:
         parser.read(project_dir / "setup.cfg", encoding="utf-8")
     except (OSError, configparser.Error) as e:
         log.debug(f"could not parse setup.cfg at {project_dir}: {e}")
-        return None, None, project_dir
+        return None, None, None, project_dir
     if not parser.has_section("metadata"):
-        return None, None, project_dir
+        return None, None, None, project_dir
     name = parser.get("metadata", "name", fallback=None)
     version = parser.get("metadata", "version", fallback=None)
     # setup.cfg can reference a file or attr for version; if it starts with "file:" / "attr:"
     # we can't resolve it without executing setup.py, so treat as missing.
     if version and version.strip().startswith(("file:", "attr:")):
         version = None
-    return name, version, project_dir
+    author = parser.get("metadata", "author", fallback=None) or parser.get("metadata", "author_email", fallback=None)
+    return name, version, author, project_dir
 
 
 def _importlib_metadata_version(name: str) -> str | None:

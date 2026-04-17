@@ -10,7 +10,7 @@ tests in parallel via :class:`PytestProcess` subprocesses.
 import time
 from pathlib import Path
 from queue import Empty, Queue
-from threading import Event, Lock, Thread
+from threading import Condition, Event, Thread
 from typing import Optional
 
 from PySide6.QtGui import QColor
@@ -131,13 +131,7 @@ class PytestRunner(Thread):
                 )  # queued
                 db.write(pytest_process_info)
 
-        # Singleton enforcement primitives (shared across all workers)
-        singleton_event = Event()
-        singleton_event.set()  # parallel execution allowed initially
-        active_count_lock = Lock()
-        active_workers = [0]  # mutable counter shared by reference
-        all_idle_event = Event()
-        all_idle_event.set()  # no workers active initially
+        coordinator = _SingletonCoordinator()
 
         for thread_number in range(self.number_of_processes):
             test_runner = _TestRunner(
@@ -145,10 +139,7 @@ class PytestRunner(Thread):
                 test_queue,
                 self.data_dir,
                 self.update_rate,
-                singleton_event,
-                active_count_lock,
-                active_workers,
-                all_idle_event,
+                coordinator,
                 put_version=self.put_version,
                 put_fingerprint=self.put_fingerprint,
             )
@@ -207,6 +198,66 @@ class PytestRunner(Thread):
         log.warning(f'force stop: no running process found for test "{test_name}" ({self.run_guid=})')
 
 
+class _SingletonCoordinator:
+    """
+    Serializes singleton tests against all other worker threads.
+
+    A *singleton* must run exclusively — no other workers executing.  A
+    *normal* test may run in parallel with any number of other normal tests.
+
+    The slot counter and exclusion flag live under a single
+    :class:`threading.Condition` so check-and-claim is atomic.  Waiting
+    singletons block new normal acquisitions, preventing starvation.
+
+    Acquires are poll-interruptible via *stop_predicate* so a worker can
+    abandon its wait when a stop has been requested.
+    """
+
+    def __init__(self) -> None:
+        self._cond = Condition()
+        self._active = 0
+        self._singleton_running = False
+        self._singleton_waiters = 0
+
+    def acquire_normal(self, stop_predicate, poll_interval: float) -> bool:
+        """Claim a non-exclusive slot.  Returns ``False`` if *stop_predicate* went true while waiting."""
+        with self._cond:
+            while self._singleton_running or self._singleton_waiters > 0:
+                if stop_predicate():
+                    return False
+                self._cond.wait(timeout=poll_interval)
+            self._active += 1
+            return True
+
+    def release_normal(self) -> None:
+        with self._cond:
+            self._active -= 1
+            self._cond.notify_all()
+
+    def acquire_singleton(self, stop_predicate, poll_interval: float) -> bool:
+        """Claim exclusive access.  Returns ``False`` if *stop_predicate* went true while waiting."""
+        with self._cond:
+            self._singleton_waiters += 1
+            try:
+                while self._singleton_running or self._active > 0:
+                    if stop_predicate():
+                        return False
+                    self._cond.wait(timeout=poll_interval)
+                self._singleton_running = True
+                self._active += 1
+                return True
+            finally:
+                self._singleton_waiters -= 1
+                if self._singleton_waiters == 0:
+                    self._cond.notify_all()
+
+    def release_singleton(self) -> None:
+        with self._cond:
+            self._singleton_running = False
+            self._active -= 1
+            self._cond.notify_all()
+
+
 class _TestRunner(Thread):
     """
     Worker thread that pulls tests from a shared queue and runs each one
@@ -221,10 +272,7 @@ class _TestRunner(Thread):
         pytest_test_queue: Queue,
         data_dir: Path,
         update_rate: float,
-        singleton_event: Event,
-        active_count_lock: Lock,
-        active_workers: list,
-        all_idle_event: Event,
+        coordinator: _SingletonCoordinator,
         put_version: str = "",
         put_fingerprint: str = "",
     ) -> None:
@@ -233,10 +281,8 @@ class _TestRunner(Thread):
         :param pytest_test_queue: Shared queue of :class:`ScheduledTest` to execute.
         :param data_dir: Directory used for the results database.
         :param update_rate: Polling / process-monitor sample interval in seconds.
-        :param singleton_event: Cleared when a singleton is running to block other workers.
-        :param active_count_lock: Protects the *active_workers* counter.
-        :param active_workers: Single-element list ``[int]`` tracking how many workers are executing.
-        :param all_idle_event: Set when *active_workers* drops to zero.
+        :param coordinator: Shared :class:`_SingletonCoordinator` that gates
+            singleton vs. parallel execution across all workers.
         """
         super().__init__()
 
@@ -252,28 +298,7 @@ class _TestRunner(Thread):
         self._soft_stop_event = Event()
         self._force_stop_current_event = Event()
 
-        # Singleton enforcement (shared across all workers)
-        self._singleton_event = singleton_event
-        self._active_count_lock = active_count_lock
-        self._active_workers = active_workers
-        self._all_idle_event = all_idle_event
-
-    # ------------------------------------------------------------------
-    # Active-worker tracking
-    # ------------------------------------------------------------------
-
-    def _increment_active(self):
-        """Mark this worker as actively running a test."""
-        with self._active_count_lock:
-            self._active_workers[0] += 1
-            self._all_idle_event.clear()
-
-    def _decrement_active(self):
-        """Mark this worker as idle.  Signals *all_idle_event* when count hits zero."""
-        with self._active_count_lock:
-            self._active_workers[0] -= 1
-            if self._active_workers[0] == 0:
-                self._all_idle_event.set()
+        self._coordinator = coordinator
 
     # ------------------------------------------------------------------
     # Process lifecycle helpers
@@ -359,9 +384,8 @@ class _TestRunner(Thread):
     # ------------------------------------------------------------------
 
     def _run_single_test(self, test: str):
-        """Run a single test process, tracking the active worker count."""
+        """Run a single test process.  Caller owns the coordinator slot."""
 
-        self._increment_active()
         try:
             self.process = PytestProcess(self.run_guid, test, self.data_dir, self.update_rate, self.put_version, self.put_fingerprint)
             log.info(f'Starting process for test "{test}" ({self.run_guid=})')
@@ -384,7 +408,6 @@ class _TestRunner(Thread):
                 log.info(f'process for test "{self.process.name}" completed ({self.run_guid=})')
         finally:
             self._force_stop_current_event.clear()
-            self._decrement_active()
 
     # ------------------------------------------------------------------
     # Main loop
@@ -393,42 +416,41 @@ class _TestRunner(Thread):
     def run(self):
         """Consume tests from the queue until it is empty or a stop is requested."""
 
-        while not self._stop_event.is_set() and not self._soft_stop_event.is_set():
+        def should_abort() -> bool:
+            return self._stop_event.is_set() or self._soft_stop_event.is_set()
+
+        while not should_abort():
             try:
                 scheduled_test = self.pytest_test_queue.get(False)
             except Empty:
                 break
 
             test = scheduled_test.node_id
+            is_singleton = scheduled_test.singleton
 
-            if scheduled_test.singleton:
-                # Singleton protocol: block others, drain active workers, run exclusively, resume.
-                self._singleton_event.clear()
-                while not self._all_idle_event.wait(timeout=self.update_rate):
-                    if self._stop_event.is_set() or self._soft_stop_event.is_set():
-                        break
-                if self._stop_event.is_set():
-                    self._handle_stop_request(test)
-                    break
-                if self._soft_stop_event.is_set():
-                    self._singleton_event.set()
-                    self._drain_queue()
-                    break
-                log.info(f'Running singleton test "{test}" ({self.run_guid=})')
-                self._run_single_test(test)
-                self._singleton_event.set()
+            if is_singleton:
+                acquired = self._coordinator.acquire_singleton(should_abort, self.update_rate)
             else:
-                # Normal protocol: wait until no singleton is running.
-                while not self._singleton_event.wait(timeout=self.update_rate):
-                    if self._stop_event.is_set() or self._soft_stop_event.is_set():
-                        break
+                acquired = self._coordinator.acquire_normal(should_abort, self.update_rate)
+
+            if not acquired:
                 if self._stop_event.is_set():
                     self._handle_stop_request(test)
                     break
                 if self._soft_stop_event.is_set():
                     self._drain_queue()
                     break
+                break
+
+            try:
+                if is_singleton:
+                    log.info(f'Running singleton test "{test}" ({self.run_guid=})')
                 self._run_single_test(test)
+            finally:
+                if is_singleton:
+                    self._coordinator.release_singleton()
+                else:
+                    self._coordinator.release_normal()
 
         if self._soft_stop_event.is_set() and not self._stop_event.is_set():
             self._drain_queue()

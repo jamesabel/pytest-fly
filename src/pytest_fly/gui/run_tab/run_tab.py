@@ -33,6 +33,10 @@ class RunTab(QWidget):
         self.status_window = StatusWindow(self)
         self.failed_tests_window = FailedTestsWindow(self)
 
+        # Match StatusWindow's height to ControlWindow's so the two panels line up.
+        # ControlWindow has Fixed size policy (set in its __init__), so its sizeHint is stable.
+        self.status_window.setFixedHeight(self.control_window.sizeHint().height())
+
         top_layout.addWidget(self.control_window, alignment=Qt.AlignmentFlag.AlignTop)
         top_layout.addWidget(self.status_window, alignment=Qt.AlignmentFlag.AlignTop)
         top_layout.addStretch()

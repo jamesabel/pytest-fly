@@ -22,6 +22,7 @@ refresh_rate_default = 3.0
 utilization_high_threshold_default = 0.8
 utilization_low_threshold_default = 0.5
 run_with_coverage_default = True
+tooltip_line_limit_default = 200  # max lines shown in pytest-output tooltips before truncation
 
 
 class ParallelismControl(IntEnum):
@@ -53,6 +54,8 @@ class FlyPreferences(Pref):
     run_mode: RunMode = attrib(default=RunMode.CHECK)  # 0=restart all tests, 1=resume, 2=resume if possible (i.e., the program version under test has not changed)
 
     test_order: TestOrder = attrib(default=TestOrder.PYTEST)  # 0=pytest default order, 1=coverage efficiency order
+
+    tooltip_line_limit: int = attrib(default=tooltip_line_limit_default)  # max lines of pytest output shown in a tooltip before truncation
 
 
 def get_pref() -> FlyPreferences:

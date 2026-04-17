@@ -74,7 +74,8 @@ class PytestProcess(Process):
             coverage.start()
 
             try:
-                exit_code = pytest.main([self.name])
+                # -rA: show full short test summary (all outcomes, untruncated assertion messages)
+                exit_code = pytest.main([self.name, "-rA"])
             except Exception:
                 exit_code = PyTestFlyExitCode.INTERNAL_ERROR
                 try:

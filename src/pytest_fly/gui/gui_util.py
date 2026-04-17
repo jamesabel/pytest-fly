@@ -16,8 +16,8 @@ from PySide6.QtGui import QColor, QFont, QFontMetrics, QPalette
 from PySide6.QtWidgets import QPlainTextEdit, QSizePolicy, QWidget
 from typeguard import typechecked
 
-from ..const import TOOLTIP_LINE_LIMIT
 from ..interfaces import PytestProcessInfo
+from ..preferences import get_pref
 
 
 @cache
@@ -196,18 +196,37 @@ def window_text_color(widget: QWidget) -> QColor:
     return widget.palette().color(QPalette.WindowText)
 
 
-@typechecked
-def tool_tip_limiter(text: str | None) -> str:
+def _extract_pytest_failure_section(text: str) -> str | None:
+    """Return the pytest FAILURES section (plus any trailing short-summary) or None if not present.
+
+    Pytest emits a banner like ``==== FAILURES ====`` before per-test tracebacks.
+    The interesting content for a failing run lives from that banner through the
+    end of the output — teardown logs typically appear *before* it, so trimming
+    to this region keeps the actual failure details visible in the tooltip.
     """
-    Limit the number of lines in a tooltip text.
+    lines = text.splitlines()
+    for i, line in enumerate(lines):
+        if line.strip("= ") == "FAILURES":
+            return "\n".join(lines[i:])
+    return None
+
+
+@typechecked
+def tool_tip_limiter(text: str | None, line_limit: int | None = None) -> str:
+    """
+    Prepare tooltip text from pytest output: prefer the FAILURES section when present,
+    then cap at *line_limit* lines (falling back to the user preference).
 
     :param text: The original tooltip text
+    :param line_limit: Max lines to show; if None, reads from user preferences
     :return: The limited tooltip text
     """
     if text is None:
         return ""
-    lines = text.splitlines()
-    if len(lines) > TOOLTIP_LINE_LIMIT:
-        limited_text = "...\n" + "\n".join(lines[len(lines) - TOOLTIP_LINE_LIMIT :])
-        return limited_text
-    return text
+    if line_limit is None:
+        line_limit = get_pref().tooltip_line_limit
+    source = _extract_pytest_failure_section(text) or text
+    lines = source.splitlines()
+    if len(lines) > line_limit:
+        return "...\n" + "\n".join(lines[len(lines) - line_limit :])
+    return source

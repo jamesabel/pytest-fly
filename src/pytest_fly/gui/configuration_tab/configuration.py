@@ -7,7 +7,7 @@ from collections.abc import Callable
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QDoubleValidator, QIntValidator, QValidator
-from PySide6.QtWidgets import QCheckBox, QLabel, QLineEdit, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QCheckBox, QFileDialog, QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout, QWidget
 from tobool import to_bool_strict
 
 from pytest_fly.gui.gui_util import get_text_dimensions
@@ -105,6 +105,21 @@ class Configuration(QWidget):
         tooltip_label = f"Tooltip Line Limit (min {minimum_tooltip_line_limit}, {tooltip_line_limit_default} default)"
         self.tooltip_line_limit_lineedit = _add_labeled_lineedit(layout, tooltip_label, str(pref.tooltip_line_limit), QIntValidator(), self.update_tooltip_line_limit, char_width=6)
 
+        layout.addWidget(QLabel(""))  # space
+
+        # Target project path — empty means auto-detect from the current working directory at run time.
+        layout.addWidget(QLabel("Target Project Path (empty = auto-detect from current directory)"))
+        target_path_row = QHBoxLayout()
+        self.target_project_path_lineedit = QLineEdit()
+        self.target_project_path_lineedit.setText(pref.target_project_path)
+        self.target_project_path_lineedit.setPlaceholderText("(auto-detect)")
+        self.target_project_path_lineedit.textChanged.connect(self.update_target_project_path)
+        target_path_row.addWidget(self.target_project_path_lineedit)
+        self.target_project_path_browse = QPushButton("Browse…")
+        self.target_project_path_browse.clicked.connect(self._browse_target_project_path)
+        target_path_row.addWidget(self.target_project_path_browse)
+        layout.addLayout(target_path_row)
+
     def update_verbose(self):
         """Persist the verbose checkbox state to preferences."""
         pref = get_pref()
@@ -158,3 +173,16 @@ class Configuration(QWidget):
         pref = get_pref()
         if value.isnumeric():
             pref.tooltip_line_limit = max(int(value), minimum_tooltip_line_limit)
+
+    def update_target_project_path(self, value: str):
+        """Persist the target-project path override (empty = auto-detect)."""
+        pref = get_pref()
+        pref.target_project_path = value.strip()
+
+    def _browse_target_project_path(self):
+        """Open a directory picker to choose the target project path."""
+        pref = get_pref()
+        start = pref.target_project_path or ""
+        selected = QFileDialog.getExistingDirectory(self, "Select target project directory", start)
+        if selected:
+            self.target_project_path_lineedit.setText(selected)

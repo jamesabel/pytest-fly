@@ -35,7 +35,13 @@ class StatusWindow(QGroupBox):
 
         if len(tick.infos_by_name) > 0:
             total_tests = len(tick.infos_by_name)
-            lines = [f"{total_tests} tests", ""]
+            lines = []
+            if tick.put_version_info is not None:
+                put_line = f"PUT: {tick.put_version_info.short_label()}"
+                if tick.put_version_info.git_dirty:
+                    put_line += "  [uncommitted changes]"
+                lines.extend([put_line, ""])
+            lines.extend([f"{total_tests} tests", ""])
 
             # get current pass rate
             current_pass_count = counts[PytestRunnerState.PASS]
@@ -87,7 +93,13 @@ class StatusWindow(QGroupBox):
                     else:
                         lines.append("Estimated finish: unknown")
         else:
-            lines = ["Calculating..."]
+            lines = []
+            if tick.put_version_info is not None:
+                put_line = f"PUT: {tick.put_version_info.short_label()}"
+                if tick.put_version_info.git_dirty:
+                    put_line += "  [uncommitted changes]"
+                lines.extend([put_line, ""])
+            lines.append("Calculating...")
 
         self.status_widget.set_text("\n".join(lines))
 

@@ -15,9 +15,10 @@ from typeguard import typechecked
 
 from ...db import PytestProcessInfoDB
 from ...guid import generate_uuid
-from ...interfaces import PyTestFlyExitCode, RunMode, ScheduledTest, TestOrder
+from ...interfaces import PutVersionInfo, PyTestFlyExitCode, RunMode, ScheduledTest, TestOrder
 from ...logger import get_logger
 from ...preferences import ParallelismControl, get_pref
+from ...put_version import detect_put_version
 from ...pytest_runner.coverage import compute_per_test_coverage
 from ...pytest_runner.pytest_runner import PytestRunner
 from ...pytest_runner.test_list import GetTests
@@ -74,6 +75,7 @@ class ControlWindow(QGroupBox):
         self._soft_stop_requested: bool = False
         self.current_run_start: float | None = None
         self.singleton_names: set[str] = set()
+        self.put_version_info: PutVersionInfo | None = None
 
         self.set_fixed_width()  # calculate and set the widget width
 
@@ -102,10 +104,18 @@ class ControlWindow(QGroupBox):
 
     def run(self):
         """Discover tests and launch a new :class:`PytestRunner`."""
-        get_tests = GetTests()
+        pref = get_pref()
+
+        # Resolve the project root from the preference override (if any) and detect the
+        # program-under-test version before starting collection so we can pass the path
+        # into GetTests for consistent discovery.
+        project_root = Path(pref.target_project_path).resolve() if pref.target_project_path else Path.cwd()
+        self.put_version_info = detect_put_version(project_root)
+        log.info(f"PUT detected: {self.put_version_info}")
+
+        get_tests = GetTests(test_dir=project_root)
         get_tests.start()
 
-        pref = get_pref()
         refresh_rate = pref.refresh_rate
         self.run_guid = generate_uuid()
         # Capture start time before any prior records are copied so the graph
@@ -132,13 +142,18 @@ class ControlWindow(QGroupBox):
             prior_results = db.query()  # most recent run
             last_pass_data = db.query_last_pass()  # most recent passing run per test
 
-        all_node_ids = {t.node_id for t in tests}
-        tests = self._filter_for_resume(tests, prior_results, pref)
+        # CHECK mode: behave like RESUME if the PUT fingerprint matches the prior run, else RESTART.
+        effective_mode = pref.run_mode
+        if pref.run_mode == RunMode.CHECK:
+            effective_mode = self._resolve_check_mode(prior_results)
 
-        # In RESUME mode, copy the complete prior-run records for previously-passed
-        # tests into the current run so they appear in all GUI tabs (table, graph,
-        # status) with their original data (runtime, CPU, memory, output, etc.).
-        if pref.run_mode == RunMode.RESUME:
+        all_node_ids = {t.node_id for t in tests}
+        tests = self._filter_for_resume(tests, prior_results, effective_mode)
+
+        # In RESUME mode (or CHECK-as-RESUME), copy the complete prior-run records for
+        # previously-passed tests into the current run so they appear in all GUI tabs
+        # (table, graph, status) with their original data (runtime, CPU, memory, output, etc.).
+        if effective_mode == RunMode.RESUME:
             skipped_node_ids = all_node_ids - {t.node_id for t in tests}
             if skipped_node_ids:
                 prior_by_name = {}
@@ -152,7 +167,7 @@ class ControlWindow(QGroupBox):
         # Reorder so previously-failed tests run first (within their singleton group).
         # RESTART means "start over" — ignore prior results entirely so execution order
         # matches the alphabetical table display.
-        if pref.run_mode != RunMode.RESTART:
+        if effective_mode != RunMode.RESTART:
             tests = self._reorder_failed_first(tests, prior_results)
 
         # Use last-pass durations for ETA estimation (from the most recent passing run)
@@ -166,7 +181,9 @@ class ControlWindow(QGroupBox):
 
         self.singleton_names = {t.node_id for t in tests if t.singleton}
 
-        self.pytest_runner = PytestRunner(self.run_guid, tests, processes, self.data_dir, refresh_rate)
+        put_label = self.put_version_info.short_label() if self.put_version_info else ""
+        put_fp = self.put_version_info.fingerprint() if self.put_version_info else ""
+        self.pytest_runner = PytestRunner(self.run_guid, tests, processes, self.data_dir, refresh_rate, put_version=put_label, put_fingerprint=put_fp)
         self.pytest_runner.start()
 
         self.run_button.setEnabled(False)
@@ -174,22 +191,49 @@ class ControlWindow(QGroupBox):
         self.force_stop_button.setEnabled(True)
         self._soft_stop_requested = False
 
-    def _filter_for_resume(self, tests, prior_results, pref):
+    def _filter_for_resume(self, tests, prior_results, effective_mode):
         """Filter out already-passed tests when running in RESUME mode.
 
         :param tests: List of scheduled tests.
         :param prior_results: List of prior PytestProcessInfo records.
-        :param pref: User preferences object.
+        :param effective_mode: The resolved RunMode (CHECK has already been collapsed
+            to RESUME or RESTART by :meth:`_resolve_check_mode`).
         :return: Filtered list of tests.
         """
         original_count = len(tests)
-        if pref.run_mode == RunMode.RESUME:
+        if effective_mode == RunMode.RESUME:
             passed = {r.name for r in prior_results if r.exit_code == PyTestFlyExitCode.OK}
             tests = [t for t in tests if t.node_id not in passed]
             log.info(f"RESUME filter: {original_count} discovered, {len(passed)} passed in prior run, {len(tests)} to re-run")
         else:
-            log.info(f"run_mode={pref.run_mode!r} (not RESUME), skipping filter — all {original_count} tests will run")
+            log.info(f"run_mode={effective_mode!r} (not RESUME), skipping filter — all {original_count} tests will run")
         return tests
+
+    def _resolve_check_mode(self, prior_results) -> RunMode:
+        """Collapse :attr:`RunMode.CHECK` into either RESUME or RESTART based on the PUT fingerprint.
+
+        If the prior run's PUT fingerprint matches the current one, behave like RESUME;
+        otherwise restart.  A dirty working tree always changes the fingerprint (because
+        :meth:`PutVersionInfo.fingerprint` incorporates ``git_dirty``) so developers
+        iterating on code get fresh runs.
+
+        :param prior_results: Records from the most recent prior run, or an empty list.
+        :return: Either :attr:`RunMode.RESUME` or :attr:`RunMode.RESTART`.
+        """
+        current_fp = self.put_version_info.fingerprint() if self.put_version_info else ""
+        prior_fp = None
+        for record in prior_results:
+            if record.put_fingerprint:
+                prior_fp = record.put_fingerprint
+                break
+        if prior_fp is None:
+            log.info("CHECK: no prior PUT fingerprint recorded, restarting")
+            return RunMode.RESTART
+        if prior_fp != current_fp:
+            log.info(f"CHECK: PUT fingerprint changed ({prior_fp!r} -> {current_fp!r}), restarting")
+            return RunMode.RESTART
+        log.info(f"CHECK: PUT fingerprint unchanged ({current_fp!r}), resuming")
+        return RunMode.RESUME
 
     def _reorder_failed_first(self, tests, prior_results):
         """Reorder tests so previously-failed ones run first (within their singleton group).

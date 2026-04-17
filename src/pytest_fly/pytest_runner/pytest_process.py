@@ -32,7 +32,7 @@ class PytestProcess(Process):
     """
 
     @typechecked()
-    def __init__(self, run_guid: str, test: Path | str, data_dir: Path, update_rate: float) -> None:
+    def __init__(self, run_guid: str, test: Path | str, data_dir: Path, update_rate: float, put_version: str = "", put_fingerprint: str = "") -> None:
         """
         Pytest process for a single pytest test.
 
@@ -40,11 +40,15 @@ class PytestProcess(Process):
         :param test: the test to run
         :param data_dir: the directory to store coverage data in
         :param update_rate: the update rate for the process monitor
+        :param put_version: display label for the program under test (stamped on each DB record)
+        :param put_fingerprint: program-under-test fingerprint for RunMode.CHECK comparison
         """
         super().__init__(name=str(test))
         self.data_dir = data_dir
         self.run_guid = run_guid
         self.update_rate = update_rate
+        self.put_version = put_version
+        self.put_fingerprint = put_fingerprint
 
         self._process_monitor_process = None
 
@@ -56,7 +60,16 @@ class PytestProcess(Process):
 
         # update the pytest process info to show that the test is running
         with PytestProcessInfoDB(self.data_dir) as db:
-            pytest_process_info = PytestProcessInfo(self.run_guid, self.name, self.pid, PyTestFlyExitCode.NONE, None, time_stamp=time.time())
+            pytest_process_info = PytestProcessInfo(
+                self.run_guid,
+                self.name,
+                self.pid,
+                PyTestFlyExitCode.NONE,
+                None,
+                time_stamp=time.time(),
+                put_version=self.put_version,
+                put_fingerprint=self.put_fingerprint,
+            )
             db.write(pytest_process_info)
 
         # Finally, actually run pytest!
@@ -113,7 +126,18 @@ class PytestProcess(Process):
 
         # update the pytest process info to show that the test has finished
         with PytestProcessInfoDB(self.data_dir) as db:
-            pytest_process_info = PytestProcessInfo(self.run_guid, self.name, self.pid, exit_code, output, time.time(), peak_cpu, peak_memory)
+            pytest_process_info = PytestProcessInfo(
+                self.run_guid,
+                self.name,
+                self.pid,
+                exit_code,
+                output,
+                time.time(),
+                peak_cpu,
+                peak_memory,
+                put_version=self.put_version,
+                put_fingerprint=self.put_fingerprint,
+            )
             db.write(pytest_process_info)
 
         log.debug(f"{self.name=},{self.name},{exit_code=},{output=}")

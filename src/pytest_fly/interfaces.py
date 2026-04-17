@@ -109,6 +109,55 @@ class PyTestFlyExitCode(IntEnum):
 
 
 @dataclass(frozen=True)
+class PutVersionInfo:
+    """
+    Detected metadata about the program under test (PUT) — the package/project whose tests are being run.
+
+    Captured once at the start of each pytest-fly run and stamped onto every
+    :class:`PytestProcessInfo` record via its ``put_version`` / ``put_fingerprint``
+    scalar fields.  Used to label runs in the GUI and to gate :attr:`RunMode.CHECK`.
+    """
+
+    name: str | None  # PEP 621 project name, or None if undetectable
+    version: str | None  # declared or installed version, or None
+    source: str  # "pyproject" | "setup.cfg" | "importlib.metadata" | "override" | "unknown"
+    git_describe: str | None  # e.g. "v0.3.19-4-gabc1234-dirty"
+    git_sha: str | None  # short SHA (7 chars)
+    git_branch: str | None
+    git_dirty: bool | None  # True if working tree has uncommitted changes
+    project_root: str  # absolute path used for detection
+
+    def fingerprint(self) -> str:
+        """Stable string for equality comparison in :attr:`RunMode.CHECK`.
+
+        Includes ``git_dirty`` so any uncommitted change invalidates CHECK and
+        falls back to a full restart.
+        """
+        parts = [
+            self.name or "",
+            self.version or "",
+            self.source,
+            self.git_sha or "",
+            "dirty" if self.git_dirty else "clean" if self.git_dirty is False else "",
+        ]
+        return "|".join(parts)
+
+    def short_label(self) -> str:
+        """Concise display label for the status window header (e.g. ``"pytest-fly 0.3.19 (abc1234-dirty)"``)."""
+        name = self.name or "unknown"
+        version = self.version or "?"
+        label = f"{name} {version}"
+        if self.git_sha:
+            suffix = self.git_sha
+            if self.git_dirty:
+                suffix += "-dirty"
+            label += f" ({suffix})"
+        elif self.git_dirty:
+            label += " (dirty)"
+        return label
+
+
+@dataclass(frozen=True)
 class PytestProcessInfo:
     """
     Information about a pytest process.
@@ -122,3 +171,5 @@ class PytestProcessInfo:
     time_stamp: float  # time stamp of the info update
     cpu_percent: float | None = None  # peak CPU usage during the run, as reported by psutil (100.0 = one full logical CPU; can exceed 100 on multi-core)
     memory_percent: float | None = None  # peak memory usage during the run (percent of total physical RAM)
+    put_version: str | None = None  # program-under-test short label (e.g. "pytest-fly 0.3.19 (abc1234)")
+    put_fingerprint: str | None = None  # program-under-test fingerprint for RunMode.CHECK comparison

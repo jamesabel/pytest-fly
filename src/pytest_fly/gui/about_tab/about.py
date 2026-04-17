@@ -1,6 +1,7 @@
 """About tab — shows project metadata and system/hardware information."""
 
 from dataclasses import asdict
+from pathlib import Path
 
 import humanize
 from PySide6.QtCore import QObject, QThread, Signal
@@ -10,6 +11,8 @@ from pytest_fly.gui.about_tab.project_info import get_project_info
 from pytest_fly.gui.gui_util import PlainTextWidget
 from pytest_fly.logger import get_log_directory
 from pytest_fly.platform.platform_info import get_performance_core_count, get_platform_info
+from pytest_fly.preferences import get_pref
+from pytest_fly.put_version import detect_put_version
 
 
 class AboutDataWorker(QObject):
@@ -23,6 +26,14 @@ class AboutDataWorker(QObject):
         text_lines = []
         for key, value in asdict(get_project_info()).items():
             text_lines.append(f"{key}: {value}")
+        text_lines.append("")
+
+        pref = get_pref()
+        project_root = Path(pref.target_project_path).resolve() if pref.target_project_path else Path.cwd()
+        put_info = detect_put_version(project_root)
+        text_lines.append("Program Under Test:")
+        for key, value in asdict(put_info).items():
+            text_lines.append(f"    {key}: {value}")
         text_lines.append("")
 
         for key, value in get_platform_info().items():

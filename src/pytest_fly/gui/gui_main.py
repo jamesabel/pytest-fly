@@ -21,6 +21,7 @@ from typeguard import typechecked
 
 from ..__version__ import application_name
 from ..db import PytestProcessInfoDB
+from ..interfaces import PutVersionInfo
 from ..logger import get_logger
 from ..preferences import get_pref
 from ..pytest_runner.pytest_runner import PytestRunState
@@ -43,6 +44,7 @@ def build_tick_data(
     num_processes: int = 1,
     current_run_start: float | None = None,
     singleton_names: set[str] | None = None,
+    put_version_info: PutVersionInfo | None = None,
 ) -> TickData:
     """
     Build a :class:`TickData` bundle from a flat list of process info records.
@@ -86,6 +88,7 @@ def build_tick_data(
         average_parallelism=compute_average_parallelism(infos_by_name),
         current_run_start=current_run_start,
         singleton_names=singletons,
+        put_version_info=put_version_info,
     )
 
 
@@ -207,6 +210,7 @@ class FlyAppMainWindow(QMainWindow):
             num_processes=control.num_processes,
             current_run_start=control.current_run_start,
             singleton_names=control.singleton_names,
+            put_version_info=control.put_version_info,
         )
         tick.last_pass_data = last_pass_data
         tick.soft_stop_requested = control._soft_stop_requested

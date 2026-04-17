@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .interfaces import PytestProcessInfo
+from .interfaces import PutVersionInfo, PytestProcessInfo
 
 
 @dataclass
@@ -36,6 +36,7 @@ class TickData:
     last_pass_data: dict[str, tuple[float, float]] = field(default_factory=dict)  # test_name -> (start_timestamp, duration_seconds) from most recent passing run
     soft_stop_requested: bool = False
     singleton_names: set[str] = field(default_factory=set)  # node_ids of tests marked with @pytest.mark.singleton — displayed last in test-listing tabs
+    put_version_info: PutVersionInfo | None = None  # program-under-test metadata detected at the start of the current run
 
     @property
     def effective_min_time_stamp(self) -> float | None:

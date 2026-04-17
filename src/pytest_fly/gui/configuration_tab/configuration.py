@@ -14,11 +14,12 @@ from pytest_fly.gui.gui_util import get_text_dimensions
 from pytest_fly.interfaces import TestOrder
 from pytest_fly.logger import get_logger
 from pytest_fly.platform.platform_info import get_performance_core_count
-from pytest_fly.preferences import get_pref, refresh_rate_default, utilization_high_threshold_default, utilization_low_threshold_default
+from pytest_fly.preferences import get_pref, refresh_rate_default, tooltip_line_limit_default, utilization_high_threshold_default, utilization_low_threshold_default
 
 log = get_logger()
 
 minimum_refresh_rate = 1.0
+minimum_tooltip_line_limit = 1
 
 
 def _add_labeled_lineedit(
@@ -99,6 +100,11 @@ class Configuration(QWidget):
         low_label = f"Low Utilization Threshold (0.0-1.0, {utilization_low_threshold_default} default)"
         self.utilization_low_threshold_lineedit = _add_labeled_lineedit(layout, low_label, str(pref.utilization_low_threshold), QDoubleValidator(), self.update_utilization_low_threshold)
 
+        layout.addWidget(QLabel(""))  # space
+
+        tooltip_label = f"Tooltip Line Limit (min {minimum_tooltip_line_limit}, {tooltip_line_limit_default} default)"
+        self.tooltip_line_limit_lineedit = _add_labeled_lineedit(layout, tooltip_label, str(pref.tooltip_line_limit), QIntValidator(), self.update_tooltip_line_limit, char_width=6)
+
     def update_verbose(self):
         """Persist the verbose checkbox state to preferences."""
         pref = get_pref()
@@ -146,3 +152,9 @@ class Configuration(QWidget):
         except ValueError:
             pass
         self._validate_utilization_thresholds()
+
+    def update_tooltip_line_limit(self, value: str):
+        """Persist the tooltip line limit (clamped to *minimum_tooltip_line_limit*)."""
+        pref = get_pref()
+        if value.isnumeric():
+            pref.tooltip_line_limit = max(int(value), minimum_tooltip_line_limit)

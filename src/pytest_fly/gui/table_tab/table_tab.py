@@ -76,6 +76,7 @@ class TableTab(QGroupBox):
         self.setLayout(layout)
 
         self._current_run_states: dict = {}
+        self._current_infos_by_name: dict = {}  # test node_id -> list[PytestProcessInfo]; source for full (untruncated) copy-to-clipboard
 
     def show_context_menu(self, position: QPoint):
         """Show a right-click context menu allowing the user to copy pytest output or force-stop a running test.
@@ -111,21 +112,28 @@ class TableTab(QGroupBox):
         action = menu.exec_(self.table_widget.viewport().mapToGlobal(position))
 
         if action == copy_tooltip_action:
-            # Re-fetch the item after exec_() to avoid stale C++ pointer
-            if item_row >= 0 and item_col >= 0:
-                item = self.table_widget.item(item_row, item_col)
-            if item is not None:
-                try:
-                    tooltip = item.toolTip()
-                except RuntimeError:
-                    return  # item's C++ object was deleted between retrieval and access
+            # Prefer the untruncated output from the latest PytestProcessInfo so
+            # users get the full pytest output (not the tooltip-limited view).
+            output_text = ""
+            if test_node_id is not None:
+                infos = self._current_infos_by_name.get(test_node_id, [])
+                for info in reversed(infos):
+                    if info.output:
+                        output_text = info.output
+                        break
 
-                # fallback to ItemDataRole if toolTip() is empty
-                if not tooltip:
-                    tooltip = item.data(Qt.ItemDataRole.ToolTipRole) or ""
-                if tooltip:
-                    clipboard = QGuiApplication.clipboard()
-                    clipboard.setText(tooltip)
+            # Fallback to the tooltip text if no output is available yet.
+            if not output_text:
+                if item_row >= 0 and item_col >= 0:
+                    item = self.table_widget.item(item_row, item_col)
+                if item is not None:
+                    try:
+                        output_text = item.toolTip() or item.data(Qt.ItemDataRole.ToolTipRole) or ""
+                    except RuntimeError:
+                        return  # item's C++ object was deleted between retrieval and access
+
+            if output_text:
+                QGuiApplication.clipboard().setText(output_text)
         elif action is not None and action == force_stop_action:
             self.force_stop_test_requested.emit(test_node_id)
 
@@ -152,6 +160,7 @@ class TableTab(QGroupBox):
         """Refresh the table from pre-computed tick data."""
 
         self._current_run_states = tick.run_states
+        self._current_infos_by_name = tick.infos_by_name
 
         self.table_widget.clearContents()
         self.table_widget.setRowCount(len(tick.infos_by_name))

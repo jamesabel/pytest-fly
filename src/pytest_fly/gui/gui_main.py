@@ -7,6 +7,7 @@ between the :class:`~pytest_fly.db.PytestProcessInfoDB`, the
 GUI tabs.
 """
 
+import time
 from pathlib import Path
 
 from PySide6.QtCore import QCoreApplication, QRect, QTimer
@@ -21,7 +22,7 @@ from typeguard import typechecked
 
 from ..__version__ import application_name
 from ..db import PytestProcessInfoDB
-from ..interfaces import PutVersionInfo
+from ..interfaces import PutVersionInfo, PytestRunnerState
 from ..logger import get_logger
 from ..preferences import get_pref
 from ..pytest_runner.pytest_runner import PytestRunState
@@ -31,7 +32,7 @@ from .configuration_tab.configuration import Configuration
 from .coverage_tab import CoverageTab
 from .coverage_tracker import CoverageTracker
 from .graph_tab import GraphTab
-from .gui_util import compute_average_parallelism, compute_time_window, get_font, get_text_dimensions, group_process_infos_by_name
+from .gui_util import PhaseTimer, compute_average_parallelism, compute_time_window, get_font, get_text_dimensions, group_process_infos_by_name
 from .run_tab import RunTab
 from .table_tab import TableTab
 
@@ -198,31 +199,54 @@ class FlyAppMainWindow(QMainWindow):
         typical result sets).  Grouping, time-window, and run-state computation
         happen once in :func:`build_tick_data` and the resulting :class:`TickData`
         is shared across all tabs.
+
+        Per-phase wall-clock timings are captured via :class:`PhaseTimer` and
+        emitted once per tick to help diagnose UI lag.  Logged at ``info`` when
+        ``pref.perf_logging`` is enabled, otherwise at ``debug``.
         """
+        timer = PhaseTimer()
+        tick_start = time.perf_counter()
+
         with PytestProcessInfoDB(self.data_dir) as db:
-            process_infos = db.query(self.run_tab.control_window.run_guid)
-            last_pass_data = db.query_last_pass()
+            with timer.time("db_query"):
+                process_infos = db.query(self.run_tab.control_window.run_guid)
+            with timer.time("db_last_pass"):
+                last_pass_data = db.query_last_pass()
 
         control = self.run_tab.control_window
-        tick = build_tick_data(
-            process_infos,
-            prior_durations=control.prior_durations,
-            num_processes=control.num_processes,
-            current_run_start=control.current_run_start,
-            singleton_names=control.singleton_names,
-            put_version_info=control.put_version_info,
-        )
-        tick.last_pass_data = last_pass_data
-        tick.soft_stop_requested = control._soft_stop_requested
+        with timer.time("build"):
+            tick = build_tick_data(
+                process_infos,
+                prior_durations=control.prior_durations,
+                num_processes=control.num_processes,
+                current_run_start=control.current_run_start,
+                singleton_names=control.singleton_names,
+                put_version_info=control.put_version_info,
+            )
+            tick.last_pass_data = last_pass_data
+            tick.soft_stop_requested = control._soft_stop_requested
 
-        self._coverage_tracker.handle_new_run(control.run_guid)
-        self._coverage_tracker.update(tick)
-        self._coverage_tracker.apply_to_tick(tick)
+        with timer.time("cov"):
+            self._coverage_tracker.handle_new_run(control.run_guid)
+            self._coverage_tracker.update(tick)
+            self._coverage_tracker.apply_to_tick(tick)
 
-        self.graph_tab.update_tick(tick)
-        self.table_tab.update_tick(tick)
-        self.run_tab.update_tick(tick)
-        self.coverage_tab.update_tick(tick)
+        with timer.time("graph"):
+            self.graph_tab.update_tick(tick)
+        with timer.time("table"):
+            self.table_tab.update_tick(tick)
+        with timer.time("run"):
+            self.run_tab.update_tick(tick)
+        with timer.time("cov_tab"):
+            self.coverage_tab.update_tick(tick)
+
+        total_ms = (time.perf_counter() - tick_start) * 1000.0
+        n_completed = sum(1 for rs in tick.run_states.values() if rs.get_state() in (PytestRunnerState.PASS, PytestRunnerState.FAIL))
+        message = f"tick total={total_ms:.1f}ms {timer.format()} n_rows={len(process_infos)} n_tests={len(tick.infos_by_name)} n_completed={n_completed}"
+        if get_pref().perf_logging:
+            log.info(message)
+        else:
+            log.debug(message)
 
 
 @typechecked()

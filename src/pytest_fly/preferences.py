@@ -59,6 +59,8 @@ class FlyPreferences(Pref):
 
     target_project_path: str = attrib(default="")  # absolute path to the program under test; empty means auto-detect from cwd at run time
 
+    perf_logging: bool = attrib(default=False)  # log per-tick phase timings (db query, build_tick_data, each tab update) to diagnose UI lag
+
 
 def get_pref() -> FlyPreferences:
     """Return a :class:`FlyPreferences` instance (reads from / auto-saves to disk)."""

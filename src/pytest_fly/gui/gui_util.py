@@ -84,6 +84,44 @@ class PlainTextWidget(QPlainTextEdit):
         self.updateGeometry()
 
 
+class PhaseTimer:
+    """Record elapsed wall-clock time (milliseconds) for named phases of a single operation.
+
+    Usage::
+
+        timer = PhaseTimer()
+        with timer.time("db_query"):
+            ...
+        with timer.time("build"):
+            ...
+        log.info(timer.format())  # "db_query=18.1 build=9.3"
+
+    Durations are stored in insertion order so the formatted output is stable.
+    """
+
+    def __init__(self) -> None:
+        self.phases: dict[str, float] = {}
+        self._current_name: str | None = None
+        self._current_start: float | None = None
+
+    def time(self, name: str) -> "PhaseTimer":
+        self._current_name = name
+        return self
+
+    def __enter__(self) -> "PhaseTimer":
+        self._current_start = time.perf_counter()
+        return self
+
+    def __exit__(self, *_exc) -> None:
+        assert self._current_name is not None and self._current_start is not None
+        self.phases[self._current_name] = (time.perf_counter() - self._current_start) * 1000.0
+        self._current_name = None
+        self._current_start = None
+
+    def format(self) -> str:
+        return " ".join(f"{name}={ms:.1f}" for name, ms in self.phases.items())
+
+
 def group_process_infos_by_name(process_infos: list[PytestProcessInfo]) -> dict[str, list[PytestProcessInfo]]:
     """
     Group a flat list of process info records by test name.

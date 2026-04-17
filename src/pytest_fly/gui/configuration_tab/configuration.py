@@ -73,6 +73,13 @@ class Configuration(QWidget):
         self.verbose_checkbox.stateChanged.connect(self.update_verbose)
         layout.addWidget(self.verbose_checkbox)
 
+        # Performance logging — logs per-tick phase timings to diagnose UI lag.
+        self.perf_logging_checkbox = QCheckBox("Performance Logging")
+        self.perf_logging_checkbox.setToolTip("Log per-tick phase timings (DB query, tab updates, etc.) to help diagnose UI lag.")
+        self.perf_logging_checkbox.setChecked(to_bool_strict(pref.perf_logging))
+        self.perf_logging_checkbox.stateChanged.connect(self.update_perf_logging)
+        layout.addWidget(self.perf_logging_checkbox)
+
         layout.addWidget(QLabel(""))  # space
 
         # Test order option
@@ -124,6 +131,11 @@ class Configuration(QWidget):
         """Persist the verbose checkbox state to preferences."""
         pref = get_pref()
         pref.verbose = self.verbose_checkbox.isChecked()
+
+    def update_perf_logging(self):
+        """Persist the performance-logging checkbox state to preferences."""
+        pref = get_pref()
+        pref.perf_logging = self.perf_logging_checkbox.isChecked()
 
     def update_test_order(self):
         """Persist the test order preference based on the checkbox state."""

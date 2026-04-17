@@ -7,9 +7,10 @@ from collections.abc import Callable
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QDoubleValidator, QIntValidator, QValidator
-from PySide6.QtWidgets import QCheckBox, QFileDialog, QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QCheckBox, QFileDialog, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout, QWidget
 from tobool import to_bool_strict
 
+from pytest_fly.gui.about_tab.project_info import get_project_info
 from pytest_fly.gui.gui_util import get_text_dimensions
 from pytest_fly.interfaces import TestOrder
 from pytest_fly.logger import get_logger
@@ -67,21 +68,6 @@ class Configuration(QWidget):
 
         pref = get_pref()
 
-        # Verbose option
-        self.verbose_checkbox = QCheckBox("Verbose")
-        self.verbose_checkbox.setChecked(to_bool_strict(pref.verbose))
-        self.verbose_checkbox.stateChanged.connect(self.update_verbose)
-        layout.addWidget(self.verbose_checkbox)
-
-        # Performance logging — logs per-tick phase timings to diagnose UI lag.
-        self.perf_logging_checkbox = QCheckBox("Performance Logging")
-        self.perf_logging_checkbox.setToolTip("Log per-tick phase timings (DB query, tab updates, etc.) to help diagnose UI lag.")
-        self.perf_logging_checkbox.setChecked(to_bool_strict(pref.perf_logging))
-        self.perf_logging_checkbox.stateChanged.connect(self.update_perf_logging)
-        layout.addWidget(self.perf_logging_checkbox)
-
-        layout.addWidget(QLabel(""))  # space
-
         # Test order option
         self.coverage_order_checkbox = QCheckBox("Order tests by coverage efficiency")
         self.coverage_order_checkbox.setChecked(int(pref.test_order) == TestOrder.COVERAGE)
@@ -126,6 +112,27 @@ class Configuration(QWidget):
         self.target_project_path_browse.clicked.connect(self._browse_target_project_path)
         target_path_row.addWidget(self.target_project_path_browse)
         layout.addLayout(target_path_row)
+
+        layout.addWidget(QLabel(""))  # space
+
+        # Expert group — settings most users should not need to change. Placed last to de-emphasize.
+        expert_group = QGroupBox("Expert")
+        expert_group.setToolTip("Advanced diagnostic options. Normal users should not need to change these.")
+        expert_layout = QVBoxLayout()
+        expert_group.setLayout(expert_layout)
+
+        self.verbose_checkbox = QCheckBox("Verbose (default: off)")
+        self.verbose_checkbox.setChecked(to_bool_strict(pref.verbose))
+        self.verbose_checkbox.stateChanged.connect(self.update_verbose)
+        expert_layout.addWidget(self.verbose_checkbox)
+
+        self.perf_logging_checkbox = QCheckBox(f"{get_project_info().application_name} UI Performance Logging (default: off)")
+        self.perf_logging_checkbox.setToolTip("Log per-tick phase timings (DB query, tab updates, etc.) to help diagnose UI lag.")
+        self.perf_logging_checkbox.setChecked(to_bool_strict(pref.perf_logging))
+        self.perf_logging_checkbox.stateChanged.connect(self.update_perf_logging)
+        expert_layout.addWidget(self.perf_logging_checkbox)
+
+        layout.addWidget(expert_group)
 
     def update_verbose(self):
         """Persist the verbose checkbox state to preferences."""

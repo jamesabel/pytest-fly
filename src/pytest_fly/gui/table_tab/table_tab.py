@@ -29,9 +29,9 @@ class Columns(Enum):
     LAST_PASS_DURATION = 7
 
 
-def set_utilization_color(item: QTableWidgetItem, value: float):
+def set_utilization_color(item: QTableWidgetItem, value: float, high_threshold: float, low_threshold: float):
     """
-    Colorize a table cell based on utilization thresholds from user preferences.
+    Colorize a table cell based on utilization thresholds.
 
     Red if above the high threshold, yellow if above the low threshold,
     otherwise the default foreground is restored (important for in-place
@@ -39,11 +39,12 @@ def set_utilization_color(item: QTableWidgetItem, value: float):
 
     :param item: The table-widget item to colorize.
     :param value: Utilization value in the range ``[0.0, 1.0]``.
+    :param high_threshold: Utilization threshold above which the cell is red.
+    :param low_threshold: Utilization threshold above which the cell is yellow.
     """
-    pref = get_pref()
-    if value > pref.utilization_high_threshold:
+    if value > high_threshold:
         item.setForeground(QColor("red"))
-    elif value > pref.utilization_low_threshold:
+    elif value > low_threshold:
         item.setForeground(QColor("yellow"))
     else:
         item.setForeground(QBrush())
@@ -197,6 +198,10 @@ class TableTab(QGroupBox):
             self._row_by_name.clear()
 
         p_cores = get_performance_core_count()
+        pref = get_pref()
+        utilization_high_threshold = pref.utilization_high_threshold
+        utilization_low_threshold = pref.utilization_low_threshold
+        tooltip_line_limit = pref.tooltip_line_limit
         new_rows_added = False
 
         self.table_widget.setUpdatesEnabled(False)
@@ -227,7 +232,7 @@ class TableTab(QGroupBox):
                 self._set_text_if_changed(state_item, pytest_run_state.get_string())
                 state_item.setForeground(pytest_run_state.get_qt_table_color())
                 if len(process_infos) > 1 and process_infos[-1].output is not None:
-                    tooltip_text = tool_tip_limiter(process_infos[-1].output)
+                    tooltip_text = tool_tip_limiter(process_infos[-1].output, line_limit=tooltip_line_limit)
                 else:
                     tooltip_text = ""
                 self._set_tooltip_if_changed(state_item, tooltip_text)
@@ -260,7 +265,7 @@ class TableTab(QGroupBox):
                 cpu_item = self._get_or_create_item(row_number, Columns.CPU.value)
                 self._set_text_if_changed(cpu_item, cpu_text)
                 if cpu_normalized is not None:
-                    set_utilization_color(cpu_item, cpu_normalized / 100.0)
+                    set_utilization_color(cpu_item, cpu_normalized / 100.0, utilization_high_threshold, utilization_low_threshold)
                 else:
                     cpu_item.setForeground(QBrush())
 

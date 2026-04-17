@@ -196,41 +196,42 @@ def window_text_color(widget: QWidget) -> QColor:
     return widget.palette().color(QPalette.WindowText)
 
 
-def _extract_pytest_failure_section(text: str) -> str | None:
-    """Return the pytest FAILURES section (plus any trailing short-summary) or None if not present.
-
-    Pytest emits a banner like ``==== FAILURES ====`` before per-test tracebacks.
-    The interesting content for a failing run lives from that banner through the
-    end of the output — teardown logs typically appear *before* it, so trimming
-    to this region keeps the actual failure details visible in the tooltip.
-    """
-    lines = text.splitlines()
-    for i, line in enumerate(lines):
-        if line.strip("= ") == "FAILURES":
-            return "\n".join(lines[i:])
-    return None
+# Per-line width cap. Pytest tracebacks and captured-output lines are often 200+ chars
+# wide, which makes Qt's tooltip balloon stretch off-screen. Truncate to a readable width.
+_TOOLTIP_WIDTH_LIMIT = 120
 
 
 @typechecked
-def tool_tip_limiter(text: str | None, line_limit: int | None = None) -> str:
+def tool_tip_limiter(text: str | None, line_limit: int | None = None, width_limit: int = _TOOLTIP_WIDTH_LIMIT) -> str:
     """
-    Prepare tooltip text from pytest output: prefer the FAILURES section when present,
-    then cap at *line_limit* lines (falling back to the user preference).
+    Prepare tooltip text from pytest output: keep the last *line_limit* lines
+    (falling back to the user preference) and truncate any individual lines longer
+    than *width_limit* characters. Applied identically to PASS and FAIL output —
+    for a FAIL run the tail naturally contains the FAILURES section and short
+    summary; for a PASS run it contains the session summary.
 
     :param text: The original tooltip text
     :param line_limit: Max lines to show; if None, reads from user preferences
+    :param width_limit: Max characters per line before ellipsizing
     :return: The limited tooltip text
     """
     if text is None:
         return ""
     if line_limit is None:
         line_limit = get_pref().tooltip_line_limit
-    source = _extract_pytest_failure_section(text) or text
-    lines = source.splitlines()
+
+    lines = text.splitlines()
     # Trailing whitespace-only lines would otherwise dominate the tooltip — stripping them
     # here keeps the line-limit budget spent on meaningful content.
     while lines and not lines[-1].strip():
         lines.pop()
-    if len(lines) > line_limit:
-        return "...\n" + "\n".join(lines[-line_limit:])
-    return "\n".join(lines)
+
+    truncated = len(lines) > line_limit
+    if truncated:
+        lines = lines[-line_limit:]
+
+    if width_limit > 3:
+        lines = [line if len(line) <= width_limit else line[: width_limit - 3] + "..." for line in lines]
+
+    body = "\n".join(lines)
+    return "...\n" + body if truncated else body

@@ -23,6 +23,7 @@ utilization_high_threshold_default = 0.8
 utilization_low_threshold_default = 0.5
 run_with_coverage_default = True
 tooltip_line_limit_default = 40  # max lines shown in pytest-output tooltips before truncation
+chart_window_minutes_default = 5.0  # width of the system-metrics chart time window on the Run tab, in minutes
 
 
 class ParallelismControl(IntEnum):
@@ -56,6 +57,10 @@ class FlyPreferences(Pref):
     test_order: TestOrder = attrib(default=TestOrder.PYTEST)  # 0=pytest default order, 1=coverage efficiency order
 
     tooltip_line_limit: int = attrib(default=tooltip_line_limit_default)  # max lines of pytest output shown in a tooltip before truncation
+
+    chart_window_minutes: float = attrib(default=chart_window_minutes_default)  # Run-tab system-metrics chart window (minutes)
+
+    run_tab_splitter_state: str = attrib(default="")  # Run-tab top-vs-failed-tests splitter (QSplitter.saveState() hex-encoded)
 
     target_project_path: str = attrib(default="")  # absolute path to the program under test; empty means auto-detect from cwd at run time
 

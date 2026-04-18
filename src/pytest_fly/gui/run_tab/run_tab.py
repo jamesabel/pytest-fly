@@ -77,5 +77,4 @@ class RunTab(QWidget):
 
     def _on_splitter_moved(self, pos: int, index: int) -> None:
         """Persist the splitter divider position so the layout restores on next launch."""
-        state_hex = bytes(self.splitter.saveState().toHex()).decode("ascii")
-        get_pref().run_tab_splitter_state = state_hex
+        get_pref().run_tab_splitter_state = self.splitter.saveState().toHex().data().decode("ascii")

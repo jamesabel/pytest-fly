@@ -38,3 +38,11 @@ GRID_LINE_COLOR = QColor(180, 180, 180, 100)
 # Coverage chart colors (used on the Coverage tab).
 COVERAGE_LINE_COLOR = QColor(34, 139, 34)  # forest green
 COVERAGE_FILL_COLOR = QColor(34, 139, 34, 40)  # translucent green fill
+
+# System-metrics chart colors (used on the Run tab's system performance widget).
+CPU_LINE_COLOR = QColor(220, 20, 60)  # crimson
+MEMORY_LINE_COLOR = QColor(30, 144, 255)  # dodger blue
+DISK_READ_COLOR = QColor(255, 140, 0)  # dark orange
+DISK_WRITE_COLOR = QColor(148, 0, 211)  # dark violet
+NET_SENT_COLOR = QColor(34, 139, 34)  # forest green
+NET_RECV_COLOR = QColor(64, 224, 208)  # turquoise

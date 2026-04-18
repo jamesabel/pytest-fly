@@ -24,6 +24,16 @@ class PytestProcessMonitorInfo:
     time_stamp: float  # time stamp of the info update
 
 
+def normalize_cpu_percent(cpu_percent: float, cores: int) -> float:
+    """Normalize psutil's per-process CPU percent (0-100 * cores) to a single-core-equivalent 0-100 scale.
+
+    psutil reports cpu_percent summed across cores (so a fully-busy 8-core machine reads ~800%); divide by
+    the performance-core count to get a 0-100 figure and clamp, so one busy core on an 8-core box reads
+    ~12.5% rather than ~100%.
+    """
+    return min(cpu_percent / max(cores, 1), 100.0)
+
+
 class ProcessMonitor(Process):
     """
     Subprocess that periodically samples CPU and memory usage of a target

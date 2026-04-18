@@ -15,6 +15,7 @@ from ...gui.gui_util import format_runtime, tool_tip_limiter
 from ...interfaces import PyTestFlyExitCode, PytestRunnerState
 from ...platform.platform_info import get_performance_core_count
 from ...preferences import get_pref
+from ...pytest_runner.process_monitor import normalize_cpu_percent
 from ...tick_data import TickData
 
 
@@ -255,7 +256,7 @@ class TableTab(QGroupBox):
 
                 # CPU and Memory
                 if final_info is not None and final_info.cpu_percent is not None:
-                    cpu_normalized = min(final_info.cpu_percent / p_cores, 100.0)
+                    cpu_normalized = normalize_cpu_percent(final_info.cpu_percent, p_cores)
                     cpu_text = f"{cpu_normalized:.1f}%"
                 else:
                     cpu_normalized = None

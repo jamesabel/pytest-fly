@@ -9,6 +9,7 @@ GUI tabs.
 
 import time
 from pathlib import Path
+from queue import Empty
 
 from PySide6.QtCore import QCoreApplication, QRect, QTimer
 from PySide6.QtGui import QIcon
@@ -26,6 +27,7 @@ from ..interfaces import PutVersionInfo, PytestRunnerState
 from ..logger import get_logger
 from ..preferences import get_pref
 from ..pytest_runner.pytest_runner import PytestRunState
+from ..pytest_runner.system_monitor import SystemMonitor, SystemMonitorSample
 from ..tick_data import TickData
 from .about_tab.about import About
 from .configuration_tab.configuration import Configuration
@@ -157,6 +159,11 @@ class FlyAppMainWindow(QMainWindow):
 
         self.setCentralWidget(self.tab_widget)
 
+        # System-wide performance monitor subprocess — sampled at a fixed 1 s cadence independent
+        # of the GUI refresh rate, drained non-blocking on each tick.
+        self._system_monitor = SystemMonitor(update_rate=1.0)
+        self._system_monitor.start()
+
         # timer for periodic updates
         self.timer = QTimer(self, interval=int(round(pref.refresh_rate * 1000)))
         self.timer.timeout.connect(self._update_tick)
@@ -184,6 +191,9 @@ class FlyAppMainWindow(QMainWindow):
             QCoreApplication.processEvents()
             pytest_runner.join(30.0)
 
+        self._system_monitor.request_stop()
+        self._system_monitor.join(5.0)
+
         event.accept()
 
     def _force_stop_single_test(self, test_name: str):
@@ -191,6 +201,18 @@ class FlyAppMainWindow(QMainWindow):
         control = self.run_tab.control_window
         if control.pytest_runner is not None and control.pytest_runner.is_running():
             control.pytest_runner.force_stop_test(test_name)
+
+    def _drain_system_monitor(self) -> None:
+        """Drain queued system-resource samples into the Run tab's metrics widget."""
+        samples: list[SystemMonitorSample] = []
+        queue = self._system_monitor.system_monitor_queue
+        while True:
+            try:
+                samples.append(queue.get_nowait())
+            except Empty:
+                break
+        if samples:
+            self.run_tab.system_metrics_window.ingest_samples(samples)
 
     def _update_tick(self):
         """Timer event handler — query the DB and refresh all tabs.
@@ -230,6 +252,9 @@ class FlyAppMainWindow(QMainWindow):
             self._coverage_tracker.handle_new_run(control.run_guid)
             self._coverage_tracker.update(tick)
             self._coverage_tracker.apply_to_tick(tick)
+
+        with timer.time("sysmon"):
+            self._drain_system_monitor()
 
         with timer.time("graph"):
             self.graph_tab.update_tick(tick)

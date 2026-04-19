@@ -12,7 +12,7 @@ from tobool import to_bool_strict
 
 from pytest_fly.gui.about_tab.project_info import get_project_info
 from pytest_fly.gui.gui_util import get_text_dimensions
-from pytest_fly.interfaces import TestOrder
+from pytest_fly.interfaces import RunMode, TestOrder
 from pytest_fly.logger import get_logger
 from pytest_fly.platform.platform_info import get_performance_core_count
 from pytest_fly.preferences import (
@@ -76,8 +76,27 @@ class Configuration(QWidget):
 
         pref = get_pref()
 
+        # One-time reconciliation: existing users with run_mode == RESUME should see
+        # the new "Resume Without Program Check" box already checked so the UI
+        # reflects their persisted behavior.
+        if pref.run_mode == RunMode.RESUME and not pref.resume_skip_put_check:
+            pref.resume_skip_put_check = True
+
+        # Resume-mode behavior option
+        self.resume_skip_put_check_checkbox = QCheckBox("Resume Without Program Check (default: off)")
+        self.resume_skip_put_check_checkbox.setToolTip(
+            "When unchecked, pytest-fly checks the program under test (PUT) for modifications\n"
+            "and runs a full Restart if the PUT has changed.\n"
+            "When checked, pytest-fly forces a Resume even if the PUT has changed."
+        )
+        self.resume_skip_put_check_checkbox.setChecked(to_bool_strict(pref.resume_skip_put_check))
+        self.resume_skip_put_check_checkbox.stateChanged.connect(self.update_resume_skip_put_check)
+        layout.addWidget(self.resume_skip_put_check_checkbox)
+
+        layout.addWidget(QLabel(""))  # space
+
         # Test order option
-        self.coverage_order_checkbox = QCheckBox("Order tests by coverage efficiency")
+        self.coverage_order_checkbox = QCheckBox("Order Tests by Coverage Efficiency (default: off)")
         self.coverage_order_checkbox.setChecked(int(pref.test_order) == TestOrder.COVERAGE)
         self.coverage_order_checkbox.stateChanged.connect(self.update_test_order)
         layout.addWidget(self.coverage_order_checkbox)
@@ -163,6 +182,14 @@ class Configuration(QWidget):
         """Persist the test order preference based on the checkbox state."""
         pref = get_pref()
         pref.test_order = TestOrder.COVERAGE if self.coverage_order_checkbox.isChecked() else TestOrder.PYTEST
+
+    def update_resume_skip_put_check(self):
+        """Persist the resume-skip-PUT-check checkbox and keep run_mode consistent."""
+        pref = get_pref()
+        checked = self.resume_skip_put_check_checkbox.isChecked()
+        pref.resume_skip_put_check = checked
+        if pref.run_mode != RunMode.RESTART:
+            pref.run_mode = RunMode.RESUME if checked else RunMode.CHECK
 
     def update_processes(self, value: str):
         """Persist the process-count value to preferences."""

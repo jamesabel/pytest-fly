@@ -242,6 +242,52 @@ def test_table_tab_last_pass_columns(app):
     assert last_pass_by_name["tests/test_c.py"] == ("", "")
 
 
+def test_table_tab_double_click_name_sorts(app):
+    """Double-clicking the Name header should sort rows alphabetically without crashing.
+
+    Regression test for the access violation that occurred when _SortableItem.__lt__
+    fell through to super().__lt__ for columns without a numeric sort key.
+    """
+    from pytest_fly.gui.table_tab.table_tab import Columns
+
+    table = TableTab()
+    guid = "test-guid-sort"
+    now = time.time()
+
+    # Three tests whose alphabetical order differs from their insertion order,
+    # so a successful sort is observable.
+    infos = [
+        _make_process_info(guid, "tests/test_zebra.py", None, PyTestFlyExitCode.NONE, time_stamp=now),
+        _make_process_info(guid, "tests/test_apple.py", None, PyTestFlyExitCode.NONE, time_stamp=now),
+        _make_process_info(guid, "tests/test_mango.py", None, PyTestFlyExitCode.NONE, time_stamp=now),
+    ]
+    tick = build_tick_data(infos)
+    table.update_tick(tick)
+
+    # Simulate a double-click on the Name column header via the wired signal.
+    table.table_widget.horizontalHeader().sectionDoubleClicked.emit(Columns.NAME.value)
+
+    names_ascending = [table.table_widget.item(r, Columns.NAME.value).text() for r in range(table.table_widget.rowCount())]
+    assert names_ascending == ["tests/test_apple.py", "tests/test_mango.py", "tests/test_zebra.py"]
+    assert table._sort_column == Columns.NAME.value
+    # _row_by_name must be rebuilt to match the new visual order
+    assert table._row_by_name["tests/test_apple.py"] == 0
+    assert table._row_by_name["tests/test_mango.py"] == 1
+    assert table._row_by_name["tests/test_zebra.py"] == 2
+
+    # Double-click again → descending
+    table.table_widget.horizontalHeader().sectionDoubleClicked.emit(Columns.NAME.value)
+    names_descending = [table.table_widget.item(r, Columns.NAME.value).text() for r in range(table.table_widget.rowCount())]
+    assert names_descending == ["tests/test_zebra.py", "tests/test_mango.py", "tests/test_apple.py"]
+    assert table._row_by_name["tests/test_zebra.py"] == 0
+    assert table._row_by_name["tests/test_apple.py"] == 2
+
+    # Subsequent update_tick must preserve the active sort
+    table.update_tick(tick)
+    names_after_update = [table.table_widget.item(r, Columns.NAME.value).text() for r in range(table.table_widget.rowCount())]
+    assert names_after_update == ["tests/test_zebra.py", "tests/test_mango.py", "tests/test_apple.py"]
+
+
 # ---------------------------------------------------------------------------
 # GraphTab tests
 # ---------------------------------------------------------------------------

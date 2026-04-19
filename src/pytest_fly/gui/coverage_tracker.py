@@ -68,6 +68,11 @@ class CoverageTracker:
             try:
                 coverage_pct, self._covered_lines, self._total_lines = calculate_coverage("current", self._data_dir, write_report=False)
                 if coverage_pct is not None:
+                    # Seed the first data point at current_run_start so the chart always has
+                    # at least two points — needed for a visible line/fill, especially in RESUME
+                    # mode when no new tests run and only one calculation happens this run.
+                    if not self._coverage_history and tick.current_run_start is not None:
+                        self._coverage_history.append((tick.current_run_start, coverage_pct))
                     self._coverage_history.append((time.time(), coverage_pct))
             except Exception as e:
                 log.warning(f"coverage calculation failed: {e}")

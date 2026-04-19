@@ -153,16 +153,21 @@ class ControlWindow(QGroupBox):
         # In RESUME mode (or CHECK-as-RESUME), copy the complete prior-run records for
         # previously-passed tests into the current run so they appear in all GUI tabs
         # (table, graph, status) with their original data (runtime, CPU, memory, output, etc.).
+        # Timestamps are shifted uniformly so the copied records fall within the current
+        # run's time window; the Progress Graph uses current_run_start as its origin, so
+        # records retaining their historical timestamps would render off the visible axis.
         if effective_mode == RunMode.RESUME:
             skipped_node_ids = all_node_ids - {t.node_id for t in tests}
             if skipped_node_ids:
-                prior_by_name = {}
+                prior_by_name: dict[str, list] = {}
                 for r in prior_results:
                     prior_by_name.setdefault(r.name, []).append(r)
-                with PytestProcessInfoDB(self.data_dir) as db:
-                    for node_id in sorted(skipped_node_ids):
-                        for record in prior_by_name.get(node_id, []):
-                            db.write(replace(record, run_guid=self.run_guid))
+                records_to_copy = [rec for nid in sorted(skipped_node_ids) for rec in prior_by_name.get(nid, [])]
+                if records_to_copy:
+                    delta = self.current_run_start - min(r.time_stamp for r in records_to_copy)
+                    with PytestProcessInfoDB(self.data_dir) as db:
+                        for record in records_to_copy:
+                            db.write(replace(record, run_guid=self.run_guid, time_stamp=record.time_stamp + delta))
 
         # Reorder so previously-failed tests run first (within their singleton group).
         # RESTART means "start over" — ignore prior results entirely so execution order

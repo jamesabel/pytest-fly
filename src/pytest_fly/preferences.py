@@ -52,7 +52,9 @@ class FlyPreferences(Pref):
     utilization_high_threshold: float = attrib(default=utilization_high_threshold_default)  # above this threshold is considered high utilization
     utilization_low_threshold: float = attrib(default=utilization_low_threshold_default)  # below this threshold is considered low utilization
 
-    run_mode: RunMode = attrib(default=RunMode.CHECK)  # 0=restart all tests, 1=resume, 2=resume if possible (i.e., the program version under test has not changed)
+    run_mode: RunMode = attrib(default=RunMode.CHECK)  # RESTART=0, RESUME=1, CHECK=2 (Resume with PUT-change check — see resume_skip_put_check)
+
+    resume_skip_put_check: bool = attrib(default=False)  # when True, Resume forces a resume even if the PUT has changed; when False, a PUT change triggers a Restart
 
     test_order: TestOrder = attrib(default=TestOrder.PYTEST)  # 0=pytest default order, 1=coverage efficiency order
 

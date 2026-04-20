@@ -1,6 +1,6 @@
 """Tests for time_axis pure utility functions."""
 
-from pytest_fly.gui.graph_tab.time_axis import TimeAxisMapping, _choose_interval, _format_tick_label, compute_grid_ticks
+from pytest_fly.gui.graph_tab.time_axis import TimeAxisMapping, _choose_interval, compute_grid_ticks, format_elapsed_label
 
 
 def test_choose_interval_short():
@@ -35,28 +35,28 @@ def test_choose_interval_very_long():
     assert interval == 86400
 
 
-def test_format_tick_label_seconds():
-    assert _format_tick_label(0) == "0s"
-    assert _format_tick_label(30) == "30s"
-    assert _format_tick_label(59) == "59s"
+def testformat_elapsed_label_seconds():
+    assert format_elapsed_label(0) == "0s"
+    assert format_elapsed_label(30) == "30s"
+    assert format_elapsed_label(59) == "59s"
 
 
-def test_format_tick_label_minutes():
-    assert _format_tick_label(60) == "1m"
-    assert _format_tick_label(120) == "2m"
-    assert _format_tick_label(300) == "5m"
+def testformat_elapsed_label_minutes():
+    assert format_elapsed_label(60) == "1m"
+    assert format_elapsed_label(120) == "2m"
+    assert format_elapsed_label(300) == "5m"
 
 
-def test_format_tick_label_mixed():
-    assert _format_tick_label(90) == "1m30s"
-    assert _format_tick_label(150) == "2m30s"
+def testformat_elapsed_label_mixed():
+    assert format_elapsed_label(90) == "1m30s"
+    assert format_elapsed_label(150) == "2m30s"
 
 
-def test_format_tick_label_hours():
-    assert _format_tick_label(3600) == "1h"
-    assert _format_tick_label(7200) == "2h"
-    assert _format_tick_label(3600 + 30 * 60) == "1h30m"
-    assert _format_tick_label(5 * 3600 + 15 * 60) == "5h15m"
+def testformat_elapsed_label_hours():
+    assert format_elapsed_label(3600) == "1h"
+    assert format_elapsed_label(7200) == "2h"
+    assert format_elapsed_label(3600 + 30 * 60) == "1h30m"
+    assert format_elapsed_label(5 * 3600 + 15 * 60) == "5h15m"
 
 
 def test_time_axis_mapping_basic():

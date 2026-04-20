@@ -63,7 +63,7 @@ def _choose_interval(time_window: float) -> float:
     return _INTERVALS[-1]
 
 
-def _format_tick_label(elapsed_seconds: float) -> str:
+def format_elapsed_label(elapsed_seconds: float) -> str:
     """Format an elapsed-time value into a compact label (e.g. ``'30s'``, ``'2m'``, ``'3h'``, ``'1h30m'``)."""
     if elapsed_seconds < 60:
         return f"{int(elapsed_seconds)}s"
@@ -98,7 +98,7 @@ def compute_grid_ticks(min_ts: float | None, max_ts: float | None, width_pixels:
     ticks: list[tuple[float, str]] = []
     elapsed = 0.0
     while elapsed <= mapping.time_window:
-        ticks.append((mapping.elapsed_to_x(elapsed), _format_tick_label(elapsed)))
+        ticks.append((mapping.elapsed_to_x(elapsed), format_elapsed_label(elapsed)))
         elapsed += interval
 
     return ticks

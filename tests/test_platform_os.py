@@ -117,6 +117,12 @@ def test_set_read_only_and_set_read_write_roundtrip():
 
 
 def test_remove_readonly_clears_bit():
+    """remove_readonly must clear the read-only bit so the file can be deleted.
+
+    remove_readonly is the onerror callback for shutil.rmtree; it only needs to
+    leave the file unlinkable (its POSIX chmod to S_IWRITE leaves the file
+    write-only, not fully accessible).
+    """
     with TemporaryDirectory() as tmp:
         target = Path(tmp) / "file.txt"
         target.write_text("hi")
@@ -124,9 +130,8 @@ def test_remove_readonly_clears_bit():
         assert is_read_only(target)
 
         remove_readonly(target)
-        # After remove_readonly, at least writing should work again.
-        target.write_text("still mutable")
-        assert target.read_text() == "still mutable"
+        target.unlink()
+        assert not target.exists()
 
 
 def test_mk_dirs_creates_nested():

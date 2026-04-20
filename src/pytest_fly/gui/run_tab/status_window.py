@@ -47,6 +47,8 @@ class StatusWindow(QGroupBox):
             current_pass_count = counts[PytestRunnerState.PASS]
             current_fail_count = counts[PytestRunnerState.FAIL]
             total_completed = current_pass_count + current_fail_count
+            complete_fraction = total_completed / total_tests
+            lines.append(f"Complete: {total_completed}/{total_tests} ({complete_fraction:.2%})")
             prefix = "Pass rate: "
             if total_completed > 0:
                 pass_rate = current_pass_count / total_completed

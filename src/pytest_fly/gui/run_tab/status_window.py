@@ -17,7 +17,7 @@ class StatusWindow(QGroupBox):
         self.setTitle("Status")
         layout = QVBoxLayout()
         self.setLayout(layout)
-        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.MinimumExpanding)
         self.status_widget = PlainTextWidget(self, "Loading...")
         layout.addWidget(self.status_widget)
 

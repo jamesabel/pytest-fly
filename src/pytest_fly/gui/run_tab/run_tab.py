@@ -32,17 +32,15 @@ class RunTab(QWidget):
         self.system_metrics_window = SystemMetricsWindow(self)
         self.failed_tests_window = FailedTestsWindow(self)
 
-        # Match StatusWindow's height to ControlWindow's so the two panels line up.
-        # ControlWindow has Fixed size policy (set in its __init__), so its sizeHint is stable.
-        self.status_window.setFixedHeight(self.control_window.sizeHint().height())
-
         top_container = QWidget()
         top_layout = QHBoxLayout()
         top_layout.setContentsMargins(0, 0, 0, 0)
-        top_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         top_container.setLayout(top_layout)
+        # ControlWindow is Fixed-size and pinned to the top. StatusWindow and SystemMetricsWindow
+        # fill the full vertical space of the top pane (up to the splitter divider) so the
+        # status text never has to scroll.
         top_layout.addWidget(self.control_window, alignment=Qt.AlignmentFlag.AlignTop)
-        top_layout.addWidget(self.status_window, alignment=Qt.AlignmentFlag.AlignTop)
+        top_layout.addWidget(self.status_window)
         top_layout.addWidget(self.system_metrics_window, stretch=1)
 
         # Vertical splitter: user drags the divider between the top row and the failed-tests pane.

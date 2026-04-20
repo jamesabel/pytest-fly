@@ -22,7 +22,7 @@ from PySide6.QtWidgets import QGridLayout, QGroupBox, QSizePolicy, QWidget
 from ...colors import CPU_LINE_COLOR, DISK_READ_COLOR, DISK_WRITE_COLOR, GRID_LINE_COLOR, MEMORY_LINE_COLOR, NET_RECV_COLOR, NET_SENT_COLOR
 from ...preferences import get_pref
 from ...pytest_runner.system_monitor import SystemMonitorSample
-from ..graph_tab.time_axis import TimeAxisMapping, compute_grid_ticks
+from ..graph_tab.time_axis import TimeAxisMapping, compute_grid_ticks, format_elapsed_label
 from ..gui_util import get_text_dimensions, window_text_color
 
 _Y_GRID_PCTS = [0.25, 0.50, 0.75, 1.00]
@@ -129,6 +129,19 @@ class _MetricChart(QWidget):
         painter.setPen(QPen(GRID_LINE_COLOR, 1))
         for x, _label in grid_ticks:
             painter.drawLine(int(margin_left + x), margin_top, int(margin_left + x), margin_top + chart_h)
+
+        # Time-offset tick labels along the bottom — right edge is 0, earlier ticks read as negative
+        # (e.g. ``-30s``, ``-2m``).  Skip the first and last ticks to avoid edge overlap.
+        if self._min_ts is not None and self._max_ts is not None and len(grid_ticks) > 2:
+            time_span = max(self._max_ts - self._min_ts, 1.0)
+            painter.setPen(QPen(text_color, 1))
+            label_y = margin_top + chart_h + char_h
+            for x, _elapsed_label in grid_ticks[1:-1]:
+                offset_seconds = time_span - (x / chart_w) * time_span
+                label = "0" if offset_seconds <= 0 else f"-{format_elapsed_label(offset_seconds)}"
+                label_w = get_text_dimensions(label).width()
+                label_x = int(margin_left + x) - label_w // 2
+                painter.drawText(label_x, label_y, label)
 
         # Title and legend (with current values) across the top
         painter.setPen(QPen(text_color, 1))

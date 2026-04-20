@@ -22,6 +22,8 @@ class SystemMonitorSample:
     time_stamp: float
     cpu_percent: float  # 0.0 - 100.0 (psutil.cpu_percent; system-wide)
     memory_percent: float  # 0.0 - 100.0 (psutil.virtual_memory().percent)
+    memory_used_gb: float  # GiB used (psutil.virtual_memory().used)
+    memory_total_gb: float  # GiB total (psutil.virtual_memory().total)
     disk_read_mbps: float  # MB/s read since the previous sample
     disk_write_mbps: float  # MB/s written since the previous sample
     net_sent_mbps: float  # MB/s sent since the previous sample
@@ -29,6 +31,7 @@ class SystemMonitorSample:
 
 
 _BYTES_PER_MB = 1024.0 * 1024.0
+_BYTES_PER_GB = 1024.0 * 1024.0 * 1024.0
 
 
 class SystemMonitor(Process):
@@ -62,7 +65,10 @@ class SystemMonitor(Process):
             elapsed = max(now - prev_time, 1e-6)
 
             cpu_pct = psutil.cpu_percent(interval=None)
-            mem_pct = psutil.virtual_memory().percent
+            vm = psutil.virtual_memory()
+            mem_pct = vm.percent
+            mem_used_gb = vm.used / _BYTES_PER_GB
+            mem_total_gb = vm.total / _BYTES_PER_GB
 
             cur_disk = psutil.disk_io_counters()
             cur_net = psutil.net_io_counters()
@@ -85,6 +91,8 @@ class SystemMonitor(Process):
                 time_stamp=now,
                 cpu_percent=cpu_pct,
                 memory_percent=mem_pct,
+                memory_used_gb=mem_used_gb,
+                memory_total_gb=mem_total_gb,
                 disk_read_mbps=disk_read_mbps,
                 disk_write_mbps=disk_write_mbps,
                 net_sent_mbps=net_sent_mbps,

@@ -36,6 +36,7 @@ class _Series:
     label: str
     color: QColor
     getter: Callable[[SystemMonitorSample], float]
+    legend_formatter: Callable[[SystemMonitorSample], str] | None = None
 
 
 class _MetricChart(QWidget):
@@ -150,7 +151,12 @@ class _MetricChart(QWidget):
         legend_parts: list[tuple[str, QColor]] = []
         latest = self._samples[-1] if self._samples else None
         for series in self._series:
-            value_text = self._format_y_label(series.getter(latest)) if latest is not None else "--"
+            if latest is None:
+                value_text = "--"
+            elif series.legend_formatter is not None:
+                value_text = series.legend_formatter(latest)
+            else:
+                value_text = self._format_y_label(series.getter(latest))
             legend_parts.append((f"{series.label}: {value_text}", series.color))
 
         legend_x = margin_left + get_text_dimensions(self._title + "    ").width()
@@ -198,7 +204,14 @@ class SystemMetricsWindow(QGroupBox):
         )
         self._memory_chart = _MetricChart(
             title="Memory",
-            series=[_Series(label="usage", color=MEMORY_LINE_COLOR, getter=lambda s: s.memory_percent)],
+            series=[
+                _Series(
+                    label="usage",
+                    color=MEMORY_LINE_COLOR,
+                    getter=lambda s: s.memory_percent,
+                    legend_formatter=lambda s: f"{s.memory_used_gb:.1f}/{s.memory_total_gb:.1f} GB ({s.memory_percent:.0f}%)",
+                )
+            ],
             unit="%",
             y_max_fixed=100.0,
         )

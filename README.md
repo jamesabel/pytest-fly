@@ -11,15 +11,20 @@
 ## Features
 
 - Real-time monitoring of test execution in a GUI with six tabs:
-  - **Run** — start/stop controls, run mode selection (Restart/Resume), pass rate, coverage percentage,
-  elapsed time, and estimated time remaining
+  - **Run** — start/stop controls, run mode selection (Restart/Resume/Check), and several panels:
+    a Status panel (completion percentage, pass rate, per-state counts, elapsed time, average
+    parallelism, coverage, and estimated time remaining), a System Performance panel (live CPU
+    and memory charts, with memory shown as used/total GB alongside percent), a Failed Tests panel
+    with clipboard copy, and program-under-test version/dirty-git indicators
   - **Graph** — time-based progress chart showing each test module as a horizontal bar
   - **Table** — per-test status grid with elapsed time, peak CPU, memory usage, and individual coverage
   - **Coverage** — line chart of combined code coverage over time with covered/total line counts
   - **Configuration** — parallelism settings, refresh rate, and utilization thresholds
   - **About** — system and project information
 - Parallel test execution at the module level with configurable process count.
-- Resumable test execution — skip already-passed tests and only re-run failed or unrun tests.
+- Three run modes — **Restart** (rerun all tests), **Resume** (skip already-passed tests and
+  only re-run failed or unrun tests), and **Check** (resume if the program under test has not
+  changed, otherwise restart).
 - Graceful interruption — stop the test suite and resume where it left off.
 - Per-process resource monitoring — tracks peak CPU and memory usage for each test module.
 - Estimated time remaining based on prior run durations, accounting for parallelism.

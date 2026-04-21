@@ -17,7 +17,7 @@ from ...db import PytestProcessInfoDB
 from ...guid import generate_uuid
 from ...interfaces import OrderingAspect, PutVersionInfo, PyTestFlyExitCode, RunMode, ScheduledTest
 from ...logger import get_logger
-from ...preferences import ParallelismControl, get_ordering_aspects, get_pref
+from ...preferences import ParallelismControl, get_ordering_aspects_ordered, get_pref
 from ...put_version import detect_put_version
 from ...pytest_runner.coverage import compute_per_test_coverage
 from ...pytest_runner.ordering import PRIOR_DATA_ASPECTS, OrderingContext, apply_ordering_aspects
@@ -176,7 +176,7 @@ class ControlWindow(QGroupBox):
         self.num_processes = processes
 
         # Apply the user's ordered list of ordering aspects (see Configuration tab).
-        enabled_aspects: list[OrderingAspect] = [aspect for aspect, enabled in get_ordering_aspects(pref) if enabled]
+        enabled_aspects: list[OrderingAspect] = get_ordering_aspects_ordered()
         if effective_mode == RunMode.RESTART:
             # RESTART ignores prior-run results, so aspects that depend on them do nothing.
             enabled_aspects = [a for a in enabled_aspects if a not in PRIOR_DATA_ASPECTS]

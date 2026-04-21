@@ -6,17 +6,18 @@ defined here so both the preference class and the configuration tab can share
 them without circular imports.
 """
 
-import json
 from enum import IntEnum
 
 from attr import attrib, attrs
-from pref import Pref
+from pref import Pref, PrefOrderedSet
 
 from .__version__ import application_name, author
 from .interfaces import OrderingAspect, RunMode
 from .platform import get_performance_core_count
 
 preferences_file_name = f"{application_name}_preferences.db"
+_ordering_aspects_table = "ordering_aspects"
+_default_ordering_aspect_seed: list[OrderingAspect] = [OrderingAspect.FAILED_FIRST, OrderingAspect.NEVER_RUN_FIRST]
 
 scheduler_time_quantum_default = 1.0
 refresh_rate_default = 3.0
@@ -57,10 +58,9 @@ class FlyPreferences(Pref):
 
     resume_skip_put_check: bool = attrib(default=False)  # when True, Resume forces a resume even if the PUT has changed; when False, a PUT change triggers a Restart
 
-    # JSON-encoded list of [{"aspect": <OrderingAspect.value>, "enabled": bool}, ...]
-    # in priority order (index 0 = highest priority).  Empty means "use default seed";
-    # see :func:`get_ordering_aspects`.
-    ordering_aspects: str = attrib(default="")
+    # True once the ordering-aspect PrefOrderedSet has been seeded with defaults.
+    # Guards against re-seeding a set the user has intentionally emptied.
+    ordering_aspects_seeded: bool = attrib(default=False)
 
     tooltip_line_limit: int = attrib(default=tooltip_line_limit_default)  # max lines of pytest output shown in a tooltip before truncation
 
@@ -78,57 +78,28 @@ def get_pref() -> FlyPreferences:
     return FlyPreferences(application_name, author, file_name=preferences_file_name)
 
 
-# Default ordering-aspect list when the user has no stored preference.  Failed-first
-# and never-run-first are enabled by default to preserve a sensible out-of-the-box
-# feedback loop; the others are present but disabled so users can discover them.
-_default_ordering_aspects: list[tuple[OrderingAspect, bool]] = [
-    (OrderingAspect.FAILED_FIRST, True),
-    (OrderingAspect.NEVER_RUN_FIRST, True),
-    (OrderingAspect.LONGEST_PRIOR_FIRST, False),
-    (OrderingAspect.COVERAGE_EFFICIENCY, False),
-]
+def get_ordering_aspects_set() -> PrefOrderedSet:
+    """Return the :class:`PrefOrderedSet` backing the enabled-and-ordered aspect list."""
+    return PrefOrderedSet(application_name, author, table=_ordering_aspects_table, file_name=preferences_file_name)
 
 
-def get_ordering_aspects(pref: FlyPreferences) -> list[tuple[OrderingAspect, bool]]:
-    """Parse :attr:`FlyPreferences.ordering_aspects` into an ordered list.
-
-    Guarantees that every :class:`OrderingAspect` appears exactly once.  Unknown
-    aspect values in the stored JSON are discarded; aspects missing from the
-    stored JSON are appended in :class:`OrderingAspect` declaration order, with
-    the default enable state from :data:`_default_ordering_aspects`.
-
-    :param pref: Preferences instance.
-    :return: List of ``(aspect, enabled)`` tuples in priority order.
-    """
-    try:
-        raw = json.loads(pref.ordering_aspects) if pref.ordering_aspects else []
-    except (ValueError, TypeError):
-        raw = []
-
-    seen: set[OrderingAspect] = set()
-    result: list[tuple[OrderingAspect, bool]] = []
-    if isinstance(raw, list):
-        for entry in raw:
-            if not isinstance(entry, dict):
-                continue
-            try:
-                aspect = OrderingAspect(entry.get("aspect"))
-            except ValueError:
-                continue
-            if aspect in seen:
-                continue
-            seen.add(aspect)
-            result.append((aspect, bool(entry.get("enabled", False))))
-
-    default_enabled = {aspect: enabled for aspect, enabled in _default_ordering_aspects}
-    for aspect, enabled in _default_ordering_aspects:
-        if aspect not in seen:
-            # Missing aspect — append with its default enable state.
-            result.append((aspect, default_enabled[aspect]))
-
+def get_ordering_aspects_ordered() -> list[OrderingAspect]:
+    """Return enabled aspects in priority order; seed defaults on first ever call."""
+    pref = get_pref()
+    aspect_set = get_ordering_aspects_set()
+    if not pref.ordering_aspects_seeded:
+        aspect_set.set([a.value for a in _default_ordering_aspect_seed])
+        pref.ordering_aspects_seeded = True
+    result: list[OrderingAspect] = []
+    for value in aspect_set.get():
+        try:
+            result.append(OrderingAspect(value))
+        except ValueError:
+            continue  # ignore stale / renamed aspect values
     return result
 
 
-def set_ordering_aspects(pref: FlyPreferences, aspects: list[tuple[OrderingAspect, bool]]) -> None:
-    """Serialise *aspects* into :attr:`FlyPreferences.ordering_aspects`."""
-    pref.ordering_aspects = json.dumps([{"aspect": a.value, "enabled": bool(enabled)} for a, enabled in aspects])
+def set_ordering_aspects_ordered(aspects: list[OrderingAspect]) -> None:
+    """Persist the enabled-and-ordered aspect list."""
+    get_pref().ordering_aspects_seeded = True  # any explicit write counts as seeded
+    get_ordering_aspects_set().set([a.value for a in aspects])

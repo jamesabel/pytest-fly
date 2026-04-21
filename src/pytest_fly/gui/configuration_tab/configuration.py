@@ -30,10 +30,10 @@ from pytest_fly.logger import get_logger
 from pytest_fly.platform.platform_info import get_performance_core_count
 from pytest_fly.preferences import (
     chart_window_minutes_default,
-    get_ordering_aspects,
+    get_ordering_aspects_ordered,
     get_pref,
     refresh_rate_default,
-    set_ordering_aspects,
+    set_ordering_aspects_ordered,
     tooltip_line_limit_default,
     utilization_high_threshold_default,
     utilization_low_threshold_default,
@@ -101,7 +101,7 @@ class OrderingAspectsWidget(QGroupBox):
         self._resize_list_to_content()
         # Connect after populating so setCheckState during populate does not
         # fire the persistence slot.
-        self._list.itemChanged.connect(self._persist)
+        self._list.itemChanged.connect(self._on_item_changed)
 
     def _resize_list_to_content(self) -> None:
         """Fix the list widget's size to exactly fit its rows and longest label.
@@ -127,14 +127,16 @@ class OrderingAspectsWidget(QGroupBox):
         self._list.setFixedSize(width, row_height * count + frame)
 
     def _populate_from_prefs(self) -> None:
-        pref = get_pref()
+        """Render enabled aspects (in priority order) first, then disabled aspects in enum order."""
         self._list.clear()
-        for aspect, enabled in get_ordering_aspects(pref):
+        enabled = get_ordering_aspects_ordered()
+        disabled = [a for a in OrderingAspect if a not in enabled]
+        for aspect in list(enabled) + disabled:
             item = QListWidgetItem(_ordering_aspect_labels[aspect])
             item.setToolTip(_ordering_aspect_tooltips[aspect])
             item.setData(Qt.ItemDataRole.UserRole, aspect.value)
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-            item.setCheckState(Qt.CheckState.Checked if enabled else Qt.CheckState.Unchecked)
+            item.setCheckState(Qt.CheckState.Checked if aspect in enabled else Qt.CheckState.Unchecked)
             self._list.addItem(item)
 
     def _move_selected(self, delta: int) -> None:
@@ -149,14 +151,48 @@ class OrderingAspectsWidget(QGroupBox):
         self._list.setCurrentRow(new_row)
         self._persist()
 
+    def _on_item_changed(self, item: QListWidgetItem) -> None:
+        """Keep enabled rows above disabled rows when the user toggles a checkbox.
+
+        Unchecking a row drops it to the bottom of the list; checking a row
+        promotes it to the end of the enabled group (just above the first
+        disabled row).  Always persists.
+        """
+        current = self._list.row(item)
+        if item.checkState() == Qt.CheckState.Checked:
+            # Target row: first unchecked row above the current position,
+            # i.e. the insertion point at the end of the enabled group.
+            target = current
+            for i in range(current):
+                if self._list.item(i).checkState() != Qt.CheckState.Checked:
+                    target = i
+                    break
+            else:
+                target = current  # already at/after the last checked row
+        else:
+            target = self._list.count() - 1  # move to the very end
+
+        if target != current:
+            # Signals block prevents _on_item_changed from re-entering while
+            # the row is moved programmatically.
+            self._list.blockSignals(True)
+            taken = self._list.takeItem(current)
+            self._list.insertItem(target, taken)
+            self._list.setCurrentRow(target)
+            self._list.blockSignals(False)
+
+        self._persist()
+
     def _persist(self) -> None:
-        aspects: list[tuple[OrderingAspect, bool]] = []
+        enabled: list[OrderingAspect] = []
         for i in range(self._list.count()):
             item = self._list.item(i)
-            aspect = OrderingAspect(item.data(Qt.ItemDataRole.UserRole))
-            enabled = item.checkState() == Qt.CheckState.Checked
-            aspects.append((aspect, enabled))
-        set_ordering_aspects(get_pref(), aspects)
+            if item.checkState() == Qt.CheckState.Checked:
+                try:
+                    enabled.append(OrderingAspect(item.data(Qt.ItemDataRole.UserRole)))
+                except ValueError:
+                    continue
+        set_ordering_aspects_ordered(enabled)
 
 
 log = get_logger()

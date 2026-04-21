@@ -171,6 +171,25 @@ class PytestProcessInfoDB(MSQLite):
             log.debug(f"query_last_pass failed (table may not exist yet): {e}")
         return result
 
+    def query_ever_run_names(self) -> set[str]:
+        """Return the set of test node_ids that have ever been run, across all runs and PUT versions.
+
+        Filters out queued-but-never-started placeholder rows (``pid IS NULL``) — these are
+        written by :class:`PytestRunner` before a test actually spawns and by ``_drain_queue``
+        when a run is stopped, so they do not count as "ever run."
+
+        :return: Set of test node_ids.  Empty if the table does not yet exist.
+        """
+        statement = f"SELECT DISTINCT name FROM {self.table_name} WHERE pid IS NOT NULL"
+        result: set[str] = set()
+        try:
+            for row in self.execute(statement):
+                if row[0] is not None:
+                    result.add(row[0])
+        except sqlite3.OperationalError as e:
+            log.debug(f"query_ever_run_names failed (table may not exist yet): {e}")
+        return result
+
     def delete(self, run_guid: str | None = None):
         """
         Delete records.  If *run_guid* is ``None`` the entire table is dropped;

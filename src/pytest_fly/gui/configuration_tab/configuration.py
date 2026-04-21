@@ -18,7 +18,6 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QPushButton,
     QSizePolicy,
-    QStyle,
     QVBoxLayout,
     QWidget,
 )
@@ -107,23 +106,24 @@ class OrderingAspectsWidget(QGroupBox):
     def _resize_list_to_content(self) -> None:
         """Fix the list widget's size to exactly fit its rows and longest label.
 
-        ``sizeHintForColumn`` only measures the text, not the leading check
-        indicator Qt draws when ``ItemIsUserCheckable`` is set.  We add the
-        style's indicator width plus a small per-row horizontal padding so
-        long labels are never clipped.
+        We build the width from explicit components rather than asking the
+        delegate, because its sizeHint under-reports the padding Qt actually
+        consumes around the check indicator on Windows (producing clipping).
         """
         count = self._list.count()
         if count == 0:
             return
-        style = self._list.style()
-        indicator_width = style.pixelMetric(QStyle.PixelMetric.PM_IndicatorWidth, None, self._list)
-        # Horizontal margin Qt puts around item text inside a QAbstractItemView.
-        item_margin = style.pixelMetric(QStyle.PixelMetric.PM_FocusFrameHMargin, None, self._list) * 2 + 8
         fm = self._list.fontMetrics()
         text_width = max(fm.horizontalAdvance(_ordering_aspect_labels[a]) for a in _ordering_aspect_labels)
-        row_height = self._list.sizeHintForRow(0)
+        # Padding for: left item margin + check indicator + indicator-to-text gap
+        # + right item margin + safety slack.  ``PM_IndicatorWidth`` is an
+        # unreliable lower bound (Windows returns 14 even though the rendered
+        # box is ~20 px with surrounding padding), so we use a flat 60 px that
+        # covers every platform style we care about.
+        horizontal_padding = 60
         frame = 2 * self._list.frameWidth()
-        width = text_width + indicator_width + item_margin + frame
+        width = text_width + horizontal_padding + frame
+        row_height = self._list.sizeHintForRow(0) or fm.height() + 4
         self._list.setFixedSize(width, row_height * count + frame)
 
     def _populate_from_prefs(self) -> None:

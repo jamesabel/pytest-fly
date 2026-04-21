@@ -3,12 +3,11 @@ Core data structures and enumerations shared across the application.
 
 Defines the fundamental types used by the runner, database, and GUI layers:
 :class:`ScheduledTest`, :class:`PytestProcessInfo`, :class:`PytestRunnerState`,
-:class:`RunMode`, :class:`TestOrder`, and :class:`PyTestFlyExitCode`.
+:class:`RunMode`, :class:`OrderingAspect`, and :class:`PyTestFlyExitCode`.
 """
 
 from dataclasses import dataclass
 from enum import IntEnum, StrEnum
-from functools import total_ordering
 
 from pytest import ExitCode
 
@@ -17,23 +16,17 @@ from .logger import get_logger
 log = get_logger()
 
 
-def _lines_per_second(duration: float, coverage: float) -> float:
+def lines_per_second(duration: float | None, coverage: float | None) -> float | None:
+    """Lines-per-second efficiency metric used by the COVERAGE_EFFICIENCY ordering aspect.
+
+    Returns ``None`` when either input is missing so callers can order
+    missing-data tests after the ones with real measurements.
     """
-    Calculate the line coverage per second.
-
-    Used by :class:`ScheduledTest` ordering to prioritise tests that cover
-    the most lines in the least time.
-
-    :param duration: Test duration in seconds.
-    :param coverage: Fraction of lines covered (0.0 to 1.0).
-    :return: Lines-per-second efficiency metric.
-    """
-
-    lines_per_second = coverage / max(duration, 1e-9)  # avoid division by zero
-    return lines_per_second
+    if duration is None or coverage is None:
+        return None
+    return coverage / max(duration, 1e-9)  # avoid division by zero
 
 
-@total_ordering
 @dataclass(frozen=True)
 class ScheduledTest:
     """
@@ -42,7 +35,7 @@ class ScheduledTest:
 
     node_id: str  # unique identifier for the test
     singleton: bool  # True if the test is a singleton
-    duration: float | None  # duration of the most recent run (seconds)
+    duration: float | None  # duration of the most recent passing run (seconds)
     coverage: float | None  # coverage of the most recent run, between 0.0 and 1.0 (1.0 = this tests covers all the code)
 
     def __eq__(self, other):
@@ -55,25 +48,20 @@ class ScheduledTest:
         """Hash based on node_id to be consistent with __eq__."""
         return hash(self.node_id)
 
-    def __lt__(self, other):
-        """
-        Return True if this test should be executed *earlier* than other (i.e. has higher priority).
-        """
-        if not isinstance(other, ScheduledTest):
-            return NotImplemented
-        if self.singleton and not other.singleton:
-            return False
-        elif not self.singleton and other.singleton:
-            return True
-        elif self.duration is None or self.coverage is None or other.duration is None or other.coverage is None:
-            return self.node_id < other.node_id
-        else:
-            return _lines_per_second(self.duration, self.coverage) > _lines_per_second(other.duration, other.coverage)
 
+class OrderingAspect(StrEnum):
+    """An aspect that contributes to the execution order of scheduled tests.
 
-class TestOrder(IntEnum):
-    PYTEST = 0  # use pytest's default collection order (alphabetical by node_id)
-    COVERAGE = 1  # order by coverage efficiency (lines covered per second), falling back to node_id when no prior data
+    The Configuration tab exposes these as a reorderable list: each aspect can
+    be individually enabled/disabled, and their position in the list sets
+    priority (index 0 = highest priority).  ``singleton`` tests are always
+    sorted last, regardless of enabled aspects.
+    """
+
+    FAILED_FIRST = "failed_first"  # tests that failed in the previous run run first
+    NEVER_RUN_FIRST = "never_run_first"  # tests with no DB record (any PUT version) run first
+    LONGEST_PRIOR_FIRST = "longest_prior_first"  # tests with the longest prior passing run run first (shrinks parallel critical path)
+    COVERAGE_EFFICIENCY = "coverage_efficiency"  # tests with the highest lines-covered-per-second run first
 
 
 class RunMode(IntEnum):

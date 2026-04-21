@@ -1,8 +1,8 @@
 """
 Control window — Run/Stop buttons and parallelism/run-mode selectors.
 
-Houses the run-preparation logic: test discovery, RESUME filtering,
-failed-first reordering, and coverage-efficiency ordering.
+Houses the run-preparation logic: test discovery, RESUME filtering, and
+the user-configured ordering-aspect chain (see :mod:`pytest_runner.ordering`).
 """
 
 import time
@@ -15,11 +15,12 @@ from typeguard import typechecked
 
 from ...db import PytestProcessInfoDB
 from ...guid import generate_uuid
-from ...interfaces import PutVersionInfo, PyTestFlyExitCode, RunMode, ScheduledTest, TestOrder
+from ...interfaces import OrderingAspect, PutVersionInfo, PyTestFlyExitCode, RunMode, ScheduledTest
 from ...logger import get_logger
-from ...preferences import ParallelismControl, get_pref
+from ...preferences import ParallelismControl, get_ordering_aspects, get_pref
 from ...put_version import detect_put_version
 from ...pytest_runner.coverage import compute_per_test_coverage
+from ...pytest_runner.ordering import PRIOR_DATA_ASPECTS, OrderingContext, apply_ordering_aspects
 from ...pytest_runner.pytest_runner import PytestRunner
 from ...pytest_runner.test_list import GetTests
 from .control_pushbutton import ControlButton
@@ -170,25 +171,43 @@ class ControlWindow(QGroupBox):
                         for record in records_to_copy:
                             db.write(replace(record, run_guid=self.run_guid, time_stamp=record.time_stamp + delta))
 
-        # Reorder so previously-failed tests run first (within their singleton group).
-        # RESTART means "start over" — ignore prior results entirely so execution order
-        # matches the alphabetical table display.
-        if effective_mode != RunMode.RESTART:
-            tests = self._reorder_failed_first(tests, prior_results)
-
         # Use last-pass durations for ETA estimation (from the most recent passing run)
         self.prior_durations = {name: duration for name, (_, duration) in last_pass_data.items()}
         self.num_processes = processes
 
-        # Populate coverage/duration for coverage-efficiency ordering
-        if pref.test_order == TestOrder.COVERAGE:
-            tests = self._apply_coverage_order(tests)
-            tests.sort()
+        # Apply the user's ordered list of ordering aspects (see Configuration tab).
+        enabled_aspects: list[OrderingAspect] = [aspect for aspect, enabled in get_ordering_aspects(pref) if enabled]
+        if effective_mode == RunMode.RESTART:
+            # RESTART ignores prior-run results, so aspects that depend on them do nothing.
+            enabled_aspects = [a for a in enabled_aspects if a not in PRIOR_DATA_ASPECTS]
 
-        # Never-run prioritization runs last so it takes precedence over both failed-first
-        # and coverage ordering — developers adding new tests get the fastest feedback.
-        if pref.prioritize_never_run:
-            tests = self._prioritize_never_run(tests, ever_run)
+        per_test_cov: dict[str, float] = {}
+        if OrderingAspect.COVERAGE_EFFICIENCY in enabled_aspects:
+            per_test_cov = compute_per_test_coverage(self.data_dir, [t.node_id for t in tests])
+            # Coverage-efficiency reads duration/coverage off the ScheduledTest
+            # itself, so rebuild the list with those fields populated.
+            tests = [
+                ScheduledTest(
+                    node_id=t.node_id,
+                    singleton=t.singleton,
+                    duration=self.prior_durations.get(t.node_id),
+                    coverage=per_test_cov.get(t.node_id),
+                )
+                for t in tests
+            ]
+
+        failed_names: set[str] = set()
+        if prior_results:
+            passed = {r.name for r in prior_results if r.exit_code == PyTestFlyExitCode.OK}
+            failed_names = {r.name for r in prior_results} - passed
+
+        ctx = OrderingContext(
+            failed_names=failed_names,
+            ever_run_names=ever_run,
+            prior_durations=self.prior_durations,
+            per_test_coverage=per_test_cov,
+        )
+        tests = apply_ordering_aspects(tests, enabled_aspects, ctx)
 
         self.singleton_names = {t.node_id for t in tests if t.singleton}
 
@@ -245,54 +264,6 @@ class ControlWindow(QGroupBox):
             return RunMode.RESTART
         log.info(f"CHECK: PUT fingerprint unchanged ({current_fp!r}), resuming")
         return RunMode.RESUME
-
-    def _reorder_failed_first(self, tests, prior_results):
-        """Reorder tests so previously-failed ones run first (within their singleton group).
-
-        :param tests: List of scheduled tests.
-        :param prior_results: List of prior PytestProcessInfo records.
-        :return: Reordered list of tests.
-        """
-        if prior_results:
-            passed = {r.name for r in prior_results if r.exit_code == PyTestFlyExitCode.OK}
-            prior_names = {r.name for r in prior_results}
-            failed = prior_names - passed
-            tests = sorted(tests, key=lambda t: (t.singleton, t.node_id not in failed))
-        return tests
-
-    def _prioritize_never_run(self, tests, ever_run_names):
-        """Promote tests with no DB record (any PUT version) to the front of the queue.
-
-        Preserves singleton grouping (singleton=True last) via the tuple key, matching
-        the convention used by :meth:`_reorder_failed_first`.  Stable sort keeps the
-        prior relative order within each bucket.
-
-        :param tests: List of scheduled tests.
-        :param ever_run_names: Set of test node_ids that have ever been run.
-        :return: Reordered list of tests.
-        """
-        return sorted(tests, key=lambda t: (t.singleton, t.node_id in ever_run_names))
-
-    def _apply_coverage_order(self, tests):
-        """Replace ScheduledTest objects with ones carrying prior duration and coverage data.
-
-        When both values are available the existing ``ScheduledTest.__lt__`` sorts
-        by lines-per-second efficiency.  Tests without prior data keep ``None``
-        and fall back to alphabetical ordering.
-
-        :param tests: List of scheduled tests.
-        :return: New list with duration/coverage populated where available.
-        """
-        per_test_cov = compute_per_test_coverage(self.data_dir, [t.node_id for t in tests])
-        return [
-            ScheduledTest(
-                node_id=t.node_id,
-                singleton=t.singleton,
-                duration=self.prior_durations.get(t.node_id),
-                coverage=per_test_cov.get(t.node_id),
-            )
-            for t in tests
-        ]
 
     def soft_stop(self):
         """Stop scheduling new tests but let running tests finish."""

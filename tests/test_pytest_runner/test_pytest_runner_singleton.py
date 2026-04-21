@@ -12,14 +12,12 @@ def test_pytest_runner_singleton(app):
     test_name = "test_pytest_runner_singleton"
 
     # Two normal tests (run in parallel) plus one singleton (must run alone).
-    # The singleton is last because ScheduledTest sorting puts singletons at the end.
-    scheduled_tests = sorted(
-        [
-            ScheduledTest(node_id="tests/test_no_operation.py", singleton=False, duration=None, coverage=None),
-            ScheduledTest(node_id="tests/test_3_sec_operation.py", singleton=False, duration=None, coverage=None),
-            ScheduledTest(node_id="tests/test_singleton.py", singleton=True, duration=None, coverage=None),
-        ]
-    )
+    # Singletons must appear last in the queue so the runner schedules them exclusively.
+    scheduled_tests = [
+        ScheduledTest(node_id="tests/test_3_sec_operation.py", singleton=False, duration=None, coverage=None),
+        ScheduledTest(node_id="tests/test_no_operation.py", singleton=False, duration=None, coverage=None),
+        ScheduledTest(node_id="tests/test_singleton.py", singleton=True, duration=None, coverage=None),
+    ]
 
     run_guid = generate_uuid()
     data_dir = get_temp_dir(test_name)

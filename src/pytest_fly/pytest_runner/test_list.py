@@ -95,6 +95,8 @@ class GetTests(Process):
         except Empty:
             pass
 
-        self.scheduled_tests.sort()
+        # Deterministic discovery order — the final execution order is decided
+        # later by :func:`pytest_fly.pytest_runner.ordering.apply_ordering_aspects`.
+        self.scheduled_tests.sort(key=lambda t: t.node_id)
 
         return self.scheduled_tests

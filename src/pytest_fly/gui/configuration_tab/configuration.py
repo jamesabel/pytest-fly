@@ -7,22 +7,157 @@ from collections.abc import Callable
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QDoubleValidator, QIntValidator, QValidator
-from PySide6.QtWidgets import QCheckBox, QFileDialog, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QFileDialog,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
+    QPushButton,
+    QSizePolicy,
+    QStyle,
+    QVBoxLayout,
+    QWidget,
+)
 from tobool import to_bool_strict
 
 from pytest_fly.gui.about_tab.project_info import get_project_info
 from pytest_fly.gui.gui_util import get_text_dimensions
-from pytest_fly.interfaces import RunMode, TestOrder
+from pytest_fly.interfaces import OrderingAspect, RunMode
 from pytest_fly.logger import get_logger
 from pytest_fly.platform.platform_info import get_performance_core_count
 from pytest_fly.preferences import (
     chart_window_minutes_default,
+    get_ordering_aspects,
     get_pref,
     refresh_rate_default,
+    set_ordering_aspects,
     tooltip_line_limit_default,
     utilization_high_threshold_default,
     utilization_low_threshold_default,
 )
+
+_ordering_aspect_labels: dict[OrderingAspect, str] = {
+    OrderingAspect.FAILED_FIRST: "Failed tests first",
+    OrderingAspect.NEVER_RUN_FIRST: "Never-run tests first",
+    OrderingAspect.LONGEST_PRIOR_FIRST: "Longest prior execution time first",
+    OrderingAspect.COVERAGE_EFFICIENCY: "Coverage efficiency (lines/sec)",
+}
+
+_ordering_aspect_tooltips: dict[OrderingAspect, str] = {
+    OrderingAspect.FAILED_FIRST: "Tests that failed in the previous run run first. Ignored in Restart mode.",
+    OrderingAspect.NEVER_RUN_FIRST: "Tests with no record in the database (any program-under-test version) run first.",
+    OrderingAspect.LONGEST_PRIOR_FIRST: (
+        "Tests with the longest prior passing-run duration run first. Helps parallel runs by starting the\n"
+        "critical-path tests earliest; shorter tests backfill the remaining workers. Ignored in Restart mode."
+    ),
+    OrderingAspect.COVERAGE_EFFICIENCY: ("Tests with the highest lines-covered-per-second run first. Requires prior duration and coverage data. Ignored in Restart mode."),
+}
+
+
+class OrderingAspectsWidget(QGroupBox):
+    """Reorderable, per-row-checkable list of test-ordering aspects."""
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__("Test Ordering", parent)
+        # Hug our content — do not stretch into parent layout whitespace.
+        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        self.setToolTip("Top of the list is highest priority. Check a row to enable that aspect; use Up/Down to reorder.")
+
+        outer = QVBoxLayout()
+        outer.setContentsMargins(8, 6, 8, 6)
+        outer.setSpacing(4)
+        outer.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        self.setLayout(outer)
+
+        body = QHBoxLayout()
+        body.setSpacing(4)
+        body.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        outer.addLayout(body)
+
+        self._list = QListWidget()
+        self._list.setSelectionMode(QListWidget.SelectionMode.SingleSelection)
+        self._list.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        # Remove the scroll bars — with only four fixed rows the widget is sized
+        # to show them all, so scrolling would be misleading whitespace.
+        self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._list.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        body.addWidget(self._list)
+
+        buttons = QVBoxLayout()
+        buttons.setAlignment(Qt.AlignmentFlag.AlignTop)
+        buttons.setSpacing(2)
+        self._up_button = QPushButton("Up")
+        self._up_button.clicked.connect(lambda: self._move_selected(-1))
+        buttons.addWidget(self._up_button)
+        self._down_button = QPushButton("Down")
+        self._down_button.clicked.connect(lambda: self._move_selected(1))
+        buttons.addWidget(self._down_button)
+        body.addLayout(buttons)
+
+        self._populate_from_prefs()
+        self._resize_list_to_content()
+        # Connect after populating so setCheckState during populate does not
+        # fire the persistence slot.
+        self._list.itemChanged.connect(self._persist)
+
+    def _resize_list_to_content(self) -> None:
+        """Fix the list widget's size to exactly fit its rows and longest label.
+
+        ``sizeHintForColumn`` only measures the text, not the leading check
+        indicator Qt draws when ``ItemIsUserCheckable`` is set.  We add the
+        style's indicator width plus a small per-row horizontal padding so
+        long labels are never clipped.
+        """
+        count = self._list.count()
+        if count == 0:
+            return
+        style = self._list.style()
+        indicator_width = style.pixelMetric(QStyle.PixelMetric.PM_IndicatorWidth, None, self._list)
+        # Horizontal margin Qt puts around item text inside a QAbstractItemView.
+        item_margin = style.pixelMetric(QStyle.PixelMetric.PM_FocusFrameHMargin, None, self._list) * 2 + 8
+        fm = self._list.fontMetrics()
+        text_width = max(fm.horizontalAdvance(_ordering_aspect_labels[a]) for a in _ordering_aspect_labels)
+        row_height = self._list.sizeHintForRow(0)
+        frame = 2 * self._list.frameWidth()
+        width = text_width + indicator_width + item_margin + frame
+        self._list.setFixedSize(width, row_height * count + frame)
+
+    def _populate_from_prefs(self) -> None:
+        pref = get_pref()
+        self._list.clear()
+        for aspect, enabled in get_ordering_aspects(pref):
+            item = QListWidgetItem(_ordering_aspect_labels[aspect])
+            item.setToolTip(_ordering_aspect_tooltips[aspect])
+            item.setData(Qt.ItemDataRole.UserRole, aspect.value)
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(Qt.CheckState.Checked if enabled else Qt.CheckState.Unchecked)
+            self._list.addItem(item)
+
+    def _move_selected(self, delta: int) -> None:
+        row = self._list.currentRow()
+        if row < 0:
+            return
+        new_row = row + delta
+        if new_row < 0 or new_row >= self._list.count():
+            return
+        item = self._list.takeItem(row)
+        self._list.insertItem(new_row, item)
+        self._list.setCurrentRow(new_row)
+        self._persist()
+
+    def _persist(self) -> None:
+        aspects: list[tuple[OrderingAspect, bool]] = []
+        for i in range(self._list.count()):
+            item = self._list.item(i)
+            aspect = OrderingAspect(item.data(Qt.ItemDataRole.UserRole))
+            enabled = item.checkState() == Qt.CheckState.Checked
+            aspects.append((aspect, enabled))
+        set_ordering_aspects(get_pref(), aspects)
+
 
 log = get_logger()
 
@@ -95,17 +230,8 @@ class Configuration(QWidget):
 
         layout.addWidget(QLabel(""))  # space
 
-        # Test order option
-        self.coverage_order_checkbox = QCheckBox("Order Tests by Coverage Efficiency (default: off)")
-        self.coverage_order_checkbox.setChecked(int(pref.test_order) == TestOrder.COVERAGE)
-        self.coverage_order_checkbox.stateChanged.connect(self.update_test_order)
-        layout.addWidget(self.coverage_order_checkbox)
-
-        self.prioritize_never_run_checkbox = QCheckBox("Prioritize Never-Run Tests (default: off)")
-        self.prioritize_never_run_checkbox.setToolTip("Promote tests with no record in the database (any PUT version) to the front of the queue.")
-        self.prioritize_never_run_checkbox.setChecked(to_bool_strict(pref.prioritize_never_run))
-        self.prioritize_never_run_checkbox.stateChanged.connect(self.update_prioritize_never_run)
-        layout.addWidget(self.prioritize_never_run_checkbox)
+        self.ordering_aspects_widget = OrderingAspectsWidget(self)
+        layout.addWidget(self.ordering_aspects_widget)
 
         layout.addWidget(QLabel(""))  # space
 
@@ -183,16 +309,6 @@ class Configuration(QWidget):
         """Persist the performance-logging checkbox state to preferences."""
         pref = get_pref()
         pref.perf_logging = self.perf_logging_checkbox.isChecked()
-
-    def update_test_order(self):
-        """Persist the test order preference based on the checkbox state."""
-        pref = get_pref()
-        pref.test_order = TestOrder.COVERAGE if self.coverage_order_checkbox.isChecked() else TestOrder.PYTEST
-
-    def update_prioritize_never_run(self):
-        """Persist the prioritize-never-run checkbox state to preferences."""
-        pref = get_pref()
-        pref.prioritize_never_run = self.prioritize_never_run_checkbox.isChecked()
 
     def update_resume_skip_put_check(self):
         """Persist the resume-skip-PUT-check checkbox and keep run_mode consistent."""

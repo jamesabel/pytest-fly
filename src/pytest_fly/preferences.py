@@ -58,6 +58,8 @@ class FlyPreferences(Pref):
 
     test_order: TestOrder = attrib(default=TestOrder.PYTEST)  # 0=pytest default order, 1=coverage efficiency order
 
+    prioritize_never_run: bool = attrib(default=False)  # when True, promote tests with no DB record (any PUT version) to the front of the queue
+
     tooltip_line_limit: int = attrib(default=tooltip_line_limit_default)  # max lines of pytest output shown in a tooltip before truncation
 
     chart_window_minutes: float = attrib(default=chart_window_minutes_default)  # Run-tab system-metrics chart window (minutes)

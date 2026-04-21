@@ -101,6 +101,12 @@ class Configuration(QWidget):
         self.coverage_order_checkbox.stateChanged.connect(self.update_test_order)
         layout.addWidget(self.coverage_order_checkbox)
 
+        self.prioritize_never_run_checkbox = QCheckBox("Prioritize Never-Run Tests (default: off)")
+        self.prioritize_never_run_checkbox.setToolTip("Promote tests with no record in the database (any PUT version) to the front of the queue.")
+        self.prioritize_never_run_checkbox.setChecked(to_bool_strict(pref.prioritize_never_run))
+        self.prioritize_never_run_checkbox.stateChanged.connect(self.update_prioritize_never_run)
+        layout.addWidget(self.prioritize_never_run_checkbox)
+
         layout.addWidget(QLabel(""))  # space
 
         # Numeric preference fields — use the shared helper to avoid repetition.
@@ -182,6 +188,11 @@ class Configuration(QWidget):
         """Persist the test order preference based on the checkbox state."""
         pref = get_pref()
         pref.test_order = TestOrder.COVERAGE if self.coverage_order_checkbox.isChecked() else TestOrder.PYTEST
+
+    def update_prioritize_never_run(self):
+        """Persist the prioritize-never-run checkbox state to preferences."""
+        pref = get_pref()
+        pref.prioritize_never_run = self.prioritize_never_run_checkbox.isChecked()
 
     def update_resume_skip_put_check(self):
         """Persist the resume-skip-PUT-check checkbox and keep run_mode consistent."""

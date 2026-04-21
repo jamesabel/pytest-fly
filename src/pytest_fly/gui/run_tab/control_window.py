@@ -137,10 +137,11 @@ class ControlWindow(QGroupBox):
 
         tests = get_tests.get_tests()
 
-        # Query prior results once (used by both RESUME filtering and failed-first ordering)
+        # Query prior results once (used by RESUME filtering, failed-first ordering, and never-run prioritization)
         with PytestProcessInfoDB(self.data_dir) as db:
             prior_results = db.query()  # most recent run
             last_pass_data = db.query_last_pass()  # most recent passing run per test
+            ever_run = db.query_ever_run_names()  # names of tests that have ever run (any PUT version)
 
         # CHECK mode: behave like RESUME if the PUT fingerprint matches the prior run, else RESTART.
         effective_mode = pref.run_mode
@@ -183,6 +184,11 @@ class ControlWindow(QGroupBox):
         if pref.test_order == TestOrder.COVERAGE:
             tests = self._apply_coverage_order(tests)
             tests.sort()
+
+        # Never-run prioritization runs last so it takes precedence over both failed-first
+        # and coverage ordering — developers adding new tests get the fastest feedback.
+        if pref.prioritize_never_run:
+            tests = self._prioritize_never_run(tests, ever_run)
 
         self.singleton_names = {t.node_id for t in tests if t.singleton}
 
@@ -253,6 +259,19 @@ class ControlWindow(QGroupBox):
             failed = prior_names - passed
             tests = sorted(tests, key=lambda t: (t.singleton, t.node_id not in failed))
         return tests
+
+    def _prioritize_never_run(self, tests, ever_run_names):
+        """Promote tests with no DB record (any PUT version) to the front of the queue.
+
+        Preserves singleton grouping (singleton=True last) via the tuple key, matching
+        the convention used by :meth:`_reorder_failed_first`.  Stable sort keeps the
+        prior relative order within each bucket.
+
+        :param tests: List of scheduled tests.
+        :param ever_run_names: Set of test node_ids that have ever been run.
+        :return: Reordered list of tests.
+        """
+        return sorted(tests, key=lambda t: (t.singleton, t.node_id in ever_run_names))
 
     def _apply_coverage_order(self, tests):
         """Replace ScheduledTest objects with ones carrying prior duration and coverage data.

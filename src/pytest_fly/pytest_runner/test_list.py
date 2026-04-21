@@ -3,6 +3,7 @@ Test discovery subprocess — collects pytest test node IDs via
 ``pytest --collect-only`` and returns them as :class:`ScheduledTest` objects.
 """
 
+import os
 import sys
 from io import StringIO
 from multiprocessing import Process, Queue
@@ -33,6 +34,11 @@ class GetTests(Process):
     @typechecked
     def run(self):
         log.info(f"{self.test_dir=}")
+
+        # Collection only needs core pytest.  Third-party plugins installed in the venv
+        # (pytest-xdist, pytest-qt, pytest-randomly, etc.) can deadlock or distort
+        # --collect-only output when auto-loaded into this spawned child process.
+        os.environ["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] = "1"
 
         # value is True if the test is marked with 'singleton', False otherwise
         pytest_tests = {}  # type: dict[str, bool]

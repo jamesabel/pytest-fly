@@ -62,10 +62,23 @@ class OrderingAspectsWidget(QGroupBox):
     """Reorderable, per-row-checkable list of test-ordering aspects."""
 
     def __init__(self, parent: QWidget | None = None):
-        super().__init__("Test Ordering", parent)
+        super().__init__("Test Ordering (highest priority=top)", parent)
         # Hug our content — do not stretch into parent layout whitespace.
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        self.setToolTip("Top of the list is highest priority. Check a row to enable that aspect; use Up/Down to reorder.")
+        self.setToolTip(
+            "Controls the order tests run in.\n\n"
+            "Check a row to enable that aspect; uncheck to disable. Enabled rows appear above disabled ones.\n"
+            "Position sets priority — the topmost enabled row is the primary sort; rows below it break ties.\n"
+            "Use Up / Down to reorder the selected row.\n\n"
+            "Failed tests: previously-failed tests run before previously-passed ones.\n"
+            "Never-run tests: tests with no record in the database run before tests that have run before.\n"
+            "Longest prior execution time: slowest passing tests run first — helps parallel runs by starting\n"
+            "the critical path earliest so short tests backfill the remaining workers.\n"
+            "Coverage efficiency: tests with the highest lines-covered-per-second run first.\n\n"
+            "In Restart mode, aspects that depend on prior-run data (Failed, Longest prior, Coverage) are\n"
+            "ignored; Never-run still applies because it reads any-version history.\n"
+            "Singleton tests always run last regardless of these settings."
+        )
 
         outer = QVBoxLayout()
         outer.setContentsMargins(8, 6, 8, 6)

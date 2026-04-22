@@ -2,7 +2,6 @@
 
 from pytest_fly.interfaces import OrderingAspect, ScheduledTest
 from pytest_fly.pytest_runner.ordering import (
-    PRIOR_DATA_ASPECTS,
     OrderingContext,
     apply_ordering_aspects,
 )
@@ -95,8 +94,9 @@ def test_singleton_invariant_across_aspects():
     assert result[-1].node_id == "singleton_a"
 
 
-def test_prior_data_aspects_set():
-    assert OrderingAspect.FAILED_FIRST in PRIOR_DATA_ASPECTS
-    assert OrderingAspect.LONGEST_PRIOR_FIRST in PRIOR_DATA_ASPECTS
-    assert OrderingAspect.COVERAGE_EFFICIENCY in PRIOR_DATA_ASPECTS
-    assert OrderingAspect.NEVER_RUN_FIRST not in PRIOR_DATA_ASPECTS
+def test_longest_prior_first_works_without_any_prior_data():
+    """With no prior durations at all (e.g. first ever run), the aspect is a no-op
+    rather than a crash — all tests get tie key 0 and fall back to the alphabetical baseline."""
+    tests = [_t("b"), _t("a"), _t("c")]
+    result = apply_ordering_aspects(tests, [OrderingAspect.LONGEST_PRIOR_FIRST], OrderingContext())
+    assert [t.node_id for t in result] == ["a", "b", "c"]

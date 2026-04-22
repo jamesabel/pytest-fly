@@ -20,7 +20,7 @@ from ...logger import get_logger
 from ...preferences import ParallelismControl, get_ordering_aspects_ordered, get_pref
 from ...put_version import detect_put_version
 from ...pytest_runner.coverage import compute_per_test_coverage
-from ...pytest_runner.ordering import PRIOR_DATA_ASPECTS, OrderingContext, apply_ordering_aspects
+from ...pytest_runner.ordering import OrderingContext, apply_ordering_aspects
 from ...pytest_runner.pytest_runner import PytestRunner
 from ...pytest_runner.test_list import GetTests
 from .control_pushbutton import ControlButton
@@ -176,10 +176,9 @@ class ControlWindow(QGroupBox):
         self.num_processes = processes
 
         # Apply the user's ordered list of ordering aspects (see Configuration tab).
+        # Prior-run data still informs execution *order* even in RESTART mode — RESTART only
+        # means "rerun every test," not "forget the durations/failures we know about."
         enabled_aspects: list[OrderingAspect] = get_ordering_aspects_ordered()
-        if effective_mode == RunMode.RESTART:
-            # RESTART ignores prior-run results, so aspects that depend on them do nothing.
-            enabled_aspects = [a for a in enabled_aspects if a not in PRIOR_DATA_ASPECTS]
 
         per_test_cov: dict[str, float] = {}
         if OrderingAspect.COVERAGE_EFFICIENCY in enabled_aspects:

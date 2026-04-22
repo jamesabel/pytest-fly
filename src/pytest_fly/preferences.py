@@ -26,6 +26,7 @@ utilization_low_threshold_default = 0.5
 run_with_coverage_default = True
 tooltip_line_limit_default = 40  # max lines shown in pytest-output tooltips before truncation
 chart_window_minutes_default = 5.0  # width of the system-metrics chart time window on the Run tab, in minutes
+graph_font_size_default = 10  # point size of the font used in the Progress Graph tab
 
 
 class ParallelismControl(IntEnum):
@@ -65,6 +66,8 @@ class FlyPreferences(Pref):
     tooltip_line_limit: int = attrib(default=tooltip_line_limit_default)  # max lines of pytest output shown in a tooltip before truncation
 
     chart_window_minutes: float = attrib(default=chart_window_minutes_default)  # Run-tab system-metrics chart window (minutes)
+
+    graph_font_size: int = attrib(default=graph_font_size_default)  # Progress Graph tab font size, in points
 
     run_tab_splitter_state: str = attrib(default="")  # Run-tab top-vs-failed-tests splitter (QSplitter.saveState() hex-encoded)
     run_tab_bottom_splitter_state: str = attrib(default="")  # Run-tab bottom pane: failed-tests-vs-live-output splitter (QSplitter.saveState() hex-encoded)

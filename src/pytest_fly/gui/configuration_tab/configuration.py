@@ -33,6 +33,7 @@ from pytest_fly.preferences import (
     chart_window_minutes_default,
     get_ordering_aspects_ordered,
     get_pref,
+    graph_font_size_default,
     refresh_rate_default,
     set_ordering_aspects_ordered,
     tooltip_line_limit_default,
@@ -226,6 +227,7 @@ log = get_logger()
 minimum_refresh_rate = 1.0
 minimum_tooltip_line_limit = 1
 minimum_chart_window_minutes = 0.5
+minimum_graph_font_size = 6
 
 
 def _add_labeled_lineedit(
@@ -325,6 +327,11 @@ class Configuration(QWidget):
         self.chart_window_minutes_lineedit = _add_labeled_lineedit(
             layout, chart_window_label, str(pref.chart_window_minutes), QDoubleValidator(), self.update_chart_window_minutes, char_width=6
         )
+
+        layout.addWidget(QLabel(""))  # space
+
+        graph_font_size_label = f"Progress Graph Font Size (points, {minimum_graph_font_size} minimum, {graph_font_size_default} default)"
+        self.graph_font_size_lineedit = _add_labeled_lineedit(layout, graph_font_size_label, str(pref.graph_font_size), QIntValidator(), self.update_graph_font_size, char_width=6)
 
         layout.addWidget(QLabel(""))  # space
 
@@ -431,6 +438,12 @@ class Configuration(QWidget):
             pref.chart_window_minutes = max(float(value), minimum_chart_window_minutes)
         except ValueError:
             pass
+
+    def update_graph_font_size(self, value: str):
+        """Persist the Progress Graph font size (clamped to *minimum_graph_font_size*)."""
+        pref = get_pref()
+        if value.isnumeric():
+            pref.graph_font_size = max(int(value), minimum_graph_font_size)
 
     def update_target_project_path(self, value: str):
         """Persist the target-project path override (empty = auto-detect)."""

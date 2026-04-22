@@ -23,7 +23,8 @@
   - **Coverage** — line chart of combined code coverage over time with covered/total line counts
   - **Configuration** — Resume-vs-Check toggle, a reorderable test-ordering aspect list, process
     count, refresh rate, utilization thresholds, tooltip line limit, system-metrics chart window,
-    target project path, and an Expert group (verbose logging, UI performance logging)
+    Progress Graph font size, target project path, and an Expert group (verbose logging, UI
+    performance logging)
   - **About** — system and project information
 - Parallel test execution at the module level with configurable process count.
 - Three run modes — **Restart** (rerun all tests), **Resume** (skip already-passed tests and

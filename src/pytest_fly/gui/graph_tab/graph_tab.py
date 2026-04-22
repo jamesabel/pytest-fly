@@ -17,6 +17,8 @@ class GraphTab(QGroupBox):
         self.progress_bars: dict[str, PytestProgressBar] = {}
 
         outer_layout = QVBoxLayout()
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+        outer_layout.setSpacing(0)
         self.setLayout(outer_layout)
 
         self.time_axis = TimeAxisWidget()
@@ -31,6 +33,10 @@ class GraphTab(QGroupBox):
         self._bar_container = QWidget()
         self._bar_layout = QVBoxLayout()
         self._bar_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        # Pack bars flush — Qt's default spacing/margins push rows apart enough
+        # that only a handful fit on screen at once.
+        self._bar_layout.setSpacing(0)
+        self._bar_layout.setContentsMargins(0, 0, 0, 0)
         self._bar_container.setLayout(self._bar_layout)
         self._scroll_area.setWidget(self._bar_container)
 

@@ -8,7 +8,7 @@ reusable widgets used across multiple tabs.
 import time
 from collections import defaultdict
 from datetime import timedelta
-from functools import cache, lru_cache
+from functools import lru_cache
 
 import humanize
 from PySide6.QtCore import QSize
@@ -20,28 +20,31 @@ from ..interfaces import PytestProcessInfo
 from ..preferences import get_pref
 
 
-@cache
-def get_font() -> QFont:
-    # monospace font
+@lru_cache(maxsize=None)
+def get_font(size: int | None = None) -> QFont:
+    """Return the shared monospace bold font, optionally at *size* points."""
     font = QFont("Monospace")
     font.setStyleHint(QFont.StyleHint.Monospace)
     font.setFixedPitch(True)
     font.setBold(True)
+    if size is not None:
+        font.setPointSize(size)
     assert font.styleHint() == QFont.StyleHint.Monospace
     assert font.fixedPitch()
     return font
 
 
 @lru_cache(maxsize=1000)
-def get_text_dimensions(text: str, pad: bool = False) -> QSize:
+def get_text_dimensions(text: str, pad: bool = False, size: int | None = None) -> QSize:
     """
     Determine the dimensions of the provided text
 
     :param text: The text to measure
     :param pad: Whether to add padding to the text
+    :param size: Optional point size; when omitted, uses the default monospace font size.
     :return: The size of the text
     """
-    font = get_font()
+    font = get_font(size)
     metrics = QFontMetrics(font)
     text_size = metrics.size(0, text)  # Get the size of the text (QSize)
     if pad:

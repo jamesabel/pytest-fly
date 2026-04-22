@@ -7,14 +7,15 @@ import time
 
 from PySide6.QtCore import QPointF, QRectF
 from PySide6.QtGui import QBrush, QGuiApplication, QPainter, QPen
-from PySide6.QtWidgets import QMenu, QToolTip, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QMenu, QToolTip, QWidget
 from typeguard import typechecked
 
 from ...colors import GRID_LINE_COLOR
 from ...interfaces import PytestProcessInfo, PytestRunnerState
 from ...logger import get_logger
+from ...preferences import get_pref
 from ...pytest_runner.pytest_runner import PytestRunState
-from ..gui_util import get_text_dimensions, tool_tip_limiter, window_text_color
+from ..gui_util import get_font, get_text_dimensions, tool_tip_limiter, window_text_color
 from .time_axis import TimeAxisMapping, compute_grid_ticks
 
 log = get_logger()
@@ -36,9 +37,9 @@ class PytestProgressBar(QWidget):
     ) -> None:
 
         super().__init__()
-        layout = QVBoxLayout()
-        self.setLayout(layout)
-        self.one_character_dimensions = get_text_dimensions("X")
+        self.bar_margin = 1
+        self._font_size = self._apply_graph_font()
+        self.one_character_dimensions = get_text_dimensions("X", size=self._font_size)
 
         self.status_list = status_list
         self.min_time_stamp = min_time_stamp
@@ -48,10 +49,9 @@ class PytestProgressBar(QWidget):
 
         if len(status_list) > 0:
             name = status_list[0].name
-            name_text_dimensions = get_text_dimensions(name)
+            name_text_dimensions = get_text_dimensions(name, size=self._font_size)
         else:
             name_text_dimensions = self.one_character_dimensions
-        self.bar_margin = 1
         self.bar_height = name_text_dimensions.height() + 2 * self.bar_margin
         self.setFixedHeight(self.bar_height)
         log.debug(f"{self.bar_height=},{name_text_dimensions=}")
@@ -69,11 +69,22 @@ class PytestProgressBar(QWidget):
 
         self.update_pytest_process_info(status_list, min_time_stamp, max_time_stamp, run_state, is_singleton)
 
+    def _apply_graph_font(self) -> int:
+        """Read the user's graph-font-size preference, apply it to this widget, and return the size."""
+        size = get_pref().graph_font_size
+        self.setFont(get_font(size=size))
+        return size
+
     def update_pytest_process_info(self, status_list: list[PytestProcessInfo], min_time_stamp: float, max_time_stamp: float, run_state: PytestRunState, is_singleton: bool = False):
         """
         Update the bar's data and schedule a repaint — but only if the data
         actually changed or the test is still running (its bar grows over time).
         """
+        # Re-read the graph font size so pref changes propagate on the next tick.
+        new_font_size = self._apply_graph_font()
+        font_changed = new_font_size != self._font_size
+        self._font_size = new_font_size
+
         # O(1) change detection: skip repaint if nothing changed
         new_count = len(status_list)
         new_last_ts = status_list[-1].time_stamp if status_list else None
@@ -82,6 +93,7 @@ class PytestProgressBar(QWidget):
         unchanged = (
             not is_running
             and not singleton_changed
+            and not font_changed
             and new_count == self._prev_count
             and new_last_ts == self._prev_last_ts
             and min_time_stamp == self._prev_min_ts
@@ -102,9 +114,10 @@ class PytestProgressBar(QWidget):
 
         if len(self.status_list) > 0:
             name = self.status_list[0].name
-            name_text_dimensions = get_text_dimensions(name)
+            name_text_dimensions = get_text_dimensions(name, size=self._font_size)
         else:
             name_text_dimensions = self.one_character_dimensions
+        self.one_character_dimensions = get_text_dimensions("X", size=self._font_size)
         self.bar_height = name_text_dimensions.height() + 2 * self.bar_margin
         self.setFixedHeight(self.bar_height)
 

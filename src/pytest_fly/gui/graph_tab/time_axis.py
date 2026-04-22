@@ -15,7 +15,8 @@ from PySide6.QtGui import QPainter, QPen
 from PySide6.QtWidgets import QWidget
 
 from ...colors import GRID_LINE_COLOR
-from ..gui_util import get_text_dimensions, window_text_color
+from ...preferences import get_pref
+from ..gui_util import get_font, get_text_dimensions, window_text_color
 
 # Candidate intervals in seconds — chosen so labels stay readable.
 # Extends up to 24h so multi-hour runs don't collapse to minute-granularity grid lines.
@@ -109,16 +110,32 @@ class TimeAxisWidget(QWidget):
 
     def __init__(self):
         super().__init__()
-        char_dims = get_text_dimensions("X")
-        self._axis_height = char_dims.height() + 8  # text + small padding
-        self.setFixedHeight(self._axis_height)
+        self._font_size = self._apply_graph_font()
+        self._apply_axis_height()
 
         self._min_ts: float | None = None
         self._max_ts: float | None = None
 
+    def _apply_graph_font(self) -> int:
+        """Read the user's graph-font-size preference, apply it to this widget, and return the size."""
+        size = get_pref().graph_font_size
+        self.setFont(get_font(size=size))
+        return size
+
+    def _apply_axis_height(self) -> None:
+        """Resize the axis to fit the current font's text height plus a small padding."""
+        char_dims = get_text_dimensions("X", size=self._font_size)
+        self._axis_height = char_dims.height() + 8
+        self.setFixedHeight(self._axis_height)
+
     def update_time_window(self, min_ts: float | None, max_ts: float | None):
         """Store the current time window and schedule a repaint."""
-        if min_ts == self._min_ts and max_ts == self._max_ts:
+        new_size = self._apply_graph_font()
+        font_changed = new_size != self._font_size
+        self._font_size = new_size
+        if font_changed:
+            self._apply_axis_height()
+        if not font_changed and min_ts == self._min_ts and max_ts == self._max_ts:
             return
         self._min_ts = min_ts
         self._max_ts = max_ts
@@ -144,7 +161,7 @@ class TimeAxisWidget(QWidget):
         # Draw labels
         painter.setPen(QPen(window_text_color(self), 1))
         for x, label in ticks:
-            label_width = get_text_dimensions(label).width()
+            label_width = get_text_dimensions(label, size=self._font_size).width()
             # Center label on tick; clamp so it doesn't overflow the left edge
             label_x = max(int(x) - label_width // 2, 0)
             label_y = h - tick_height - 2  # just above the tick mark

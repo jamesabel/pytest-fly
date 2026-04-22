@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QPushButton,
     QSizePolicy,
+    QStyle,
     QVBoxLayout,
     QWidget,
 )
@@ -106,23 +107,34 @@ class OrderingAspectsWidget(QGroupBox):
     def _resize_list_to_content(self) -> None:
         """Fix the list widget's size to exactly fit its rows and longest label.
 
-        We build the width from explicit components rather than asking the
-        delegate, because its sizeHint under-reports the padding Qt actually
-        consumes around the check indicator on Windows (producing clipping).
+        Sized from the actual rendered text bounding box (not just glyph
+        advance) plus the space the style needs for the check indicator and
+        item margins.  The components are deliberately over-measured: Qt's
+        reported ``PM_IndicatorWidth`` under-counts on Windows (returns ~14 px
+        for a visibly ~20 px box) and ``horizontalAdvance`` under-counts when
+        ClearType widens glyphs.  The goal is a list that's just wider than
+        needed — never narrower.
         """
         count = self._list.count()
         if count == 0:
             return
         fm = self._list.fontMetrics()
-        text_width = max(fm.horizontalAdvance(_ordering_aspect_labels[a]) for a in _ordering_aspect_labels)
-        # Padding for: left item margin + check indicator + indicator-to-text gap
-        # + right item margin + safety slack.  ``PM_IndicatorWidth`` is an
-        # unreliable lower bound (Windows returns 14 even though the rendered
-        # box is ~20 px with surrounding padding), so we use a flat 60 px that
-        # covers every platform style we care about.
-        horizontal_padding = 60
+        # Take the larger of horizontalAdvance and boundingRect — the latter
+        # wins for glyphs that extend past their advance (italic f, descenders).
+        text_width = max(max(fm.horizontalAdvance(_ordering_aspect_labels[a]), fm.boundingRect(_ordering_aspect_labels[a]).width()) for a in _ordering_aspect_labels)
+        # Style-reported components:
+        style = self._list.style()
+        indicator = style.pixelMetric(QStyle.PixelMetric.PM_IndicatorWidth, None, self._list)
+        # PM_ScrollBarExtent: even though the scroll bars are turned off, some
+        # item-view metrics reserve the extent in their layout calculations.
+        scroll_extent = style.pixelMetric(QStyle.PixelMetric.PM_ScrollBarExtent, None, self._list)
         frame = 2 * self._list.frameWidth()
-        width = text_width + horizontal_padding + frame
+        # Fixed slack: left/right item margins, indicator-to-text gap, plus
+        # general safety.  Kept generous because ClearType/DirectWrite render
+        # text a few percent wider than ``QFontMetrics.horizontalAdvance``
+        # predicts, and hi-DPI scaling amplifies the shortfall.
+        slack = 80
+        width = text_width + indicator + scroll_extent + slack + frame
         row_height = self._list.sizeHintForRow(0) or fm.height() + 4
         self._list.setFixedSize(width, row_height * count + frame)
 

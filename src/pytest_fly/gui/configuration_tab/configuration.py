@@ -48,13 +48,14 @@ _ordering_aspect_labels: dict[OrderingAspect, str] = {
 }
 
 _ordering_aspect_tooltips: dict[OrderingAspect, str] = {
-    OrderingAspect.FAILED_FIRST: "Tests that failed in the previous run run first. Ignored in Restart mode.",
+    OrderingAspect.FAILED_FIRST: "Tests that failed in the previous run run first. Tests with no prior record tie for last.",
     OrderingAspect.NEVER_RUN_FIRST: "Tests with no record in the database (any program-under-test version) run first.",
     OrderingAspect.LONGEST_PRIOR_FIRST: (
         "Tests with the longest prior passing-run duration run first. Helps parallel runs by starting the\n"
-        "critical-path tests earliest; shorter tests backfill the remaining workers. Ignored in Restart mode."
+        "critical-path tests earliest; shorter tests backfill the remaining workers. Tests with no prior\n"
+        "duration tie for last."
     ),
-    OrderingAspect.COVERAGE_EFFICIENCY: ("Tests with the highest lines-covered-per-second run first. Requires prior duration and coverage data. Ignored in Restart mode."),
+    OrderingAspect.COVERAGE_EFFICIENCY: "Tests with the highest lines-covered-per-second run first. Requires prior duration and coverage data; tests missing either tie for last.",
 }
 
 
@@ -75,8 +76,8 @@ class OrderingAspectsWidget(QGroupBox):
             "Longest prior execution time: slowest passing tests run first — helps parallel runs by starting\n"
             "the critical path earliest so short tests backfill the remaining workers.\n"
             "Coverage efficiency: tests with the highest lines-covered-per-second run first.\n\n"
-            "In Restart mode, aspects that depend on prior-run data (Failed, Longest prior, Coverage) are\n"
-            "ignored; Never-run still applies because it reads any-version history.\n"
+            "All aspects apply in every run mode, including Restart — prior-run data shapes execution order,\n"
+            "not which tests run. Tests missing the data an aspect needs tie for last under that aspect.\n"
             "Singleton tests always run last regardless of these settings."
         )
 

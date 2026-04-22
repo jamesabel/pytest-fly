@@ -11,15 +11,19 @@
 ## Features
 
 - Real-time monitoring of test execution in a GUI with six tabs:
-  - **Run** — start/stop controls, run mode selection (Restart/Resume/Check), and several panels:
-    a Status panel (completion percentage, pass rate, per-state counts, elapsed time, average
-    parallelism, coverage, and estimated time remaining), a System Performance panel (live CPU
-    and memory charts, with memory shown as used/total GB alongside percent), a Failed Tests panel
-    with clipboard copy, and program-under-test version/dirty-git indicators
+  - **Run** — start/stop controls, parallelism and run-mode selectors (Restart or Resume; Resume
+    behaves as Check unless the Configuration tab's *Resume Without Program Check* is set), and
+    several panels: a Status panel (completion percentage, pass rate, per-state counts, elapsed
+    time, average parallelism, coverage, and estimated time remaining), a System Performance
+    panel (live CPU and memory charts, with memory shown as used/total GB alongside percent), a
+    Failed Tests panel with clipboard copy, a Live Output panel streaming pytest output from the
+    running tests, and program-under-test version/dirty-git indicators
   - **Graph** — time-based progress chart showing each test module as a horizontal bar
   - **Table** — per-test status grid with elapsed time, peak CPU, memory usage, and individual coverage
   - **Coverage** — line chart of combined code coverage over time with covered/total line counts
-  - **Configuration** — parallelism settings, refresh rate, and utilization thresholds
+  - **Configuration** — Resume-vs-Check toggle, a reorderable test-ordering aspect list, process
+    count, refresh rate, utilization thresholds, tooltip line limit, system-metrics chart window,
+    target project path, and an Expert group (verbose logging, UI performance logging)
   - **About** — system and project information
 - Parallel test execution at the module level with configurable process count.
 - Three run modes — **Restart** (rerun all tests), **Resume** (skip already-passed tests and
@@ -62,14 +66,21 @@ analogous to putting the tests in the same module in `pytest-fly`.
 
 ## Test Scheduling
 
-`pytest-fly` orders tests to surface actionable information earlier:
+`pytest-fly` orders tests to surface actionable information earlier. The Configuration tab's
+**Test Ordering** widget is a reorderable, per-row-checkable list of aspects — each can be
+individually enabled/disabled, and its position in the list sets priority (topmost enabled row
+is the primary sort; rows below it break ties). The available aspects are:
 
-1. When **Prioritize Never-Run Tests** is enabled in the Configuration tab, tests with no record in
-the database (across any program-under-test version) are promoted to the front of the queue, giving
-developers adding new tests immediate feedback. This takes precedence over failed-first and
-coverage-efficiency ordering.
-2. Tests that failed in the prior run are re-run first, so developers get faster feedback on tests they are 
-likely fixing.
-3. When prior run data is available, tests with higher coverage efficiency (lines/second) are run earlier. 
-This way, if there is a problem in the code, it is more likely to be found earlier in the test run.
-4. `singleton` tests are run last to maximize parallel throughput before exclusive execution begins.
+- **Failed tests** — tests that failed in the prior run run first, so developers get faster
+  feedback on tests they are likely fixing.
+- **Never-run tests** — tests with no record in the database (across any program-under-test
+  version) run first, giving developers adding new tests immediate feedback.
+- **Longest prior execution time** — slowest passing tests run first, helping parallel runs by
+  starting the critical path earliest so shorter tests backfill the remaining workers.
+- **Coverage efficiency (lines/sec)** — tests with the highest lines-covered-per-second run
+  first, so if there is a problem in the code it is more likely to be found earlier in the run.
+
+All aspects apply in every run mode, including Restart — prior-run data shapes execution *order*,
+not *which* tests run. Tests missing the data an aspect needs tie for last under that aspect.
+`singleton` tests always run last, regardless of these settings, to maximize parallel throughput
+before exclusive execution begins.

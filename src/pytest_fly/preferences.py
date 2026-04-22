@@ -67,6 +67,7 @@ class FlyPreferences(Pref):
     chart_window_minutes: float = attrib(default=chart_window_minutes_default)  # Run-tab system-metrics chart window (minutes)
 
     run_tab_splitter_state: str = attrib(default="")  # Run-tab top-vs-failed-tests splitter (QSplitter.saveState() hex-encoded)
+    run_tab_bottom_splitter_state: str = attrib(default="")  # Run-tab bottom pane: failed-tests-vs-live-output splitter (QSplitter.saveState() hex-encoded)
 
     target_project_path: str = attrib(default="")  # absolute path to the program under test; empty means auto-detect from cwd at run time
 

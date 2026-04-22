@@ -108,7 +108,7 @@ def test_status_window_with_data(app):
 
 def test_table_tab_empty(app):
     """TableTab should have zero rows for empty data."""
-    table = TableTab()
+    table = TableTab(get_temp_dir("table_tab"))
     tick = _make_tick_data_empty()
     table.update_tick(tick)
 
@@ -117,7 +117,7 @@ def test_table_tab_empty(app):
 
 def test_table_tab_with_data(app):
     """TableTab should show one row per test with correct state text."""
-    table = TableTab()
+    table = TableTab(get_temp_dir("table_tab"))
     tick = _make_tick_data_with_tests()
     table.update_tick(tick)
 
@@ -139,7 +139,7 @@ def test_table_tab_with_data(app):
 
 def test_table_tab_per_test_coverage(app):
     """TableTab should display per-test coverage when per_test_coverage is populated."""
-    table = TableTab()
+    table = TableTab(get_temp_dir("table_tab"))
     tick = _make_tick_data_with_tests()
     tick.per_test_coverage = {"tests/test_a.py": 0.123, "tests/test_b.py": 0.456}
     table.update_tick(tick)
@@ -169,7 +169,7 @@ def test_per_test_coverage_not_greater_than_combined(app):
         assert pct <= combined_pct, f"{test_name} coverage {pct:.1%} exceeds combined {combined_pct:.1%}"
 
     # Verify the table displays them correctly
-    table = TableTab()
+    table = TableTab(get_temp_dir("table_tab"))
     table.update_tick(tick)
     for row in range(table.table_widget.rowCount()):
         name_item = table.table_widget.item(row, 0)
@@ -183,7 +183,7 @@ def test_per_test_coverage_not_greater_than_combined(app):
 
 def test_table_tab_updates_on_second_tick(app):
     """TableTab should reflect new state when update_tick is called again."""
-    table = TableTab()
+    table = TableTab(get_temp_dir("table_tab"))
     guid = "test-guid-update"
     now = time.time()
 
@@ -212,7 +212,7 @@ def test_table_tab_last_pass_columns(app):
     """TableTab should display last pass start time and duration from last_pass_data."""
     from pytest_fly.gui.table_tab.table_tab import Columns
 
-    table = TableTab()
+    table = TableTab(get_temp_dir("table_tab"))
     tick = _make_tick_data_with_tests()
     now = time.time()
     tick.last_pass_data = {
@@ -250,7 +250,7 @@ def test_table_tab_double_click_name_sorts(app):
     """
     from pytest_fly.gui.table_tab.table_tab import Columns
 
-    table = TableTab()
+    table = TableTab(get_temp_dir("table_tab"))
     guid = "test-guid-sort"
     now = time.time()
 
@@ -792,7 +792,7 @@ def test_full_pipeline(app):
     assert "Pass: 1" in status_text
 
     # TableTab
-    table = TableTab()
+    table = TableTab(get_temp_dir("table_tab"))
     table.update_tick(tick)
     assert table.table_widget.rowCount() == 1
     assert table.table_widget.item(0, 0).text() == "tests/test_no_operation.py"

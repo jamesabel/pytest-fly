@@ -6,15 +6,18 @@ coverage, and last-pass information.
 import time
 from datetime import datetime
 from enum import Enum
+from pathlib import Path
 
 from PySide6.QtCore import QPoint, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QGuiApplication
 from PySide6.QtWidgets import QGroupBox, QMenu, QScrollArea, QTableWidget, QTableWidgetItem, QVBoxLayout
+from typeguard import typechecked
 
 from ...gui.gui_util import format_runtime, tool_tip_limiter
 from ...interfaces import PyTestFlyExitCode, PytestRunnerState
 from ...platform.platform_info import get_performance_core_count
 from ...preferences import get_pref
+from ...pytest_runner.live_output import read_live_output
 from ...pytest_runner.process_monitor import normalize_cpu_percent
 from ...tick_data import TickData
 
@@ -77,8 +80,11 @@ class TableTab(QGroupBox):
 
     force_stop_test_requested = Signal(str)  # emits the test node_id
 
-    def __init__(self):
+    @typechecked
+    def __init__(self, data_dir: Path):
         super().__init__()
+
+        self._data_dir = data_dir
 
         self.setTitle("Tests")
         layout = QVBoxLayout()
@@ -150,6 +156,13 @@ class TableTab(QGroupBox):
                     if info.output:
                         output_text = info.output
                         break
+
+            # If no completed-output record exists yet but the test is currently
+            # running, pull the live log tail directly from disk.
+            if not output_text and is_running and test_node_id is not None:
+                live_text = read_live_output(self._data_dir, test_node_id, max_bytes=10_000_000)
+                if live_text:
+                    output_text = live_text
 
             # Fallback to the tooltip text if no output is available yet.
             if not output_text:
@@ -281,7 +294,10 @@ class TableTab(QGroupBox):
                 state_item = self._get_or_create_item(row_number, Columns.STATE.value)
                 self._set_text_if_changed(state_item, pytest_run_state.get_string())
                 state_item.setForeground(pytest_run_state.get_qt_table_color())
-                if len(process_infos) > 1 and process_infos[-1].output is not None:
+                if pytest_run_state.get_state() == PytestRunnerState.RUNNING:
+                    live_text = read_live_output(self._data_dir, test_name)
+                    tooltip_text = tool_tip_limiter(live_text, line_limit=tooltip_line_limit) if live_text else ""
+                elif len(process_infos) > 1 and process_infos[-1].output is not None:
                     tooltip_text = tool_tip_limiter(process_infos[-1].output, line_limit=tooltip_line_limit)
                 else:
                     tooltip_text = ""

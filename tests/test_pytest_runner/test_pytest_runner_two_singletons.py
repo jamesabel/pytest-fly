@@ -11,12 +11,10 @@ def test_pytest_runner_two_singletons(app):
 
     test_name = "test_pytest_runner_two_singletons"
 
-    scheduled_tests = sorted(
-        [
-            ScheduledTest(node_id="tests/test_singleton_a.py", singleton=True, duration=None, coverage=None),
-            ScheduledTest(node_id="tests/test_singleton_b.py", singleton=True, duration=None, coverage=None),
-        ]
-    )
+    scheduled_tests = [
+        ScheduledTest(node_id="tests/test_singleton_a.py", singleton=True, duration=None, coverage=None),
+        ScheduledTest(node_id="tests/test_singleton_b.py", singleton=True, duration=None, coverage=None),
+    ]
 
     run_guid = generate_uuid()
     data_dir = get_temp_dir(test_name)

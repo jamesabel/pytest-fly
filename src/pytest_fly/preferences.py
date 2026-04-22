@@ -9,13 +9,15 @@ them without circular imports.
 from enum import IntEnum
 
 from attr import attrib, attrs
-from pref import Pref
+from pref import Pref, PrefOrderedSet
 
 from .__version__ import application_name, author
-from .interfaces import RunMode, TestOrder
+from .interfaces import OrderingAspect, RunMode
 from .platform import get_performance_core_count
 
 preferences_file_name = f"{application_name}_preferences.db"
+_ordering_aspects_table = "ordering_aspects"
+_default_ordering_aspect_seed: list[OrderingAspect] = [OrderingAspect.FAILED_FIRST, OrderingAspect.NEVER_RUN_FIRST]
 
 scheduler_time_quantum_default = 1.0
 refresh_rate_default = 3.0
@@ -56,9 +58,9 @@ class FlyPreferences(Pref):
 
     resume_skip_put_check: bool = attrib(default=False)  # when True, Resume forces a resume even if the PUT has changed; when False, a PUT change triggers a Restart
 
-    test_order: TestOrder = attrib(default=TestOrder.PYTEST)  # 0=pytest default order, 1=coverage efficiency order
-
-    prioritize_never_run: bool = attrib(default=False)  # when True, promote tests with no DB record (any PUT version) to the front of the queue
+    # True once the ordering-aspect PrefOrderedSet has been seeded with defaults.
+    # Guards against re-seeding a set the user has intentionally emptied.
+    ordering_aspects_seeded: bool = attrib(default=False)
 
     tooltip_line_limit: int = attrib(default=tooltip_line_limit_default)  # max lines of pytest output shown in a tooltip before truncation
 
@@ -74,3 +76,30 @@ class FlyPreferences(Pref):
 def get_pref() -> FlyPreferences:
     """Return a :class:`FlyPreferences` instance (reads from / auto-saves to disk)."""
     return FlyPreferences(application_name, author, file_name=preferences_file_name)
+
+
+def get_ordering_aspects_set() -> PrefOrderedSet:
+    """Return the :class:`PrefOrderedSet` backing the enabled-and-ordered aspect list."""
+    return PrefOrderedSet(application_name, author, table=_ordering_aspects_table, file_name=preferences_file_name)
+
+
+def get_ordering_aspects_ordered() -> list[OrderingAspect]:
+    """Return enabled aspects in priority order; seed defaults on first ever call."""
+    pref = get_pref()
+    aspect_set = get_ordering_aspects_set()
+    if not pref.ordering_aspects_seeded:
+        aspect_set.set([a.value for a in _default_ordering_aspect_seed])
+        pref.ordering_aspects_seeded = True
+    result: list[OrderingAspect] = []
+    for value in aspect_set.get():
+        try:
+            result.append(OrderingAspect(value))
+        except ValueError:
+            continue  # ignore stale / renamed aspect values
+    return result
+
+
+def set_ordering_aspects_ordered(aspects: list[OrderingAspect]) -> None:
+    """Persist the enabled-and-ordered aspect list."""
+    get_pref().ordering_aspects_seeded = True  # any explicit write counts as seeded
+    get_ordering_aspects_set().set([a.value for a in aspects])

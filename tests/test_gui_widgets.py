@@ -151,30 +151,6 @@ def test_control_window_filter_for_resume(qtbot):
     assert cw._filter_for_resume(tests, prior, RunMode.RESTART) == tests
 
 
-def test_control_window_reorder_failed_first(qtbot):
-    """_reorder_failed_first puts previously-failed tests ahead of previously-passed ones."""
-    data_dir = get_temp_dir("test_control_window_reorder")
-    cw = ControlWindow(None, data_dir)
-    qtbot.addWidget(cw)
-
-    tests = [
-        ScheduledTest(node_id="tests/test_pass.py", singleton=False, duration=None, coverage=None),
-        ScheduledTest(node_id="tests/test_fail.py", singleton=False, duration=None, coverage=None),
-        ScheduledTest(node_id="tests/test_singleton.py", singleton=True, duration=None, coverage=None),
-    ]
-    prior = [
-        PytestProcessInfo("g", "tests/test_pass.py", 1, PyTestFlyExitCode.OK, "", 1.0),
-        PytestProcessInfo("g", "tests/test_fail.py", 2, PyTestFlyExitCode.TESTS_FAILED, "", 1.0),
-    ]
-
-    ordered = cw._reorder_failed_first(tests, prior)
-    node_ids = [t.node_id for t in ordered]
-    # Previously-failed must come before previously-passed within non-singleton group.
-    assert node_ids.index("tests/test_fail.py") < node_ids.index("tests/test_pass.py")
-    # Singletons stay at the end.
-    assert node_ids[-1] == "tests/test_singleton.py"
-
-
 def test_control_window_resolve_check_mode(qtbot):
     """CHECK mode collapses to RESUME when fingerprints match, RESTART otherwise."""
     data_dir = get_temp_dir("test_control_window_check")

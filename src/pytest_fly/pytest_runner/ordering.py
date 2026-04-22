@@ -25,11 +25,6 @@ class OrderingContext:
     per_test_coverage: dict[str, float] = field(default_factory=dict)  # node_id -> fraction covered (0..1); unused for keying but preserved for completeness
 
 
-# Aspects that require prior-run data.  In RunMode.RESTART these are filtered
-# out by the caller before invoking :func:`apply_ordering_aspects`.
-PRIOR_DATA_ASPECTS: frozenset[OrderingAspect] = frozenset({OrderingAspect.FAILED_FIRST, OrderingAspect.LONGEST_PRIOR_FIRST, OrderingAspect.COVERAGE_EFFICIENCY})
-
-
 def _key_for(aspect: OrderingAspect, test: ScheduledTest, ctx: OrderingContext) -> float:
     """Return a sort key for *test* under *aspect*.  Lower = earlier."""
     if aspect is OrderingAspect.FAILED_FIRST:
@@ -64,8 +59,9 @@ def apply_ordering_aspects(
 
     :param tests: Tests to order.
     :param aspects: Enabled aspects in priority order (index 0 = highest priority).
-        Callers are expected to have already filtered out disabled aspects and,
-        in RESTART mode, aspects in :data:`PRIOR_DATA_ASPECTS`.
+        Callers are expected to have already filtered out disabled aspects.
+        Aspects that read prior-run data gracefully produce tie keys when no data
+        exists, so they are safe to include in RESTART mode too.
     :param ctx: Supporting data for the aspect key functions.
     :return: A new list ordered for execution.
     """

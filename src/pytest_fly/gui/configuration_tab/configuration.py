@@ -41,9 +41,9 @@ from pytest_fly.preferences import (
 )
 
 _ordering_aspect_labels: dict[OrderingAspect, str] = {
-    OrderingAspect.FAILED_FIRST: "Failed tests first",
-    OrderingAspect.NEVER_RUN_FIRST: "Never-run tests first",
-    OrderingAspect.LONGEST_PRIOR_FIRST: "Longest prior execution time first",
+    OrderingAspect.FAILED_FIRST: "Failed tests",
+    OrderingAspect.NEVER_RUN_FIRST: "Never-run tests",
+    OrderingAspect.LONGEST_PRIOR_FIRST: "Longest prior execution time",
     OrderingAspect.COVERAGE_EFFICIENCY: "Coverage efficiency (lines/sec)",
 }
 

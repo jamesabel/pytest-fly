@@ -4,7 +4,6 @@ and a :class:`ProcessMonitor` that samples CPU/memory usage.
 """
 
 import contextlib
-import io
 import shutil
 import time
 import traceback
@@ -21,6 +20,7 @@ from ..db import PytestProcessInfoDB
 from ..file_util import sanitize_test_name
 from ..interfaces import PyTestFlyExitCode, PytestProcessInfo
 from ..logger import get_logger
+from .live_output import live_output_path
 from .process_monitor import ProcessMonitor
 
 log = get_logger(application_name)
@@ -73,35 +73,41 @@ class PytestProcess(Process):
             db.write(pytest_process_info)
 
         # Finally, actually run pytest!
-        # Redirect stdout and stderr so nothing goes to the console.
-        buf = io.StringIO()
-        with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
-            # create a temp coverage file and then move it so if the file exists, the content is complete (the save is not necessarily instantaneous and atomic)
-            coverage_dir = Path(self.data_dir, "coverage")
-            coverage_dir.mkdir(parents=True, exist_ok=True)
-            safe_name = sanitize_test_name(self.name)
-            coverage_file_path = Path(coverage_dir, f"{safe_name}.coverage")
-            coverage_temp_file_path = Path(coverage_dir, f"{safe_name}.temp")
-            coverage_temp_file_path.unlink(missing_ok=True)
-            coverage = Coverage(coverage_temp_file_path)
-            coverage.start()
+        # Redirect stdout and stderr into a per-test log file so the GUI can tail live output
+        # while the test is running.  The file is line-buffered; ``-s`` (below) disables
+        # pytest's own capture so prints stream immediately.
+        live_path = live_output_path(self.data_dir, self.name)
+        live_path.parent.mkdir(parents=True, exist_ok=True)
+        live_path.unlink(missing_ok=True)
+        with open(live_path, "w", buffering=1, encoding="utf-8", errors="replace", newline="") as live_file:
+            with contextlib.redirect_stdout(live_file), contextlib.redirect_stderr(live_file):
+                # create a temp coverage file and then move it so if the file exists, the content is complete (the save is not necessarily instantaneous and atomic)
+                coverage_dir = Path(self.data_dir, "coverage")
+                coverage_dir.mkdir(parents=True, exist_ok=True)
+                safe_name = sanitize_test_name(self.name)
+                coverage_file_path = Path(coverage_dir, f"{safe_name}.coverage")
+                coverage_temp_file_path = Path(coverage_dir, f"{safe_name}.temp")
+                coverage_temp_file_path.unlink(missing_ok=True)
+                coverage = Coverage(coverage_temp_file_path)
+                coverage.start()
 
-            try:
-                # -rA: show full short test summary (all outcomes, untruncated assertion messages)
-                exit_code = pytest.main([self.name, "-rA"])
-            except Exception:
-                exit_code = PyTestFlyExitCode.INTERNAL_ERROR
                 try:
-                    buf.write(f"\n\npytest.main raised an exception:\n{traceback.format_exc()}")
-                except (ValueError, OSError):
-                    pass  # buf may be closed if the test redirected/closed stderr
+                    # -rA: show full short test summary (all outcomes, untruncated assertion messages)
+                    # -s: disable pytest capture so stdout/stderr stream live to the log file
+                    exit_code = pytest.main([self.name, "-rA", "-s"])
+                except Exception:
+                    exit_code = PyTestFlyExitCode.INTERNAL_ERROR
+                    try:
+                        live_file.write(f"\n\npytest.main raised an exception:\n{traceback.format_exc()}")
+                    except (ValueError, OSError):
+                        pass  # live_file may be closed if the test redirected/closed stderr
 
-            coverage.stop()
-            coverage.save()
-            coverage_file_path.unlink(missing_ok=True)
-            shutil.move(coverage_temp_file_path, coverage_file_path)
+                coverage.stop()
+                coverage.save()
+                coverage_file_path.unlink(missing_ok=True)
+                shutil.move(coverage_temp_file_path, coverage_file_path)
 
-        output: str = buf.getvalue()
+        output: str = live_path.read_text(encoding="utf-8", errors="replace")
 
         # stop the process monitor
         self._process_monitor_process.request_stop()

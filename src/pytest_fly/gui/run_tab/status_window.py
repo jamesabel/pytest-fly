@@ -2,9 +2,9 @@
 
 import time
 
-from PySide6.QtWidgets import QGroupBox, QSizePolicy, QVBoxLayout
+from PySide6.QtWidgets import QGroupBox, QLabel, QProgressBar, QSizePolicy, QVBoxLayout
 
-from ...gui.gui_util import PlainTextWidget, count_test_states, format_runtime
+from ...gui.gui_util import PlainTextWidget, count_test_states, format_runtime, get_font
 from ...interfaces import PytestRunnerState
 from ...tick_data import TickData
 
@@ -20,6 +20,22 @@ class StatusWindow(QGroupBox):
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.MinimumExpanding)
         self.status_widget = PlainTextWidget(self, "Loading...")
         layout.addWidget(self.status_widget)
+
+        self.progress_bar = QProgressBar(self)
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(0)
+        self.progress_bar.setFormat("%p%")
+        self.progress_bar.setTextVisible(True)
+        layout.addWidget(self.progress_bar)
+
+        label_font = get_font()
+        self.complete_label = QLabel("Complete: (calculating...)", self)
+        self.complete_label.setFont(label_font)
+        layout.addWidget(self.complete_label)
+
+        self.pass_rate_label = QLabel("Pass rate: (calculating...)", self)
+        self.pass_rate_label.setFont(label_font)
+        layout.addWidget(self.pass_rate_label)
 
     def update_tick(self, tick: TickData):
         """
@@ -48,14 +64,24 @@ class StatusWindow(QGroupBox):
             current_fail_count = counts[PytestRunnerState.FAIL]
             total_completed = current_pass_count + current_fail_count
             complete_fraction = total_completed / total_tests
-            lines.append(f"Complete: {total_completed}/{total_tests} ({complete_fraction:.2%})")
-            prefix = "Pass rate: "
+            is_complete = counts[PytestRunnerState.QUEUED] == 0 and counts[PytestRunnerState.RUNNING] == 0
+
+            self.progress_bar.setValue(int(round(complete_fraction * 100)))
+
+            self.complete_label.setText(f"Complete: {total_completed}/{total_tests} ({complete_fraction:.2%})")
+            self.complete_label.setStyleSheet("font-weight: bold;" if is_complete else "font-weight: normal;")
+
             if total_completed > 0:
                 pass_rate = current_pass_count / total_completed
-                lines.append(f"{prefix}{current_pass_count}/{total_completed} ({pass_rate:.2%})")
+                self.pass_rate_label.setText(f"Pass rate: {current_pass_count}/{total_completed} ({pass_rate:.2%})")
             else:
-                lines.append(f"{prefix}(calculating...)")
-            lines.append("")  # space
+                self.pass_rate_label.setText("Pass rate: (calculating...)")
+            if is_complete and current_pass_count == total_tests:
+                self.pass_rate_label.setStyleSheet("color: green;")
+            elif is_complete:
+                self.pass_rate_label.setStyleSheet("color: red;")
+            else:
+                self.pass_rate_label.setStyleSheet("")
 
             for state in [PytestRunnerState.PASS, PytestRunnerState.FAIL, PytestRunnerState.QUEUED, PytestRunnerState.RUNNING, PytestRunnerState.TERMINATED, PytestRunnerState.STOPPED]:
                 count = counts[state]
@@ -102,6 +128,12 @@ class StatusWindow(QGroupBox):
                     put_line += "  [uncommitted changes]"
                 lines.extend([put_line, ""])
             lines.append("Calculating...")
+
+            self.progress_bar.setValue(0)
+            self.complete_label.setText("Complete: (calculating...)")
+            self.complete_label.setStyleSheet("font-weight: normal;")
+            self.pass_rate_label.setText("Pass rate: (calculating...)")
+            self.pass_rate_label.setStyleSheet("")
 
         self.status_widget.set_text("\n".join(lines))
 

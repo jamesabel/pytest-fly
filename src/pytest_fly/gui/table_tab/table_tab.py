@@ -231,9 +231,18 @@ class TableTab(QGroupBox):
                     self._row_by_name[name] = row
 
     @staticmethod
-    def _set_text_if_changed(item: QTableWidgetItem, text: str) -> None:
+    def _set_text_if_changed(item: QTableWidgetItem, text: str) -> bool:
         if item.text() != text:
             item.setText(text)
+            return True
+        return False
+
+    @staticmethod
+    def _set_sort_key_if_changed(item: QTableWidgetItem, value) -> bool:
+        if item.data(_SORT_KEY_ROLE) != value:
+            item.setData(_SORT_KEY_ROLE, value)
+            return True
+        return False
 
     @staticmethod
     def _set_tooltip_if_changed(item: QTableWidgetItem, tooltip: str) -> None:
@@ -266,6 +275,8 @@ class TableTab(QGroupBox):
         utilization_low_threshold = pref.utilization_low_threshold
         tooltip_line_limit = pref.tooltip_line_limit
         new_rows_added = False
+        sort_column = self._sort_column
+        sort_dirty = False
 
         self.table_widget.setUpdatesEnabled(False)
         try:
@@ -286,13 +297,15 @@ class TableTab(QGroupBox):
                 if test_name in tick.singleton_names:
                     display_name = f"{display_name} (singleton)"
                 name_item = self._get_or_create_item(row_number, Columns.NAME.value)
-                self._set_text_if_changed(name_item, display_name)
+                if self._set_text_if_changed(name_item, display_name) and sort_column == Columns.NAME.value:
+                    sort_dirty = True
                 if name_item.data(Qt.ItemDataRole.UserRole) != test_name:
                     name_item.setData(Qt.ItemDataRole.UserRole, test_name)
 
                 # STATE
                 state_item = self._get_or_create_item(row_number, Columns.STATE.value)
-                self._set_text_if_changed(state_item, pytest_run_state.get_string())
+                if self._set_text_if_changed(state_item, pytest_run_state.get_string()) and sort_column == Columns.STATE.value:
+                    sort_dirty = True
                 state_item.setForeground(pytest_run_state.get_qt_table_color())
                 if pytest_run_state.get_state() == PytestRunnerState.RUNNING:
                     live_text = read_live_output(self._data_dir, test_name)
@@ -332,7 +345,9 @@ class TableTab(QGroupBox):
 
                 cpu_item = self._get_or_create_item(row_number, Columns.CPU.value)
                 self._set_text_if_changed(cpu_item, cpu_text)
-                cpu_item.setData(_SORT_KEY_ROLE, cpu_normalized if cpu_normalized is not None else float("-inf"))
+                cpu_key = cpu_normalized if cpu_normalized is not None else float("-inf")
+                if self._set_sort_key_if_changed(cpu_item, cpu_key) and sort_column == Columns.CPU.value:
+                    sort_dirty = True
                 if cpu_normalized is not None:
                     set_utilization_color(cpu_item, cpu_normalized / 100.0, utilization_high_threshold, utilization_low_threshold)
                 else:
@@ -341,18 +356,24 @@ class TableTab(QGroupBox):
                 memory_item = self._get_or_create_item(row_number, Columns.MEMORY.value)
                 self._set_text_if_changed(memory_item, memory_text)
                 memory_value = final_info.memory_percent if (final_info is not None and final_info.memory_percent is not None) else None
-                memory_item.setData(_SORT_KEY_ROLE, memory_value if memory_value is not None else float("-inf"))
+                memory_key = memory_value if memory_value is not None else float("-inf")
+                if self._set_sort_key_if_changed(memory_item, memory_key) and sort_column == Columns.MEMORY.value:
+                    sort_dirty = True
 
                 runtime_item = self._get_or_create_item(row_number, Columns.RUNTIME.value)
                 self._set_text_if_changed(runtime_item, runtime_text)
-                runtime_item.setData(_SORT_KEY_ROLE, elapsed_seconds if elapsed_seconds is not None else float("-inf"))
+                runtime_key = elapsed_seconds if elapsed_seconds is not None else float("-inf")
+                if self._set_sort_key_if_changed(runtime_item, runtime_key) and sort_column == Columns.RUNTIME.value:
+                    sort_dirty = True
 
                 # Per-test coverage
                 coverage_pct = tick.per_test_coverage.get(test_name)
                 coverage_text = f"{coverage_pct:.1%}" if coverage_pct is not None else ""
                 coverage_item = self._get_or_create_item(row_number, Columns.COVERAGE.value)
                 self._set_text_if_changed(coverage_item, coverage_text)
-                coverage_item.setData(_SORT_KEY_ROLE, coverage_pct if coverage_pct is not None else float("-inf"))
+                coverage_key = coverage_pct if coverage_pct is not None else float("-inf")
+                if self._set_sort_key_if_changed(coverage_item, coverage_key) and sort_column == Columns.COVERAGE.value:
+                    sort_dirty = True
 
                 # Last pass data (persists across runs)
                 last_pass = tick.last_pass_data.get(test_name)
@@ -367,17 +388,21 @@ class TableTab(QGroupBox):
                     last_pass_duration_text = ""
                 last_pass_start_item = self._get_or_create_item(row_number, Columns.LAST_PASS_START.value)
                 self._set_text_if_changed(last_pass_start_item, last_pass_start_text)
-                last_pass_start_item.setData(_SORT_KEY_ROLE, last_pass_start_ts if last_pass_start_ts is not None else float("-inf"))
+                last_pass_start_key = last_pass_start_ts if last_pass_start_ts is not None else float("-inf")
+                if self._set_sort_key_if_changed(last_pass_start_item, last_pass_start_key) and sort_column == Columns.LAST_PASS_START.value:
+                    sort_dirty = True
                 last_pass_duration_item = self._get_or_create_item(row_number, Columns.LAST_PASS_DURATION.value)
                 self._set_text_if_changed(last_pass_duration_item, last_pass_duration_text)
-                last_pass_duration_item.setData(_SORT_KEY_ROLE, last_pass_duration if last_pass_duration is not None else float("-inf"))
+                last_pass_duration_key = last_pass_duration if last_pass_duration is not None else float("-inf")
+                if self._set_sort_key_if_changed(last_pass_duration_item, last_pass_duration_key) and sort_column == Columns.LAST_PASS_DURATION.value:
+                    sort_dirty = True
 
             if new_rows_added:
                 self.table_widget.resizeColumnsToContents()
 
-            if self._sort_column is not None:
-                self.table_widget.sortItems(self._sort_column, self._sort_order)
-                self.table_widget.horizontalHeader().setSortIndicator(self._sort_column, self._sort_order)
+            if sort_column is not None and (new_rows_added or sort_dirty):
+                self.table_widget.sortItems(sort_column, self._sort_order)
+                self.table_widget.horizontalHeader().setSortIndicator(sort_column, self._sort_order)
                 self._rebuild_row_by_name()
         finally:
             self.table_widget.setUpdatesEnabled(True)

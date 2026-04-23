@@ -15,6 +15,7 @@ class GraphTab(QGroupBox):
         super().__init__()
         self.setTitle("Progress")
         self.progress_bars: dict[str, PytestProgressBar] = {}
+        self._layout_order: list[str] = []
 
         outer_layout = QVBoxLayout()
         outer_layout.setContentsMargins(0, 0, 0, 0)
@@ -65,8 +66,13 @@ class GraphTab(QGroupBox):
                 progress_bar = PytestProgressBar(infos, effective_min, tick.max_time_stamp, run_state, is_singleton)
                 self.progress_bars[test_name] = progress_bar
 
-        # Ensure layout order matches tick.infos_by_name order (same as table tab)
-        while self._bar_layout.count():
-            self._bar_layout.takeAt(0)
-        for test_name in tick.infos_by_name:
-            self._bar_layout.addWidget(self.progress_bars[test_name])
+        # Ensure layout order matches tick.infos_by_name order (same as table tab).
+        # In steady state the order doesn't change — skip the takeAt/addWidget churn
+        # (and associated layout invalidation) when the order is already correct.
+        desired_order = list(tick.infos_by_name)
+        if desired_order != self._layout_order:
+            while self._bar_layout.count():
+                self._bar_layout.takeAt(0)
+            for test_name in desired_order:
+                self._bar_layout.addWidget(self.progress_bars[test_name])
+            self._layout_order = desired_order

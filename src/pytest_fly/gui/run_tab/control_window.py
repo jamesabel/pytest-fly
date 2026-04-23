@@ -87,8 +87,13 @@ class ControlWindow(QGroupBox):
         max_width += 30
         self.setFixedWidth(max_width)
 
-    def update(self):
-        """Enable/disable run, stop, and force stop buttons based on the runner state."""
+    def refresh_button_state(self):
+        """Enable/disable run, stop, and force stop buttons based on the runner state.
+
+        Named to avoid shadowing :meth:`QWidget.update`, which Qt internals may
+        call to schedule a repaint — when that was overridden, a repaint request
+        would silently mutate button state instead.
+        """
         if self.pytest_runner is None or not self.pytest_runner.is_running():
             self.run_button.setEnabled(True)
             self.stop_button.setEnabled(False)

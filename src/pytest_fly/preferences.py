@@ -7,9 +7,11 @@ them without circular imports.
 """
 
 from enum import IntEnum
+from pathlib import Path
 
 from attr import attrib, attrs
 from pref import Pref, PrefOrderedSet
+from pref.pref import appdirs as _pref_appdirs
 
 from .__version__ import application_name, author
 from .interfaces import OrderingAspect, RunMode
@@ -77,9 +79,49 @@ class FlyPreferences(Pref):
     perf_logging: bool = attrib(default=False)  # log per-tick phase timings (db query, build_tick_data, each tab update) to diagnose UI lag
 
 
+_cached_pref: FlyPreferences | None = None
+_cached_pref_path: Path | None = None
+
+
+def _resolve_pref_path() -> Path:
+    """Resolve the SQLite path that ``FlyPreferences`` would open right now.
+
+    Mirrors ``Pref.get_sqlite_path`` and uses pref's own ``appdirs`` import so
+    test fixtures that monkeypatch ``pref.pref.appdirs.user_config_dir`` are
+    honored — this is what lets the cache invalidate across tests with isolated
+    storage dirs.
+    """
+    return Path(_pref_appdirs.user_config_dir(application_name, author), preferences_file_name)
+
+
 def get_pref() -> FlyPreferences:
-    """Return a :class:`FlyPreferences` instance (reads from / auto-saves to disk)."""
-    return FlyPreferences(application_name, author, file_name=preferences_file_name)
+    """Return a :class:`FlyPreferences` instance (reads from / auto-saves to disk).
+
+    The instance is cached process-wide.  Constructing ``FlyPreferences``
+    reopens the backing ``SqliteDict`` and issues one SELECT per attribute,
+    so calling ``get_pref()`` on every tick — including from each progress
+    bar — was a measurable contributor to UI latency.  Writes go through
+    ``FlyPreferences.__setattr__`` directly to disk, so the cached instance
+    stays consistent with persistent storage.
+
+    The cache is keyed on the resolved storage path, so tests that redirect
+    pref storage to a tmp dir transparently get a fresh instance.  Tests can
+    also call :func:`reset_pref_cache` explicitly if the path-key heuristic
+    isn't enough (e.g., when bypassing the appdirs monkeypatch path).
+    """
+    global _cached_pref, _cached_pref_path
+    current_path = _resolve_pref_path()
+    if _cached_pref is None or _cached_pref_path != current_path:
+        _cached_pref = FlyPreferences(application_name, author, file_name=preferences_file_name)
+        _cached_pref_path = current_path
+    return _cached_pref
+
+
+def reset_pref_cache() -> None:
+    """Drop the cached :class:`FlyPreferences` instance.  Intended for tests."""
+    global _cached_pref, _cached_pref_path
+    _cached_pref = None
+    _cached_pref_path = None
 
 
 def get_ordering_aspects_set() -> PrefOrderedSet:

@@ -10,6 +10,7 @@ Provides:
 """
 
 from dataclasses import dataclass
+from functools import lru_cache
 
 from PySide6.QtGui import QPainter, QPen
 from PySide6.QtWidgets import QWidget
@@ -81,18 +82,8 @@ def format_elapsed_label(elapsed_seconds: float) -> str:
     return f"{hours}h{minutes}m"
 
 
-def compute_grid_ticks(min_ts: float | None, max_ts: float | None, width_pixels: int) -> list[tuple[float, str]]:
-    """
-    Compute X-pixel positions and labels for time-axis grid lines.
-
-    :param min_ts: Earliest timestamp (epoch seconds), or ``None``.
-    :param max_ts: Latest timestamp (epoch seconds), or ``None``.
-    :param width_pixels: Widget width in pixels.
-    :return: List of ``(x_pixel, label_text)`` tuples.
-    """
-    if min_ts is None or max_ts is None or width_pixels <= 0:
-        return []
-
+@lru_cache(maxsize=8)
+def _compute_grid_ticks_cached(min_ts: float, max_ts: float, width_pixels: int) -> tuple[tuple[float, str], ...]:
     mapping = TimeAxisMapping(min_ts=min_ts, max_ts=max_ts, width_pixels=width_pixels)
     interval = _choose_interval(mapping.time_window)
 
@@ -102,7 +93,25 @@ def compute_grid_ticks(min_ts: float | None, max_ts: float | None, width_pixels:
         ticks.append((mapping.elapsed_to_x(elapsed), format_elapsed_label(elapsed)))
         elapsed += interval
 
-    return ticks
+    return tuple(ticks)
+
+
+def compute_grid_ticks(min_ts: float | None, max_ts: float | None, width_pixels: int) -> list[tuple[float, str]]:
+    """
+    Compute X-pixel positions and labels for time-axis grid lines.
+
+    Cached across calls with identical inputs — every progress bar in a single
+    paint pass calls this with the same (min_ts, max_ts, width) tuple, and the
+    time-axis header adds a fourth with only a different width.
+
+    :param min_ts: Earliest timestamp (epoch seconds), or ``None``.
+    :param max_ts: Latest timestamp (epoch seconds), or ``None``.
+    :param width_pixels: Widget width in pixels.
+    :return: List of ``(x_pixel, label_text)`` tuples.
+    """
+    if min_ts is None or max_ts is None or width_pixels <= 0:
+        return []
+    return list(_compute_grid_ticks_cached(min_ts, max_ts, width_pixels))
 
 
 class TimeAxisWidget(QWidget):

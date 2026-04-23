@@ -75,7 +75,7 @@ class RunTab(QWidget):
         self.failed_tests_window.update_tick(tick)
         self.live_output_window.update_tick(tick)
         self.system_metrics_window.update_tick()
-        self.control_window.update()
+        self.control_window.refresh_button_state()
 
     def _restore_splitter_state(self) -> None:
         """Restore the saved splitter divider position, if any."""

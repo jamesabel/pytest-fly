@@ -93,8 +93,9 @@ def test_status_window_with_data(app):
     text = window.status_widget.toPlainText()
     assert "3 tests" in text
     # 1 pass out of 2 completed (test_a passed, test_b failed, test_c queued)
-    assert "Pass rate:" in text
-    assert "1/2" in text
+    pass_rate_text = window.pass_rate_label.text()
+    assert "Pass rate:" in pass_rate_text
+    assert "1/2" in pass_rate_text
     # State counts should be present
     assert "Pass: 1" in text
     assert "Fail: 1" in text

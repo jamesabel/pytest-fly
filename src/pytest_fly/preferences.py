@@ -77,9 +77,23 @@ class FlyPreferences(Pref):
     perf_logging: bool = attrib(default=False)  # log per-tick phase timings (db query, build_tick_data, each tab update) to diagnose UI lag
 
 
+_cached_pref: FlyPreferences | None = None
+
+
 def get_pref() -> FlyPreferences:
-    """Return a :class:`FlyPreferences` instance (reads from / auto-saves to disk)."""
-    return FlyPreferences(application_name, author, file_name=preferences_file_name)
+    """Return a :class:`FlyPreferences` instance (reads from / auto-saves to disk).
+
+    The instance is cached process-wide after first construction.  Constructing
+    ``FlyPreferences`` reopens the backing ``SqliteDict`` and issues one SELECT
+    per attribute, so calling ``get_pref()`` on every tick — including from
+    each progress bar — was a measurable contributor to UI latency.  Writes
+    go through ``FlyPreferences.__setattr__`` directly to disk, so the cached
+    instance stays consistent with persistent storage.
+    """
+    global _cached_pref
+    if _cached_pref is None:
+        _cached_pref = FlyPreferences(application_name, author, file_name=preferences_file_name)
+    return _cached_pref
 
 
 def get_ordering_aspects_set() -> PrefOrderedSet:

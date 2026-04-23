@@ -62,10 +62,14 @@ class PlainTextWidget(QPlainTextEdit):
         self.setReadOnly(True)
         self.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
         self.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.MinimumExpanding)
+        self._last_text: str | None = None
         self.set_text(initial_text)
 
     def set_text(self, text: str):
         """Replace the displayed text and resize to fit content without wrapping."""
+        if text == self._last_text:
+            return
+        self._last_text = text
         self.setPlainText(text)
         # Calculate the width needed to display the longest line
         doc = self.document()

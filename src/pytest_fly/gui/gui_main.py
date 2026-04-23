@@ -23,7 +23,7 @@ from typeguard import typechecked
 
 from ..__version__ import application_name
 from ..db import PytestProcessInfoDB
-from ..interfaces import PutVersionInfo, PytestRunnerState
+from ..interfaces import PutVersionInfo, PyTestFlyExitCode, PytestRunnerState
 from ..logger import get_logger
 from ..preferences import get_pref
 from ..pytest_runner.pytest_runner import PytestRunState
@@ -155,6 +155,12 @@ class FlyAppMainWindow(QMainWindow):
 
         self._coverage_tracker = CoverageTracker(self.data_dir)
 
+        # query_last_pass scans the full DB history — cache its result and only
+        # re-query when the set of passing tests in the current run has grown.
+        self._last_pass_cache: dict[str, tuple[float, float]] = {}
+        self._last_pass_cache_run_guid: str | None = None
+        self._last_pass_cache_pass_count: int = -1
+
         self.table_tab.force_stop_test_requested.connect(self._force_stop_single_test)
 
         self.setCentralWidget(self.tab_widget)
@@ -229,11 +235,19 @@ class FlyAppMainWindow(QMainWindow):
         timer = PhaseTimer()
         tick_start = time.perf_counter()
 
+        run_guid = self.run_tab.control_window.run_guid
         with PytestProcessInfoDB(self.data_dir) as db:
             with timer.time("db_query"):
-                process_infos = db.query(self.run_tab.control_window.run_guid)
+                process_infos = db.query(run_guid)
             with timer.time("db_last_pass"):
-                last_pass_data = db.query_last_pass()
+                # query_last_pass scans the full DB — only re-run when the set of
+                # passing tests for the current run has grown, or on run change.
+                pass_count = sum(1 for info in process_infos if info.exit_code == PyTestFlyExitCode.OK)
+                if run_guid != self._last_pass_cache_run_guid or pass_count != self._last_pass_cache_pass_count:
+                    self._last_pass_cache = db.query_last_pass()
+                    self._last_pass_cache_run_guid = run_guid
+                    self._last_pass_cache_pass_count = pass_count
+                last_pass_data = self._last_pass_cache
 
         control = self.run_tab.control_window
         with timer.time("build"):

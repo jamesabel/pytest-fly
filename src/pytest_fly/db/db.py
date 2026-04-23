@@ -30,6 +30,11 @@ class PytestProcessInfoDB(MSQLite):
     loss is acceptable.
     """
 
+    # Paths whose schema and journal-mode have already been validated this
+    # process.  The GUI reopens this class on every refresh tick and the
+    # schema/pragma work only needs to run once.
+    _initialized_paths: set[Path] = set()
+
     @typechecked
     def __init__(self, db_dir: Path):
         table_name = "pytest_process_info"
@@ -62,26 +67,40 @@ class PytestProcessInfoDB(MSQLite):
 
         db_path = Path(db_dir, f"{application_name}.db")
 
-        # Schema migration: if the table exists with a different set of columns, drop it so
-        # MSQLite recreates it with the current schema.  Test results are ephemeral, so data loss is acceptable.
-        # Note: sqlite3 context manager only handles transactions, not closing — call close() explicitly
-        # to release the Windows file lock before MSQLite opens its own connection below.
-        if db_path.exists():
-            _conn = sqlite3.connect(db_path)
-            try:
-                existing_columns = {row[1] for row in _conn.execute(f"PRAGMA table_info({table_name})").fetchall()}
-            finally:
-                _conn.close()
-            if existing_columns and existing_columns != set(self._columns):
-                log.info(f"Schema change detected for {table_name!r} – dropping table to recreate with new schema")
+        if db_path not in PytestProcessInfoDB._initialized_paths:
+            # Schema migration: if the table exists with a different set of columns, drop it so
+            # MSQLite recreates it with the current schema.  Test results are ephemeral, so data loss is acceptable.
+            # Note: sqlite3 context manager only handles transactions, not closing — call close() explicitly
+            # to release the Windows file lock before MSQLite opens its own connection below.
+            if db_path.exists():
                 _conn = sqlite3.connect(db_path)
                 try:
-                    _conn.execute(f"DROP TABLE IF EXISTS {table_name}")
-                    _conn.commit()
+                    existing_columns = {row[1] for row in _conn.execute(f"PRAGMA table_info({table_name})").fetchall()}
                 finally:
                     _conn.close()
+                if existing_columns and existing_columns != set(self._columns):
+                    log.info(f"Schema change detected for {table_name!r} – dropping table to recreate with new schema")
+                    _conn = sqlite3.connect(db_path)
+                    try:
+                        _conn.execute(f"DROP TABLE IF EXISTS {table_name}")
+                        _conn.commit()
+                    finally:
+                        _conn.close()
 
-        super().__init__(db_path, table_name, self._schema, indexes=["run_guid"])
+            # WAL lets GUI readers proceed concurrently with test-process writers instead of
+            # serializing through BEGIN EXCLUSIVE — the main source of GUI-read stalls while a run
+            # is in progress.  WAL mode is a persistent per-file property, but re-issuing the pragma
+            # on a WAL database is a no-op, so the one-shot guard is sufficient.
+            _conn = sqlite3.connect(db_path)
+            try:
+                _conn.execute("PRAGMA journal_mode=WAL")
+                _conn.commit()
+            finally:
+                _conn.close()
+
+            PytestProcessInfoDB._initialized_paths.add(db_path)
+
+        super().__init__(db_path, table_name, self._schema, indexes=["run_guid", "exit_code"])
 
     @typechecked
     def write(self, pytest_process_info: PytestProcessInfo) -> None:

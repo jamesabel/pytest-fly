@@ -105,7 +105,9 @@ def get_pref() -> FlyPreferences:
     stays consistent with persistent storage.
 
     The cache is keyed on the resolved storage path, so tests that redirect
-    pref storage to a tmp dir transparently get a fresh instance.
+    pref storage to a tmp dir transparently get a fresh instance.  Tests can
+    also call :func:`reset_pref_cache` explicitly if the path-key heuristic
+    isn't enough (e.g., when bypassing the appdirs monkeypatch path).
     """
     global _cached_pref, _cached_pref_path
     current_path = _resolve_pref_path()
@@ -113,6 +115,13 @@ def get_pref() -> FlyPreferences:
         _cached_pref = FlyPreferences(application_name, author, file_name=preferences_file_name)
         _cached_pref_path = current_path
     return _cached_pref
+
+
+def reset_pref_cache() -> None:
+    """Drop the cached :class:`FlyPreferences` instance.  Intended for tests."""
+    global _cached_pref, _cached_pref_path
+    _cached_pref = None
+    _cached_pref_path = None
 
 
 def get_ordering_aspects_set() -> PrefOrderedSet:

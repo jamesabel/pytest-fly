@@ -9,6 +9,7 @@ from pytest_fly.preferences import (
     get_ordering_aspects_ordered,
     get_ordering_aspects_set,
     get_pref,
+    reset_pref_cache,
     set_ordering_aspects_ordered,
 )
 
@@ -20,9 +21,13 @@ def isolated_prefs(tmp_path, monkeypatch):
     The pref library resolves its storage via ``appdirs.user_config_dir`` at
     instantiation time, so patching it on the ``pref.pref`` module is enough
     to send every pref (including :class:`PrefOrderedSet`) into tmp_path.
+    Also drops :func:`get_pref`'s in-process cache before and after the test
+    so a stale instance from prior code paths can't bleed in.
     """
+    reset_pref_cache()
     monkeypatch.setattr(pref_mod.appdirs, "user_config_dir", lambda *a, **kw: str(tmp_path))
     yield tmp_path
+    reset_pref_cache()
 
 
 def test_first_call_seeds_defaults(isolated_prefs):

@@ -1,7 +1,7 @@
 [project]
 name = "pytest-fly"
 description = "pytest runner and observer"
-version = "0.3.43"
+version = "0.3.44"
 readme = "README.md"
 requires-python = ">=3.12"
 authors = [
@@ -35,7 +35,6 @@ dependencies = [
     "pref",
     "attrs",
     "typeguard",
-    "balsa",
     "psutil",
     "py-cpuinfo",
     "humanize",

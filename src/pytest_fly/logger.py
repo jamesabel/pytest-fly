@@ -1,31 +1,89 @@
-from logging import Logger
+"""Application logging — stdlib-only.
 
-from balsa import get_logger as balsa_get_logger
+The parent GUI process calls :func:`init_parent_logger` once at startup.
+Every :class:`multiprocessing.Process` subclass that logs from its ``run()``
+method calls :func:`configure_child_logger` as the first line of that method:
+spawn children inherit no handlers, and ``sys.stderr`` in a Windows spawn
+child is not reliable (pytest's capture plumbing can leave it closed), so
+each child writes its records directly to its own file in the shared log
+directory.
+"""
 
-from pytest_fly.__version__ import application_name
+import logging
+import sys
+from logging import FileHandler, Formatter, Logger, StreamHandler
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
 
-_log_directory: str | None = None
+from platformdirs import user_log_dir
+
+from pytest_fly.__version__ import application_name, author
+
+_LOG_FORMAT = "%(asctime)s %(process)d %(name)s %(levelname)s %(message)s"
+_MAX_BYTES = 10 * 1024 * 1024
+_BACKUP_COUNT = 5
+
+_log_directory: Path | None = None
 
 
-def set_log_directory(directory: str | None) -> None:
-    """Store the Balsa log directory path (called once during startup)."""
+def _resolve_log_directory() -> Path:
+    """Deterministic log directory, shared by parent and spawn children."""
+    log_dir = Path(user_log_dir(application_name, author))
+    log_dir.mkdir(parents=True, exist_ok=True)
+    return log_dir
+
+
+def init_parent_logger(verbose: bool) -> Path:
+    """Configure the parent process's root logger.
+
+    File handler rotates at 10 MB with 5 backups; stderr mirrors the file
+    level so console output matches what lands on disk.
+    """
     global _log_directory
-    _log_directory = directory
+    log_dir = _resolve_log_directory()
+    level = logging.DEBUG if verbose else logging.INFO
+    formatter = Formatter(_LOG_FORMAT)
+
+    root = logging.getLogger()
+    for handler in list(root.handlers):
+        root.removeHandler(handler)
+    root.setLevel(level)
+
+    file_handler = RotatingFileHandler(log_dir / f"{application_name}.log", maxBytes=_MAX_BYTES, backupCount=_BACKUP_COUNT, encoding="utf-8")
+    file_handler.setFormatter(formatter)
+    root.addHandler(file_handler)
+
+    stderr_handler = StreamHandler(sys.stderr)
+    stderr_handler.setFormatter(formatter)
+    root.addHandler(stderr_handler)
+
+    _log_directory = log_dir
+    return log_dir
 
 
-def get_log_directory() -> str | None:
-    """Return the Balsa log directory path set during application startup."""
+def configure_child_logger(log_file_name: str) -> None:
+    """Install a per-child :class:`FileHandler` on the root logger.
+
+    Spawn children inherit no handlers; without this the stdlib falls back
+    to ``logging.lastResort`` → a potentially-closed ``sys.stderr`` and
+    raises ``ValueError`` on the first record. Each child writes DEBUG+ to
+    its own file so nothing is dropped.
+    """
+    log_dir = _resolve_log_directory()
+    root = logging.getLogger()
+    for handler in list(root.handlers):
+        root.removeHandler(handler)
+    root.setLevel(logging.DEBUG)
+    file_handler = FileHandler(log_dir / log_file_name, mode="a", encoding="utf-8")
+    file_handler.setFormatter(Formatter(_LOG_FORMAT))
+    root.addHandler(file_handler)
+
+
+def get_log_directory() -> Path | None:
+    """Return the log directory set by :func:`init_parent_logger`, or ``None`` if it has not run yet."""
     return _log_directory
 
 
 def get_logger(name: str = application_name) -> Logger:
-    """
-    Return the application logger.
-
-    Wraps :func:`balsa.get_logger` so that every module in the project imports
-    the logger from one place, making it easy to swap implementations later.
-
-    :param name: Logger name (defaults to the application name).
-    :return: A standard-library :class:`~logging.Logger` instance.
-    """
-    return balsa_get_logger(name)
+    """Return a stdlib logger by name."""
+    return logging.getLogger(name)

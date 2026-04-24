@@ -49,6 +49,7 @@ class ControlWindow(QGroupBox):
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
 
         self.run_button = ControlButton(self, "Run", True)
+        self.run_button.setToolTip("Discover tests and start a new test run")
         layout.addWidget(self.run_button)
         self.run_button.clicked.connect(self.run)
 

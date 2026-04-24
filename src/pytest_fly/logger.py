@@ -10,8 +10,7 @@ directory.
 """
 
 import logging
-import sys
-from logging import FileHandler, Formatter, Logger, StreamHandler
+from logging import FileHandler, Formatter, Logger
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
@@ -36,8 +35,9 @@ def _resolve_log_directory() -> Path:
 def init_parent_logger(verbose: bool) -> Path:
     """Configure the parent process's root logger.
 
-    File handler rotates at 10 MB with 5 backups; stderr mirrors the file
-    level so console output matches what lands on disk.
+    GUI app: logs go to a rotating file only (10 MB, 5 backups). No stdout
+    or stderr handler — a PySide6 app under ``pythonw``/frozen bundles has
+    no attached console, and writing there can raise on closed streams.
     """
     global _log_directory
     log_dir = _resolve_log_directory()
@@ -52,10 +52,6 @@ def init_parent_logger(verbose: bool) -> Path:
     file_handler = RotatingFileHandler(log_dir / f"{application_name}.log", maxBytes=_MAX_BYTES, backupCount=_BACKUP_COUNT, encoding="utf-8")
     file_handler.setFormatter(formatter)
     root.addHandler(file_handler)
-
-    stderr_handler = StreamHandler(sys.stderr)
-    stderr_handler.setFormatter(formatter)
-    root.addHandler(stderr_handler)
 
     _log_directory = log_dir
     return log_dir

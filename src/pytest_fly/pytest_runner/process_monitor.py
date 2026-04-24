@@ -11,6 +11,8 @@ from psutil import NoSuchProcess
 from psutil import Process as PsutilProcess
 from typeguard import typechecked
 
+from ..logger import configure_child_logger
+
 
 @dataclass(frozen=True)
 class PytestProcessMonitorInfo:
@@ -59,6 +61,7 @@ class ProcessMonitor(Process):
 
     def run(self):
         """Sample CPU and memory at ``_update_rate`` intervals until stop is requested."""
+        configure_child_logger(f"process_monitor-{self._pid}.log")
 
         psutil_process = PsutilProcess(self._pid)
         psutil_process.cpu_percent()  # initialize psutil's CPU usage (ignore the first 0.0)

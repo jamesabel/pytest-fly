@@ -8,7 +8,6 @@ PySide6
 pref
 attrs
 typeguard
-balsa
 psutil
 py-cpuinfo
 humanize

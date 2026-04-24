@@ -14,7 +14,7 @@ import pytest
 from typeguard import typechecked
 
 from ..interfaces import ScheduledTest
-from ..logger import get_logger
+from ..logger import configure_child_logger, get_logger
 
 log = get_logger()
 
@@ -33,6 +33,7 @@ class GetTests(Process):
 
     @typechecked
     def run(self):
+        configure_child_logger("get_tests.log")
         log.info(f"{self.test_dir=}")
 
         # Collection only needs core pytest.  Third-party plugins installed in the venv

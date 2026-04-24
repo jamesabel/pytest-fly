@@ -35,7 +35,6 @@ dependencies = [
     "pref",
     "attrs",
     "typeguard",
-    "balsa",
     "psutil",
     "py-cpuinfo",
     "humanize",

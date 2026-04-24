@@ -76,7 +76,7 @@ Tests are parallelised **at the module level**. All functions inside a module ru
 |---|---|
 | GUI | PySide6 (Qt6) |
 | DB | msqlite (SQLite3) |
-| Logging | balsa |
+| Logging | stdlib logging |
 | Preferences | pref |
 | File watching | watchdog |
 | Resource monitoring | psutil |

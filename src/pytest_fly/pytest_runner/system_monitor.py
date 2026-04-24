@@ -14,6 +14,8 @@ from multiprocessing import Event, Process, Queue
 import psutil
 from typeguard import typechecked
 
+from ..logger import configure_child_logger
+
 
 @dataclass(frozen=True)
 class SystemMonitorSample:
@@ -50,6 +52,7 @@ class SystemMonitor(Process):
 
     def run(self):
         """Sample resources at ``_update_rate`` intervals until stop is requested."""
+        configure_child_logger("system_monitor.log")
         psutil.cpu_percent(interval=None)  # prime psutil's CPU counter; ignore the first 0.0
 
         prev_disk = psutil.disk_io_counters()

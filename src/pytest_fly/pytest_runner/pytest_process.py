@@ -19,7 +19,7 @@ from ..__version__ import application_name
 from ..db import PytestProcessInfoDB
 from ..file_util import sanitize_test_name
 from ..interfaces import PyTestFlyExitCode, PytestProcessInfo
-from ..logger import get_logger
+from ..logger import configure_child_logger, get_logger
 from .live_output import live_output_path
 from .process_monitor import ProcessMonitor
 
@@ -53,6 +53,8 @@ class PytestProcess(Process):
         self._process_monitor_process = None
 
     def run(self) -> None:
+
+        configure_child_logger(f"{sanitize_test_name(self.name)}.log")
 
         # start the process monitor to monitor things like CPU and memory usage
         self._process_monitor_process = ProcessMonitor(self.run_guid, self.name, self.pid, self.update_rate)

@@ -65,6 +65,7 @@ dev = [
     "flit",
     "hatch",
     "pip-tools",
+    "pillow",
 ]
 
 [tool.ruff]

@@ -6,6 +6,8 @@
 [![Python](https://img.shields.io/pypi/pyversions/pytest-fly)](https://pypi.org/project/pytest-fly/)
 [![License](https://img.shields.io/pypi/l/pytest-fly)](https://github.com/jamesabel/pytest-fly/blob/master/LICENSE)
 
+![pytest-fly demo](https://raw.githubusercontent.com/jamesabel/pytest-fly/master/docs/images/run_animation.gif)
+
 `pytest-fly` aids the development, debug, and execution of complex code bases and test suites.
 
 ## Features
@@ -38,6 +40,35 @@ complete. The Coverage tab plots coverage over time, and the Table shows per-tes
 Coverage persists across restarts so previously-passed tests contribute to the total.
 - Singleton test support via `@pytest.mark.singleton` — singleton tests run exclusively with no other tests
 executing concurrently.
+
+## Screenshots
+
+### Run
+
+![Run tab](https://raw.githubusercontent.com/jamesabel/pytest-fly/master/docs/images/run.png)
+
+### Graph
+
+![Graph tab](https://raw.githubusercontent.com/jamesabel/pytest-fly/master/docs/images/graph.png)
+
+### Table
+
+![Table tab](https://raw.githubusercontent.com/jamesabel/pytest-fly/master/docs/images/table.png)
+
+### Coverage
+
+![Coverage tab](https://raw.githubusercontent.com/jamesabel/pytest-fly/master/docs/images/coverage.png)
+
+### Configuration
+
+![Configuration tab](https://raw.githubusercontent.com/jamesabel/pytest-fly/master/docs/images/configuration.png)
+
+### About
+
+![About tab](https://raw.githubusercontent.com/jamesabel/pytest-fly/master/docs/images/about.png)
+
+> Screenshots and the demo GIF above are produced by `python scripts/capture_assets.py`,
+> which drives the GUI against the auto-generated demo suite in `demo/demo.py`.
 
 ## Installation
 

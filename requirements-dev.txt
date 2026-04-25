@@ -28,6 +28,8 @@ pytest-benchmark
 pytest-rerunfailures
 pytest-randomly
 coverage
+# screenshot/GIF capture for README assets (scripts/capture_assets.py)
+pillow
 # distribution
 flit
 hatch

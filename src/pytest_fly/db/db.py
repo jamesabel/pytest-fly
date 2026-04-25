@@ -35,7 +35,7 @@ class PytestProcessInfoDB(MSQLite):
     # schema/pragma work only needs to run once.
     _initialized_paths: set[Path] = set()
 
-    @typechecked
+    @typechecked()
     def __init__(self, db_dir: Path):
         table_name = "pytest_process_info"
 
@@ -102,7 +102,7 @@ class PytestProcessInfoDB(MSQLite):
 
         super().__init__(db_path, table_name, self._schema, indexes=["run_guid", "exit_code"])
 
-    @typechecked
+    @typechecked()
     def write(self, pytest_process_info: PytestProcessInfo) -> None:
         """
         Write the pytest process info to the database.

@@ -26,6 +26,7 @@ class PytestProcessMonitorInfo:
     time_stamp: float  # time stamp of the info update
 
 
+@typechecked()
 def normalize_cpu_percent(cpu_percent: float, cores: int) -> float:
     """Normalize psutil's per-process CPU percent (0-100 * cores) to a single-core-equivalent 0-100 scale.
 
@@ -86,6 +87,10 @@ class ProcessMonitor(Process):
             put_process_monitor_data()
             self._stop_event.wait(self._update_rate)
         put_process_monitor_data()
+        # Prevent the multiprocessing Queue feeder thread from blocking process exit.
+        # Without this, if the consumer (PytestProcess) is waiting in join() rather than
+        # draining the queue, the pipe buffer fills and this process hangs indefinitely.
+        self.process_monitor_queue.cancel_join_thread()
 
     def request_stop(self):
         """Signal the monitor loop to exit after the current sample."""

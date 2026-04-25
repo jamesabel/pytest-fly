@@ -8,6 +8,7 @@ Defines the fundamental types used by the runner, database, and GUI layers:
 
 from dataclasses import dataclass
 from enum import IntEnum, StrEnum
+from functools import cache
 
 from pytest import ExitCode
 
@@ -94,6 +95,16 @@ class PyTestFlyExitCode(IntEnum):
     NONE = 100  # not yet set
     TERMINATED = 101  # test run was forcefully terminated
     STOPPED = 102  # test was queued but never ran (soft stop)
+
+
+@cache
+def int_exit_code_to_pytest_fly_exit_code(int_exit_code: int) -> PyTestFlyExitCode:
+    found = None
+    for exit_code in PyTestFlyExitCode:
+        if exit_code.value == int_exit_code:
+            found = exit_code
+    assert found is not None
+    return found
 
 
 @dataclass(frozen=True)

@@ -246,7 +246,7 @@ def window_text_color(widget: QWidget) -> QColor:
 _TOOLTIP_WIDTH_LIMIT = 120
 
 
-@typechecked
+@typechecked()
 def tool_tip_limiter(text: str | None, line_limit: int | None = None, width_limit: int = _TOOLTIP_WIDTH_LIMIT) -> str:
     """
     Prepare tooltip text from pytest output: keep the last *line_limit* lines

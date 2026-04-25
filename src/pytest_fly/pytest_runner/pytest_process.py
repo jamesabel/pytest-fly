@@ -4,6 +4,7 @@ and a :class:`ProcessMonitor` that samples CPU/memory usage.
 """
 
 import contextlib
+import logging
 import shutil
 import time
 import traceback
@@ -18,7 +19,7 @@ from typeguard import typechecked
 from ..__version__ import application_name
 from ..db import PytestProcessInfoDB
 from ..file_util import sanitize_test_name
-from ..interfaces import PyTestFlyExitCode, PytestProcessInfo
+from ..interfaces import PyTestFlyExitCode, PytestProcessInfo, int_exit_code_to_pytest_fly_exit_code
 from ..logger import configure_child_logger, get_logger
 from .live_output import live_output_path
 from .process_monitor import ProcessMonitor
@@ -96,7 +97,8 @@ class PytestProcess(Process):
                 try:
                     # -rA: show full short test summary (all outcomes, untruncated assertion messages)
                     # -s: disable pytest capture so stdout/stderr stream live to the log file
-                    exit_code = pytest.main([self.name, "-rA", "-s"])
+                    pytest_exit_code = pytest.main([self.name, "-rA", "-s"])
+                    exit_code = int_exit_code_to_pytest_fly_exit_code(pytest_exit_code)
                 except Exception:
                     exit_code = PyTestFlyExitCode.INTERNAL_ERROR
                     try:
@@ -111,11 +113,21 @@ class PytestProcess(Process):
 
         output: str = live_path.read_text(encoding="utf-8", errors="replace")
 
+        # Tests may have registered StreamHandlers pointing to live_file (now closed).
+        # Remove them so subsequent log calls don't raise ValueError.
+        for _lgr in [logging.root, *logging.Logger.manager.loggerDict.values()]:
+            if isinstance(_lgr, logging.Logger):
+                for _handler in list(_lgr.handlers):
+                    if hasattr(_handler, "stream") and getattr(_handler.stream, "closed", False):
+                        _lgr.removeHandler(_handler)
+
         # stop the process monitor
         self._process_monitor_process.request_stop()
         self._process_monitor_process.join(100.0)  # plenty of time for the monitor to stop
         if self._process_monitor_process.is_alive():
             log.warning(f"{self._process_monitor_process} is alive")
+            self._process_monitor_process.kill()
+            self._process_monitor_process.join(5.0)
 
         # drain the process monitor queue to compute peak CPU and memory usage
         cpu_samples = []

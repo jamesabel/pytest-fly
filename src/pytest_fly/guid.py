@@ -7,7 +7,7 @@ from typeguard import typechecked
 from uuid6 import uuid7
 
 
-@typechecked
+@typechecked()
 def generate_uuid() -> str:
     """
     Generate a UUIDv7 (time-ordered, timestamp-encoded).
@@ -16,7 +16,7 @@ def generate_uuid() -> str:
     return u
 
 
-@typechecked
+@typechecked()
 def decode_uuid_timestamp(uuid_string: str) -> datetime:
     """
     Extract the UTC timestamp encoded in a UUIDv7.

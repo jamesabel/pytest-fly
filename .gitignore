@@ -80,6 +80,8 @@ temp/
 venv/
 # automatically generated
 test_demo/
+fly_demo/
+docs/images/.tmp_frames/
 tests/tests_many/
 .benchmarks/
 .pytest-fly/

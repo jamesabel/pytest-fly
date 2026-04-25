@@ -289,12 +289,46 @@ class FlyAppMainWindow(QMainWindow):
 
 
 @typechecked()
-def fly_main(data_dir: Path):
+def fly_main(data_dir: Path, *, auto_start: bool = False, auto_quit_on_done: bool = False):
     """
     Main function to start the GUI application.
+
+    :param data_dir: Application data directory (DB, logs).
+    :param auto_start: When True, click the Run button shortly after the window appears.
+        Used by the screenshot/GIF capture script and other automation.
+    :param auto_quit_on_done: When True, close the window once the active runner finishes.
+        Only meaningful with ``auto_start=True`` (or some other automation that triggers a run).
     """
 
     app = QApplication([])
     fly_app = FlyAppMainWindow(data_dir)
     fly_app.show()
+
+    if auto_start:
+        # Give the window one paint cycle so test discovery has a populated UI to render into.
+        QTimer.singleShot(800, fly_app.run_tab.control_window.run)
+
+    if auto_quit_on_done:
+        # Poll the runner; close the window once a run has started AND finished. The runner
+        # is None until the Run button is clicked. There's also a brief window after
+        # PytestRunner.start() where workers haven't been spawned yet and is_running() returns
+        # False — guard against that with a "saw_running" latch so we only quit after we've
+        # actually observed the run executing.
+        quit_timer = QTimer(fly_app, interval=500)
+        state = {"saw_running": False}
+
+        def _check_done():
+            runner = fly_app.run_tab.control_window.pytest_runner
+            if runner is None:
+                return
+            if runner.is_running():
+                state["saw_running"] = True
+                return
+            if state["saw_running"]:
+                quit_timer.stop()
+                fly_app.close()
+
+        quit_timer.timeout.connect(_check_done)
+        quit_timer.start()
+
     app.exec()

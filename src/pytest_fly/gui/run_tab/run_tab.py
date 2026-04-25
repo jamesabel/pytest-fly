@@ -21,7 +21,7 @@ log = get_logger()
 class RunTab(QWidget):
     """Primary tab combining the control panel (Run/Stop) and the status summary."""
 
-    @typechecked
+    @typechecked()
     def __init__(self, parent, data_dir: Path):
         super().__init__(parent)
 

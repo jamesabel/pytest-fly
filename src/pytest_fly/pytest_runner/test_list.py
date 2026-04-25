@@ -31,7 +31,7 @@ class GetTests(Process):
         self._scheduled_tests_queue = Queue()
         super().__init__()
 
-    @typechecked
+    @typechecked()
     def run(self):
         configure_child_logger("get_tests.log")
         log.info(f"{self.test_dir=}")

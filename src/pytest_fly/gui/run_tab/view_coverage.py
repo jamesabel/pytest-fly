@@ -15,7 +15,7 @@ log = get_logger(application_name)
 class ViewCoverage:
     """Opens the most recent HTML coverage report in the user's default browser."""
 
-    @typechecked
+    @typechecked()
     def __init__(self, coverage_parent_directory: Path):
         self.coverage_parent_directory = coverage_parent_directory
 

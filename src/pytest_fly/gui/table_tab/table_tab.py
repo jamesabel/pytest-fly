@@ -80,7 +80,7 @@ class TableTab(QGroupBox):
 
     force_stop_test_requested = Signal(str)  # emits the test node_id
 
-    @typechecked
+    @typechecked()
     def __init__(self, data_dir: Path):
         super().__init__()
 

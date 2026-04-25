@@ -17,7 +17,7 @@ _MAX_LINE_BLOCKS = 5000  # QPlainTextEdit max line count — bounds memory on ve
 class LiveOutputWindow(QGroupBox):
     """Displays live pytest output for a selectable running test."""
 
-    @typechecked
+    @typechecked()
     def __init__(self, parent, data_dir: Path):
         super().__init__(parent)
         self.setTitle("Live Output")

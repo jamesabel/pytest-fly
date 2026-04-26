@@ -6,16 +6,14 @@ separate from the GUI window lifecycle.  The main window creates one
 instance and calls :meth:`CoverageTracker.update` on each refresh tick.
 """
 
-import shutil
 import time
 from pathlib import Path
 
 from coverage import Coverage
 
 from ..file_util import sanitize_test_name
-from ..interfaces import PytestRunnerState, RunMode
+from ..interfaces import PytestRunnerState
 from ..logger import get_logger
-from ..preferences import get_pref
 from ..pytest_runner.coverage import calculate_coverage
 from ..tick_data import TickData
 
@@ -38,7 +36,12 @@ class CoverageTracker:
         self._last_run_guid: str | None = None
 
     def handle_new_run(self, current_guid: str | None) -> None:
-        """Reset coverage state when a new run starts and clear old coverage files.
+        """Reset in-memory coverage state when a new run starts.
+
+        File-system cleanup of stale coverage data is done synchronously by
+        ``ControlWindow.run`` *before* the new ``PytestRunner`` is started — doing
+        it here on a periodic tick can race with PytestProcess coverage writes
+        that are still in flight, deleting the directory mid-``coverage.save()``.
 
         :param current_guid: The GUID of the current run.
         """
@@ -49,13 +52,6 @@ class CoverageTracker:
             self._per_test_coverage = {}
             self._covered_lines = 0
             self._total_lines = 0
-
-            # In RESTART mode, clear old coverage files so the graph starts from zero
-            pref = get_pref()
-            if pref.run_mode != RunMode.RESUME:
-                coverage_dir = Path(self._data_dir, "coverage")
-                if coverage_dir.exists():
-                    shutil.rmtree(coverage_dir, ignore_errors=True)
 
     def update(self, tick: TickData) -> None:
         """Recalculate combined and per-test coverage when new tests complete.

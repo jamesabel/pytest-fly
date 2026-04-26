@@ -5,6 +5,7 @@ Houses the run-preparation logic: test discovery, RESUME filtering, and
 the user-configured ordering-aspect chain (see :mod:`pytest_runner.ordering`).
 """
 
+import shutil
 import time
 from dataclasses import replace
 from pathlib import Path
@@ -154,6 +155,15 @@ class ControlWindow(QGroupBox):
         effective_mode = pref.run_mode
         if pref.run_mode == RunMode.CHECK:
             effective_mode = self._resolve_check_mode(prior_results)
+
+        # Clear stale coverage data before any PytestProcess starts writing into
+        # coverage/. Done here (synchronously, before pytest_runner.start) rather
+        # than from a periodic GUI tick so we cannot delete the directory while
+        # a still-running PytestProcess is mid-coverage.save().
+        if effective_mode != RunMode.RESUME:
+            coverage_dir = Path(self.data_dir, "coverage")
+            if coverage_dir.exists():
+                shutil.rmtree(coverage_dir, ignore_errors=True)
 
         all_node_ids = {t.node_id for t in tests}
         tests = self._filter_for_resume(tests, prior_results, effective_mode)

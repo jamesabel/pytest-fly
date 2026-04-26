@@ -21,7 +21,7 @@ from ..db import PytestProcessInfoDB
 from ..interfaces import PyTestFlyExitCode, PytestRunnerState, ScheduledTest
 from ..logger import get_logger
 from .const import TIMEOUT
-from .pytest_process import PytestProcess, PytestProcessInfo
+from .pytest_process import PytestProcess, PytestProcessInfo, terminate_process_tree
 
 log = get_logger()
 
@@ -306,57 +306,35 @@ class _TestRunner(Thread):
 
     def _terminate_process(self, proc: PytestProcess, proc_name: str, test: str) -> None:
         """
-        Attempt a graceful termination of *proc*.  If the process exits within
-        a short grace period the result is recorded as ``TERMINATED`` in the DB.
-        Otherwise :meth:`_force_kill_process` is called.
+        Terminate *proc* and all of its descendants.  ``terminate_process_tree``
+        handles SIGTERM-then-SIGKILL escalation internally and waits for the
+        processes to exit, so this method records the ``TERMINATED`` status to
+        the DB unconditionally.
 
         :param proc: The running :class:`PytestProcess`.
         :param proc_name: Human-readable name for log messages.
         :param test: Test node-ID (used when writing the DB record).
         """
-        try:
-            proc.terminate()
-            log.info(f'attempted terminate for process "{proc_name}" ({self.run_guid=})')
-        except (OSError, RuntimeError, PermissionError) as e:
-            log.info(f'error calling terminate on "{proc_name}",{self.run_guid=},{e}')
+        terminate_process_tree(proc.pid, terminate_timeout=max(self.update_rate, 2.0))
+        proc.join(0.5)  # reap the multiprocessing.Process wrapper
 
-        proc.join(max(self.update_rate, 2.0))
-
-        if not proc.is_alive():
-            log.info(f'process for test "{proc_name}" terminated ({self.run_guid=})')
-            with PytestProcessInfoDB(self.data_dir) as db:
-                info = PytestProcessInfo(
-                    self.run_guid,
-                    test,
-                    None,
-                    PyTestFlyExitCode.TERMINATED,
-                    None,
-                    time_stamp=time.time(),
-                    put_version=self.put_version,
-                    put_fingerprint=self.put_fingerprint,
-                )
-                db.write(info)
+        if proc.is_alive():
+            log.warning(f'process for test "{proc_name}" still alive after tree kill ({self.run_guid=})')
         else:
-            self._force_kill_process(proc, proc_name)
+            log.info(f'process tree for test "{proc_name}" terminated ({self.run_guid=})')
 
-    def _force_kill_process(self, proc: PytestProcess, proc_name: str) -> None:
-        """
-        Forcefully kill *proc* after a graceful terminate failed.
-
-        A safety check ensures the ``self.process`` reference has not been
-        replaced by a newer process before issuing the kill.
-
-        :param proc: The process to kill.
-        :param proc_name: Human-readable name for log messages.
-        """
-        if self.process is not proc:
-            log.info(f'process object changed while waiting; skipping kill for "{proc_name}" ({self.run_guid=})')
-            return
-        try:
-            proc.kill()
-            log.info(f'process for test "{proc_name}" killed ({self.run_guid=})')
-        except (OSError, RuntimeError, PermissionError) as e:
-            log.warning(f'error calling kill on "{proc_name}",{self.run_guid=},{e}')
+        with PytestProcessInfoDB(self.data_dir) as db:
+            info = PytestProcessInfo(
+                self.run_guid,
+                test,
+                None,
+                PyTestFlyExitCode.TERMINATED,
+                None,
+                time_stamp=time.time(),
+                put_version=self.put_version,
+                put_fingerprint=self.put_fingerprint,
+            )
+            db.write(info)
 
     def _handle_stop_request(self, test: str) -> None:
         """

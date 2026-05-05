@@ -3,12 +3,13 @@
 from pathlib import Path
 
 from PySide6.QtGui import QFontDatabase
-from PySide6.QtWidgets import QCheckBox, QComboBox, QGroupBox, QHBoxLayout, QPlainTextEdit, QSizePolicy, QVBoxLayout
+from PySide6.QtWidgets import QCheckBox, QComboBox, QGroupBox, QHBoxLayout, QLabel, QPlainTextEdit, QSizePolicy, QVBoxLayout
 from typeguard import typechecked
 
 from ...interfaces import PytestRunnerState
 from ...pytest_runner.live_output import read_live_output
 from ...tick_data import TickData
+from ..gui_util import format_runtime
 
 _NO_TESTS_RUNNING_PLACEHOLDER = "(no tests running)"
 _MAX_LINE_BLOCKS = 5000  # QPlainTextEdit max line count — bounds memory on very chatty tests
@@ -44,6 +45,10 @@ class LiveOutputWindow(QGroupBox):
         top_row.addWidget(self._follow_tail_checkbox)
         layout.addLayout(top_row)
 
+        self._last_pass_label = QLabel("")
+        self._last_pass_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        layout.addWidget(self._last_pass_label)
+
         self._text_view = QPlainTextEdit()
         self._text_view.setReadOnly(True)
         self._text_view.setUndoRedoEnabled(False)
@@ -64,7 +69,10 @@ class LiveOutputWindow(QGroupBox):
             if self._last_text:
                 self._text_view.clear()
                 self._last_text = ""
+            self._last_pass_label.setText("")
             return
+
+        self._update_last_pass_label(tick)
 
         live_text = read_live_output(self._data_dir, self._selected_name)
         if live_text is None:
@@ -98,6 +106,15 @@ class LiveOutputWindow(QGroupBox):
             self._test_selector.setEnabled(False)
             self._selected_name = None
         self._test_selector.blockSignals(False)
+
+    def _update_last_pass_label(self, tick: TickData) -> None:
+        """Show the duration of the most recent passing run for the selected test."""
+        last_pass = tick.last_pass_data.get(self._selected_name)
+        if last_pass is None:
+            self._last_pass_label.setText("Last successful run: (none)")
+        else:
+            _, last_pass_duration = last_pass
+            self._last_pass_label.setText(f"Last successful run: {format_runtime(last_pass_duration)}")
 
     def _on_selector_changed(self, index: int) -> None:
         """User picked a different running test — switch the text view."""

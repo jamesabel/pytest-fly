@@ -1,9 +1,10 @@
 """Live output pane — shows the streaming pytest stdout/stderr of a currently-running test."""
 
+import time
 from pathlib import Path
 
 from PySide6.QtGui import QFontDatabase
-from PySide6.QtWidgets import QCheckBox, QComboBox, QGroupBox, QHBoxLayout, QLabel, QPlainTextEdit, QSizePolicy, QVBoxLayout
+from PySide6.QtWidgets import QCheckBox, QComboBox, QGroupBox, QHBoxLayout, QLabel, QPlainTextEdit, QProgressBar, QSizePolicy, QVBoxLayout
 from typeguard import typechecked
 
 from ...interfaces import PytestRunnerState
@@ -45,9 +46,20 @@ class LiveOutputWindow(QGroupBox):
         top_row.addWidget(self._follow_tail_checkbox)
         layout.addLayout(top_row)
 
+        status_row = QHBoxLayout()
+        self._elapsed_label = QLabel("")
+        status_row.addWidget(self._elapsed_label)
         self._last_pass_label = QLabel("")
-        self._last_pass_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        layout.addWidget(self._last_pass_label)
+        status_row.addWidget(self._last_pass_label)
+        status_row.addStretch()
+        layout.addLayout(status_row)
+
+        self._progress_bar = QProgressBar()
+        self._progress_bar.setRange(0, 100)
+        self._progress_bar.setValue(0)
+        self._progress_bar.setFormat("")
+        self._progress_bar.setEnabled(False)
+        layout.addWidget(self._progress_bar)
 
         self._text_view = QPlainTextEdit()
         self._text_view.setReadOnly(True)
@@ -69,10 +81,14 @@ class LiveOutputWindow(QGroupBox):
             if self._last_text:
                 self._text_view.clear()
                 self._last_text = ""
+            self._elapsed_label.setText("")
             self._last_pass_label.setText("")
+            self._progress_bar.setEnabled(False)
+            self._progress_bar.setValue(0)
+            self._progress_bar.setFormat("")
             return
 
-        self._update_last_pass_label(tick)
+        self._update_status(tick)
 
         live_text = read_live_output(self._data_dir, self._selected_name)
         if live_text is None:
@@ -107,14 +123,37 @@ class LiveOutputWindow(QGroupBox):
             self._selected_name = None
         self._test_selector.blockSignals(False)
 
-    def _update_last_pass_label(self, tick: TickData) -> None:
-        """Show the duration of the most recent passing run for the selected test."""
+    def _update_status(self, tick: TickData) -> None:
+        """Update elapsed time, last-successful-run, and the progress bar (100% = last successful runtime)."""
+        start_time: float | None = None
+        for info in tick.infos_by_name.get(self._selected_name, []):
+            if info.pid is not None:
+                start_time = info.time_stamp
+                break
+        elapsed = time.time() - start_time if start_time is not None else None
+
         last_pass = tick.last_pass_data.get(self._selected_name)
-        if last_pass is None:
+        last_pass_duration = last_pass[1] if last_pass is not None else None
+
+        if elapsed is None:
+            self._elapsed_label.setText("Elapsed: (starting)")
+        else:
+            self._elapsed_label.setText(f"Elapsed: {format_runtime(elapsed)}")
+
+        if last_pass_duration is None:
             self._last_pass_label.setText("Last successful run: (none)")
         else:
-            _, last_pass_duration = last_pass
             self._last_pass_label.setText(f"Last successful run: {format_runtime(last_pass_duration)}")
+
+        if elapsed is not None and last_pass_duration is not None and last_pass_duration > 0:
+            percent = int(round(elapsed / last_pass_duration * 100.0))
+            self._progress_bar.setEnabled(True)
+            self._progress_bar.setValue(min(100, max(0, percent)))
+            self._progress_bar.setFormat(f"{percent}%")
+        else:
+            self._progress_bar.setEnabled(False)
+            self._progress_bar.setValue(0)
+            self._progress_bar.setFormat("")
 
     def _on_selector_changed(self, index: int) -> None:
         """User picked a different running test — switch the text view."""

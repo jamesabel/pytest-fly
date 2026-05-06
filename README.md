@@ -17,9 +17,11 @@
     behaves as Check unless the Configuration tab's *Resume Without Program Check* is set), and
     several panels: a Status panel (completion percentage, pass rate, per-state counts, elapsed
     time, average parallelism, coverage, and estimated time remaining), a System Performance
-    panel (live CPU and memory charts, with memory shown as used/total GB alongside percent), a
+    panel (live CPU, memory, disk I/O, and network I/O charts, with memory shown as used/total GB
+    alongside percent), a
     Failed Tests panel with clipboard copy, a Live Output panel streaming pytest output from the
-    running tests, and program-under-test version/dirty-git indicators
+    running tests with elapsed time, last successful run duration, and a progress bar tracking
+    progress against the last successful run, and program-under-test version/dirty-git indicators
   - **Graph** — time-based progress chart showing each test module as a horizontal bar
   - **Table** — per-test status grid with elapsed time, peak CPU, memory usage, and individual coverage
   - **Coverage** — line chart of combined code coverage over time with covered/total line counts

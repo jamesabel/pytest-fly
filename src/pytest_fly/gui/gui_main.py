@@ -78,6 +78,12 @@ def build_tick_data(
     min_ts, max_ts = compute_time_window(process_infos)
     min_ts_s, max_ts_s = compute_time_window(process_infos, require_pid=True)
 
+    # While any test is running, anchor the time-axis right edge to wall-clock now.
+    # Otherwise max_ts is frozen at the latest STARTED record's timestamp, so running-test
+    # bars (whose right edge is time.time()) overflow far past the chart and get clipped.
+    if max_ts is not None and any(rs.get_state() == PytestRunnerState.RUNNING for rs in run_states.values()):
+        max_ts = max(max_ts, time.time())
+
     return TickData(
         process_infos=process_infos,
         infos_by_name=infos_by_name,

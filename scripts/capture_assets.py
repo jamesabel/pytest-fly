@@ -38,7 +38,7 @@ from demo.demo import generate_tests  # noqa: E402
 from pytest_fly.gui.gui_main import FlyAppMainWindow  # noqa: E402
 from pytest_fly.preferences import get_pref  # noqa: E402
 
-WINDOW_SIZE = (1280, 800)
+WINDOW_SIZE = (1700, 900)
 GIF_SAMPLE_INTERVAL_MS = 600
 GIF_FRAME_DURATION_MS = 600
 GIF_MAX_BYTES = 2 * 1024 * 1024  # 2 MB target ceiling

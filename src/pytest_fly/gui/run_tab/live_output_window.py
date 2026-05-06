@@ -49,6 +49,9 @@ class LiveOutputWindow(QGroupBox):
         status_row = QHBoxLayout()
         self._elapsed_label = QLabel("")
         status_row.addWidget(self._elapsed_label)
+        self._status_separator = QLabel("|")
+        self._status_separator.setEnabled(False)
+        status_row.addWidget(self._status_separator)
         self._last_pass_label = QLabel("")
         status_row.addWidget(self._last_pass_label)
         status_row.addStretch()
@@ -83,6 +86,7 @@ class LiveOutputWindow(QGroupBox):
                 self._last_text = ""
             self._elapsed_label.setText("")
             self._last_pass_label.setText("")
+            self._status_separator.setVisible(False)
             self._progress_bar.setEnabled(False)
             self._progress_bar.setValue(0)
             self._progress_bar.setFormat("")
@@ -134,6 +138,8 @@ class LiveOutputWindow(QGroupBox):
 
         last_pass = tick.last_pass_data.get(self._selected_name)
         last_pass_duration = last_pass[1] if last_pass is not None else None
+
+        self._status_separator.setVisible(True)
 
         if elapsed is None:
             self._elapsed_label.setText("Elapsed: (starting)")

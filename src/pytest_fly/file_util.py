@@ -5,7 +5,9 @@ from pathlib import Path
 
 def sanitize_test_name(name: str) -> str:
     """Convert a test node_id into a safe filesystem filename."""
-    return name.replace("/", "_").replace("\\", "_")
+    # ``:`` must go too — a leftover drive prefix like ``C:`` makes pathlib's ``/``
+    # treat the result as drive-relative and silently drop the parent directory.
+    return name.replace("/", "_").replace("\\", "_").replace(":", "_")
 
 
 def find_most_recent_file(directory: Path, pattern: str) -> Path | None:

@@ -6,9 +6,12 @@
 [![Python](https://img.shields.io/pypi/pyversions/pytest-fly)](https://pypi.org/project/pytest-fly/)
 [![License](https://img.shields.io/pypi/l/pytest-fly)](https://github.com/jamesabel/pytest-fly/blob/master/LICENSE)
 
-![pytest-fly demo](https://raw.githubusercontent.com/jamesabel/pytest-fly/master/docs/images/run_animation.gif)
 
-`pytest-fly` aids the development, debug, and execution of complex code bases and test suites.
+# `pytest-fly`: PyTest for System Tests
+
+Aids the development, debug, and execution of complex code bases and test suites.
+
+![pytest-fly demo](https://raw.githubusercontent.com/jamesabel/pytest-fly/master/docs/images/run_animation.gif)
 
 ## Features
 

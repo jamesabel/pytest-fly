@@ -223,26 +223,30 @@ class PytestProcess(Process):
                     if hasattr(_handler, "stream") and getattr(_handler.stream, "closed", False):
                         _lgr.removeHandler(_handler)
 
-        # stop the process monitor
+        # Stop the monitor and drain its queue while it exits. Draining as the
+        # producer shuts down keeps the OS pipe from filling, which would otherwise
+        # block the monitor's feeder thread and hang its process exit.
         self._process_monitor_process.request_stop()
-        self._process_monitor_process.join(100.0)  # plenty of time for the monitor to stop
-        if self._process_monitor_process.is_alive():
-            log.warning(f"{self._process_monitor_process} is alive")
-            self._process_monitor_process.kill()
-            self._process_monitor_process.join(5.0)
-
-        # drain the process monitor queue to compute peak CPU and memory usage
         cpu_samples = []
         memory_samples = []
+        drain_deadline = time.time() + 100.0
         while True:
             try:
-                monitor_info = self._process_monitor_process.process_monitor_queue.get_nowait()
+                monitor_info = self._process_monitor_process.process_monitor_queue.get(timeout=0.1)
                 if monitor_info.cpu_percent is not None:
                     cpu_samples.append(monitor_info.cpu_percent)
                 if monitor_info.memory_percent is not None:
                     memory_samples.append(monitor_info.memory_percent)
             except Empty:
-                break
+                if not self._process_monitor_process.is_alive():
+                    break
+                if time.time() >= drain_deadline:
+                    break
+        self._process_monitor_process.join(5.0)
+        if self._process_monitor_process.is_alive():
+            log.warning(f"{self._process_monitor_process} is alive")
+            self._process_monitor_process.kill()
+            self._process_monitor_process.join(5.0)
         peak_cpu = max(cpu_samples) if cpu_samples else None
         peak_memory = max(memory_samples) if memory_samples else None
 

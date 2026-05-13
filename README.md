@@ -11,7 +11,13 @@
 
 Aids the development, debug, and execution of complex code bases and test suites.
 
-![pytest-fly demo](https://raw.githubusercontent.com/jamesabel/pytest-fly/master/docs/images/run_animation.gif)
+## Installation
+
+Install `pytest-fly` via `pip` from `PyPI`:
+
+```
+pip install pytest-fly
+```
 
 ## Features
 
@@ -46,7 +52,11 @@ Coverage persists across restarts so previously-passed tests contribute to the t
 - Singleton test support via `@pytest.mark.singleton` — singleton tests run exclusively with no other tests
 executing concurrently.
 
-## Screenshots
+# Screenshots
+
+### Basic Demo
+
+![pytest-fly demo](https://raw.githubusercontent.com/jamesabel/pytest-fly/master/docs/images/run_animation.gif)
 
 ### Run
 
@@ -74,14 +84,6 @@ executing concurrently.
 
 > Screenshots and the demo GIF above are produced by `python scripts/capture_assets.py`,
 > which drives the GUI against the auto-generated demo suite in `demo/demo.py`.
-
-## Installation
-
-You can install `pytest-fly` via `pip` from `PyPI`:
-
-```
-pip install pytest-fly
-```
 
 ## Parallelism
 
@@ -121,3 +123,12 @@ All aspects apply in every run mode, including Restart — prior-run data shapes
 not *which* tests run. Tests missing the data an aspect needs tie for last under that aspect.
 `singleton` tests always run last, regardless of these settings, to maximize parallel throughput
 before exclusive execution begins.
+
+# What's Up With The Name?
+
+Originally this was going to be a "watcher", so it's like a "fly on the wall".  As it turns out, it became a runner
+to provide the desired control and observability. "Fly" can mean:
+
+- Observes code execution ("fly on the wall")
+- Fast (offers parallelism so your tests "fly" by quickly)
+- Cool ("pretty fly")

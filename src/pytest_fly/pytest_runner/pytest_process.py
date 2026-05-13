@@ -29,7 +29,7 @@ log = get_logger(application_name)
 
 
 @typechecked()
-def terminate_process_tree(pid: int | None, terminate_timeout: float = 3.0, kill_timeout: float = 2.0) -> None:
+def terminate_process_tree(pid: int | None, terminate_timeout: float = 3.0, kill_timeout: float = 2.0, reap_parent: bool = True) -> None:
     """
     Terminate a process and all of its descendants.
 
@@ -47,6 +47,14 @@ def terminate_process_tree(pid: int | None, terminate_timeout: float = 3.0, kill
     :param pid: PID of the parent process to terminate. ``None`` is a no-op.
     :param terminate_timeout: Seconds to wait after SIGTERM before escalating to SIGKILL.
     :param kill_timeout: Seconds to wait after SIGKILL for the OS to reap the processes.
+    :param reap_parent: When ``True`` (default), ``psutil.wait_procs`` waits on the
+        parent too, which on POSIX reaps the zombie via ``os.waitpid``. Set to
+        ``False`` when the caller owns the parent's lifecycle and will reap it
+        itself (e.g. a ``multiprocessing.Process`` reaped via ``join()``).
+        Reaping a multiprocessing child here leaves its wrapper in a permanently
+        "alive" state — its own ``os.waitpid`` then raises ``ChildProcessError``,
+        ``_popen.poll()`` returns ``None``, and ``is_alive()`` returns ``True``
+        forever.
     """
     if pid is None:
         return
@@ -71,7 +79,8 @@ def terminate_process_tree(pid: int | None, terminate_timeout: float = 3.0, kill
         except (psutil.NoSuchProcess, psutil.AccessDenied) as e:
             log.debug(f"could not terminate pid={proc.pid}: {e}")
 
-    _, alive = psutil.wait_procs(descendants + [parent], timeout=terminate_timeout)
+    wait_targets = descendants + [parent] if reap_parent else descendants
+    _, alive = psutil.wait_procs(wait_targets, timeout=terminate_timeout)
 
     # Re-scan for grandchildren that appeared between snapshot and SIGTERM
     try:
@@ -84,11 +93,27 @@ def terminate_process_tree(pid: int | None, terminate_timeout: float = 3.0, kill
     except (psutil.NoSuchProcess, psutil.AccessDenied):
         pass
 
+    # When not reaping the parent we still want to ensure it gets SIGKILL'd if
+    # SIGTERM didn't take; do it best-effort without waiting/reaping.
+    if not reap_parent:
+        try:
+            if parent.is_running():
+                try:
+                    parent.kill()
+                    log.debug(f"killed parent pid={parent.pid}")
+                except (psutil.NoSuchProcess, psutil.AccessDenied) as e:
+                    log.debug(f"could not kill parent pid={parent.pid}: {e}")
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
+
     if not alive:
         return
 
-    # SIGKILL survivors, children-first
-    survivors_children_first = [p for p in alive if p.pid != pid] + [p for p in alive if p.pid == pid]
+    # SIGKILL survivors, children-first when the parent is in scope
+    if reap_parent:
+        survivors_children_first = [p for p in alive if p.pid != pid] + [p for p in alive if p.pid == pid]
+    else:
+        survivors_children_first = list(alive)
     for proc in survivors_children_first:
         try:
             proc.kill()

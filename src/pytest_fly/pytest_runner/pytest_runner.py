@@ -315,7 +315,10 @@ class _TestRunner(Thread):
         :param proc_name: Human-readable name for log messages.
         :param test: Test node-ID (used when writing the DB record).
         """
-        terminate_process_tree(proc.pid, terminate_timeout=max(self.update_rate, 2.0))
+        # reap_parent=False — we own the multiprocessing.Process lifecycle and
+        # reap it ourselves via join() below. Letting psutil reap it would leave
+        # the multiprocessing wrapper's is_alive() permanently True on POSIX.
+        terminate_process_tree(proc.pid, terminate_timeout=max(self.update_rate, 2.0), reap_parent=False)
         proc.join(0.5)  # reap the multiprocessing.Process wrapper
 
         if proc.is_alive():
@@ -372,12 +375,10 @@ class _TestRunner(Thread):
             while self.process.is_alive():
                 if self._stop_event.is_set() or self._force_stop_current_event.is_set():
                     self._handle_stop_request(test)
+                    # terminate_process_tree already SIGKILL'd; don't loop and retry
+                    break
 
-                # Poll / yield to avoid busy-looping
-                if self.process is None:
-                    time.sleep(self.update_rate)
-                else:
-                    self.process.join(self.update_rate)
+                self.process.join(self.update_rate)
 
             self.process.join(TIMEOUT)  # should already be done, but just in case
             if self.process.is_alive():

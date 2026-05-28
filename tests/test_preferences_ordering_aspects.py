@@ -1,7 +1,6 @@
 """Tests for the PrefOrderedSet-backed ordering-aspect persistence helpers."""
 
 import pytest
-from pref import pref as pref_mod
 
 from pytest_fly.interfaces import OrderingAspect
 from pytest_fly.preferences import (
@@ -9,23 +8,20 @@ from pytest_fly.preferences import (
     get_ordering_aspects_ordered,
     get_ordering_aspects_set,
     get_pref,
+    init_preferences_for_put,
     reset_pref_cache,
     set_ordering_aspects_ordered,
 )
 
 
 @pytest.fixture
-def isolated_prefs(tmp_path, monkeypatch):
-    """Redirect pref's SQLite storage to a unique tmp dir for each test.
+def isolated_prefs(tmp_path):
+    """Bind preference storage to a unique tmp PUT dir for each test.
 
-    The pref library resolves its storage via ``appdirs.user_config_dir`` at
-    instantiation time, so patching it on the ``pref.pref`` module is enough
-    to send every pref (including :class:`PrefOrderedSet`) into tmp_path.
-    Also drops :func:`get_pref`'s in-process cache before and after the test
-    so a stale instance from prior code paths can't bleed in.
+    Per-PUT preferences live at ``<PUT>/.pytest-fly/preferences.db``; pointing
+    the PUT at ``tmp_path`` gives each test a fresh, isolated DB.
     """
-    reset_pref_cache()
-    monkeypatch.setattr(pref_mod.appdirs, "user_config_dir", lambda *a, **kw: str(tmp_path))
+    init_preferences_for_put(tmp_path)
     yield tmp_path
     reset_pref_cache()
 

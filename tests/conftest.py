@@ -3,7 +3,19 @@ from pathlib import Path
 import pytest
 from PySide6.QtWidgets import QApplication
 
+from pytest_fly.preferences import init_preferences_for_put
+
 pytest_plugins = "pytester"
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _bind_test_prefs(tmp_path_factory):
+    """Bind pref storage to a session-scoped tmp PUT so tests never touch the user's real prefs.
+
+    Per-test fixtures (e.g. the ordering-aspects suite) can call
+    :func:`init_preferences_for_put` again to redirect into their own tmp dirs.
+    """
+    init_preferences_for_put(tmp_path_factory.mktemp("pytest_fly_test_prefs"))
 
 
 @pytest.fixture(scope="session")

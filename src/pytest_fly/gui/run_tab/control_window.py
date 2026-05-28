@@ -18,7 +18,7 @@ from ...db import PytestProcessInfoDB
 from ...guid import generate_uuid
 from ...interfaces import OrderingAspect, PutVersionInfo, PyTestFlyExitCode, RunMode, ScheduledTest
 from ...logger import get_logger
-from ...preferences import ParallelismControl, get_ordering_aspects_ordered, get_pref
+from ...preferences import ParallelismControl, get_active_put_path, get_ordering_aspects_ordered, get_pref
 from ...put_version import detect_put_version
 from ...pytest_runner.coverage import compute_per_test_coverage
 from ...pytest_runner.ordering import OrderingContext, apply_ordering_aspects
@@ -114,10 +114,9 @@ class ControlWindow(QGroupBox):
         """Discover tests and launch a new :class:`PytestRunner`."""
         pref = get_pref()
 
-        # Resolve the project root from the preference override (if any) and detect the
-        # program-under-test version before starting collection so we can pass the path
-        # into GetTests for consistent discovery.
-        project_root = Path(pref.target_project_path).resolve() if pref.target_project_path else Path.cwd()
+        # Resolve the PUT path bound at app startup so test discovery and PUT-version
+        # detection use the same root the rest of the app sees.
+        project_root = get_active_put_path()
         self.put_version_info = detect_put_version(project_root)
         log.info(f"PUT detected: {self.put_version_info}")
 

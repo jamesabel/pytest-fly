@@ -1,9 +1,11 @@
 """
-Persistent user preferences backed by a local SQLite file via the *pref* library.
+Persistent user preferences backed by a per-PUT SQLite file via the *pref* library.
 
-Default values for parallelism, refresh rate, and utilization thresholds are
-defined here so both the preference class and the configuration tab can share
-them without circular imports.
+Each program under test (PUT) gets its own preferences DB at
+``<PUT>/.pytest-fly/preferences.db``.  The PUT path is established at
+application startup via :func:`init_preferences_for_put`; every preference
+accessor downstream — including :class:`FlyPreferences` and the ordering-aspect
+:class:`PrefOrderedSet` — resolves storage relative to that path.
 """
 
 from enum import IntEnum
@@ -11,13 +13,13 @@ from pathlib import Path
 
 from attr import attrib, attrs
 from pref import Pref, PrefOrderedSet
-from pref.pref import appdirs as _pref_appdirs
 
 from .__version__ import application_name, author
 from .interfaces import OrderingAspect, RunMode
 from .platform import get_performance_core_count
 
-preferences_file_name = f"{application_name}_preferences.db"
+preferences_file_name = "preferences.db"
+preferences_dir_name = f".{application_name}"  # ".pytest-fly" — hidden dir inside the PUT root
 _ordering_aspects_table = "ordering_aspects"
 _default_ordering_aspect_seed: list[OrderingAspect] = [OrderingAspect.FAILED_FIRST, OrderingAspect.NEVER_RUN_FIRST]
 
@@ -39,9 +41,44 @@ class ParallelismControl(IntEnum):
     DYNAMIC = 2  # automatically dynamically determine max number of processes to run in parallel, while trying to avoid high utilization thresholds (see utilization_high_threshold)
 
 
+_active_put_path: Path | None = None
+
+
+def init_preferences_for_put(put_path: Path) -> None:
+    """Bind preference storage to ``put_path`` for the current process.
+
+    Must be called once at startup before any :func:`get_pref` or
+    :func:`get_ordering_aspects_set` call — the PUT path drives the SQLite
+    location for both :class:`FlyPreferences` and the ordering-aspect
+    :class:`PrefOrderedSet`.  Calling again with a different path invalidates
+    the cached pref instance so the next access reopens against the new PUT.
+    """
+    global _active_put_path
+    resolved = put_path.resolve()
+    if _active_put_path != resolved:
+        _active_put_path = resolved
+        reset_pref_cache()
+
+
+def get_active_put_path() -> Path:
+    """Return the PUT path bound via :func:`init_preferences_for_put`."""
+    if _active_put_path is None:
+        raise RuntimeError("init_preferences_for_put() must be called before accessing preferences")
+    return _active_put_path
+
+
+def get_preferences_db_path() -> Path:
+    """Return the path to the per-PUT preferences DB."""
+    return Path(get_active_put_path(), preferences_dir_name, preferences_file_name)
+
+
+def _ensure_preferences_dir() -> None:
+    get_preferences_db_path().parent.mkdir(parents=True, exist_ok=True)
+
+
 @attrs
 class FlyPreferences(Pref):
-    """Persistent user preferences backed by a local SQLite file via the *pref* library."""
+    """Persistent per-PUT user preferences backed by a local SQLite file."""
 
     window_x: int = attrib(default=-1)
     window_y: int = attrib(default=-1)
@@ -74,43 +111,41 @@ class FlyPreferences(Pref):
     run_tab_splitter_state: str = attrib(default="")  # Run-tab top-vs-failed-tests splitter (QSplitter.saveState() hex-encoded)
     run_tab_bottom_splitter_state: str = attrib(default="")  # Run-tab bottom pane: failed-tests-vs-live-output splitter (QSplitter.saveState() hex-encoded)
 
-    target_project_path: str = attrib(default="")  # absolute path to the program under test; empty means auto-detect from cwd at run time
+    test_results_db_dir: str = attrib(default="")  # override directory for the test-results SQLite DB; empty means use the platform default
 
     perf_logging: bool = attrib(default=False)  # log per-tick phase timings (db query, build_tick_data, each tab update) to diagnose UI lag
+
+    def get_sqlite_path(self) -> Path:
+        # Override pref's default appdirs-based resolution so storage lives under the active PUT.
+        path = get_preferences_db_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        return path
+
+
+class FlyOrderedSet(PrefOrderedSet):
+    """:class:`PrefOrderedSet` with per-PUT SQLite storage."""
+
+    def get_sqlite_path(self) -> Path:
+        path = get_preferences_db_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        return path
 
 
 _cached_pref: FlyPreferences | None = None
 _cached_pref_path: Path | None = None
 
 
-def _resolve_pref_path() -> Path:
-    """Resolve the SQLite path that ``FlyPreferences`` would open right now.
-
-    Mirrors ``Pref.get_sqlite_path`` and uses pref's own ``appdirs`` import so
-    test fixtures that monkeypatch ``pref.pref.appdirs.user_config_dir`` are
-    honored — this is what lets the cache invalidate across tests with isolated
-    storage dirs.
-    """
-    return Path(_pref_appdirs.user_config_dir(application_name, author), preferences_file_name)
-
-
 def get_pref() -> FlyPreferences:
     """Return a :class:`FlyPreferences` instance (reads from / auto-saves to disk).
 
-    The instance is cached process-wide.  Constructing ``FlyPreferences``
-    reopens the backing ``SqliteDict`` and issues one SELECT per attribute,
-    so calling ``get_pref()`` on every tick — including from each progress
-    bar — was a measurable contributor to UI latency.  Writes go through
-    ``FlyPreferences.__setattr__`` directly to disk, so the cached instance
-    stays consistent with persistent storage.
-
-    The cache is keyed on the resolved storage path, so tests that redirect
-    pref storage to a tmp dir transparently get a fresh instance.  Tests can
-    also call :func:`reset_pref_cache` explicitly if the path-key heuristic
-    isn't enough (e.g., when bypassing the appdirs monkeypatch path).
+    The instance is cached process-wide and keyed on the resolved per-PUT
+    storage path, so switching PUT via :func:`init_preferences_for_put` will
+    transparently reopen the right DB on the next access.  Constructing
+    ``FlyPreferences`` issues one SELECT per attribute, so caching matters for
+    UI tick performance.
     """
     global _cached_pref, _cached_pref_path
-    current_path = _resolve_pref_path()
+    current_path = get_preferences_db_path()
     if _cached_pref is None or _cached_pref_path != current_path:
         _cached_pref = FlyPreferences(application_name, author, file_name=preferences_file_name)
         _cached_pref_path = current_path
@@ -124,9 +159,9 @@ def reset_pref_cache() -> None:
     _cached_pref_path = None
 
 
-def get_ordering_aspects_set() -> PrefOrderedSet:
-    """Return the :class:`PrefOrderedSet` backing the enabled-and-ordered aspect list."""
-    return PrefOrderedSet(application_name, author, table=_ordering_aspects_table, file_name=preferences_file_name)
+def get_ordering_aspects_set() -> FlyOrderedSet:
+    """Return the :class:`FlyOrderedSet` backing the enabled-and-ordered aspect list."""
+    return FlyOrderedSet(application_name, author, table=_ordering_aspects_table, file_name=preferences_file_name)
 
 
 def get_ordering_aspects_ordered() -> list[OrderingAspect]:

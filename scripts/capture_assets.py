@@ -36,7 +36,7 @@ from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from demo.demo import generate_tests  # noqa: E402
 from pytest_fly.gui.gui_main import FlyAppMainWindow  # noqa: E402
-from pytest_fly.preferences import get_pref  # noqa: E402
+from pytest_fly.preferences import init_preferences_for_put  # noqa: E402
 
 WINDOW_SIZE = (1700, 900)
 GIF_SAMPLE_INTERVAL_MS = 600
@@ -172,25 +172,20 @@ def main():
     print(f"capture data dir: {data_dir}")
     print(f"target project: {fly_demo_dir}")
 
-    # Point the GUI at the demo dir for this run, restoring the user's saved value on exit so
-    # the capture doesn't permanently mutate their preferences.
-    pref = get_pref()
-    saved_target = pref.target_project_path
-    pref.target_project_path = str(fly_demo_dir)
+    # Bind preference storage to the demo PUT — per-PUT prefs live alongside the demo dir,
+    # so there's nothing to restore on exit.
+    init_preferences_for_put(fly_demo_dir)
 
-    try:
-        app = QApplication.instance() or QApplication([])
-        window = FlyAppMainWindow(data_dir)
-        window.resize(*WINDOW_SIZE)
-        window.show()
+    app = QApplication.instance() or QApplication([])
+    window = FlyAppMainWindow(data_dir)
+    window.resize(*WINDOW_SIZE)
+    window.show()
 
-        capturer = Capturer(window, output_dir)
-        QTimer.singleShot(RUN_TRIGGER_DELAY_MS, window.run_tab.control_window.run)
-        QTimer.singleShot(RUN_TRIGGER_DELAY_MS + 100, capturer.start)
+    capturer = Capturer(window, output_dir)
+    QTimer.singleShot(RUN_TRIGGER_DELAY_MS, window.run_tab.control_window.run)
+    QTimer.singleShot(RUN_TRIGGER_DELAY_MS + 100, capturer.start)
 
-        app.exec()
-    finally:
-        pref.target_project_path = saved_target
+    app.exec()
 
     print("done.")
 

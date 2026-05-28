@@ -7,11 +7,12 @@ import humanize
 from PySide6.QtCore import QObject, QThread, Signal
 from PySide6.QtWidgets import QSizePolicy, QVBoxLayout, QWidget
 
+from pytest_fly.__version__ import application_name
 from pytest_fly.gui.about_tab.project_info import get_project_info
 from pytest_fly.gui.gui_util import PlainTextWidget
 from pytest_fly.logger import get_log_directory
 from pytest_fly.platform.platform_info import get_performance_core_count, get_platform_info
-from pytest_fly.preferences import get_pref
+from pytest_fly.preferences import get_active_put_path, get_preferences_db_path
 from pytest_fly.put_version import detect_put_version
 
 # Preferred display order for Program Under Test fields; any fields not listed
@@ -28,6 +29,10 @@ class AboutDataWorker(QObject):
     """
 
     data_ready = Signal(str)
+
+    def __init__(self, data_dir: Path):
+        super().__init__()
+        self._data_dir = data_dir
 
     def run(self):
         text_lines = []
@@ -49,9 +54,7 @@ class AboutDataWorker(QObject):
                 text_lines.append(f"    {key}: {value}")
         text_lines.append("")
 
-        pref = get_pref()
-        project_root = Path(pref.target_project_path).resolve() if pref.target_project_path else Path.cwd()
-        put_info = detect_put_version(project_root)
+        put_info = detect_put_version(get_active_put_path())
         put_fields = asdict(put_info)
         text_lines.append("Program Under Test:")
         for key in _PUT_FIELD_ORDER:
@@ -72,6 +75,8 @@ class AboutDataWorker(QObject):
 
         text_lines.append("")
         text_lines.append(f"log_directory: {get_log_directory()}")
+        text_lines.append(f"test_results_db: {Path(self._data_dir, f'{application_name}.db')}")
+        text_lines.append(f"preferences_db: {get_preferences_db_path()}")
 
         text_lines.append("")
         text_lines.append("Notes:")
@@ -86,7 +91,7 @@ class About(QWidget):
     A window that shows information about the project and the system.
     """
 
-    def __init__(self, parent):
+    def __init__(self, parent, data_dir: Path):
         super().__init__(parent)
 
         self.setWindowTitle("About")
@@ -98,7 +103,7 @@ class About(QWidget):
         self.setLayout(vertical_layout)
         vertical_layout.addWidget(self.about_box)
 
-        self.worker = AboutDataWorker()
+        self.worker = AboutDataWorker(data_dir)
         self.thread = QThread()
         self.worker.moveToThread(self.thread)
         self.worker.data_ready.connect(self.update_about_box)

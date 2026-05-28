@@ -36,8 +36,8 @@ pip install pytest-fly
   - **Coverage** — line chart of combined code coverage over time with covered/total line counts
   - **Configuration** — Resume-vs-Check toggle, a reorderable test-ordering aspect list, process
     count, refresh rate, utilization thresholds, tooltip line limit, system-metrics chart window,
-    Progress Graph font size, target project path, and an Expert group (verbose logging, UI
-    performance logging)
+    Progress Graph font size, target project path (restart required to switch projects),
+    test-results DB directory, and an Expert group (verbose logging, UI performance logging)
   - **About** — system and project information
 - Parallel test execution at the module level with configurable process count.
 - Three run modes — **Restart** (rerun all tests), **Resume** (skip already-passed tests and
@@ -51,6 +51,10 @@ complete. The Coverage tab plots coverage over time, and the Table shows per-tes
 Coverage persists across restarts so previously-passed tests contribute to the total.
 - Singleton test support via `@pytest.mark.singleton` — singleton tests run exclusively with no other tests
 executing concurrently.
+- Per-project preferences — each program under test gets its own settings at
+`<project>/.pytest-fly/preferences.db`, so parallelism, run mode, and ordering choices follow the
+project rather than the user. Select the project at startup with `--target <path>` (the last
+selection is remembered across launches) or change it from the Configuration tab and relaunch.
 
 # Screenshots
 

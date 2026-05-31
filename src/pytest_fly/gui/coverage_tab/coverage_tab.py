@@ -166,9 +166,6 @@ class CoverageTab(QGroupBox):
         layout = QVBoxLayout()
         self.setLayout(layout)
 
-        self.chart = _CoverageChart()
-        layout.addWidget(self.chart, stretch=1)
-
         self.view_report_button: QPushButton | None = None
         if data_dir is not None:
             button_row = QHBoxLayout()
@@ -179,6 +176,9 @@ class CoverageTab(QGroupBox):
             self.view_report_button.clicked.connect(self._on_view_report)
             button_row.addWidget(self.view_report_button)
             layout.addLayout(button_row)
+
+        self.chart = _CoverageChart()
+        layout.addWidget(self.chart, stretch=1)
 
     def _on_view_report(self) -> None:
         """Generate a fresh HTML coverage report from the current data and open it."""

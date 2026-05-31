@@ -81,6 +81,30 @@ def test_from_installed_metadata_parses_fields(monkeypatch):
     assert info.repository_url == "https://example.com/repo"
 
 
+def test_from_installed_metadata_home_page_fallback(monkeypatch):
+    """When only a Home-page scalar is present, it fills home_url and then repository_url."""
+    fake = _FakeMeta(
+        scalars={"Name": "pkg", "Version": "1.0", "Author": "A", "Home-page": "https://example.com/hp"},
+        multi={},
+    )
+    monkeypatch.setattr(project_info.metadata, "metadata", lambda _name: fake)
+    info = _from_installed_metadata()
+    assert info.home_url == "https://example.com/hp"
+    assert info.repository_url == "https://example.com/hp"  # cross-filled from home
+
+
+def test_from_installed_metadata_repository_only_fills_home(monkeypatch):
+    """When only a Repository URL is present, home_url is cross-filled from it."""
+    fake = _FakeMeta(
+        scalars={"Name": "pkg", "Version": "1.0", "Author": "A"},
+        multi={"Project-URL": ["Repository, https://example.com/repo"]},
+    )
+    monkeypatch.setattr(project_info.metadata, "metadata", lambda _name: fake)
+    info = _from_installed_metadata()
+    assert info.repository_url == "https://example.com/repo"
+    assert info.home_url == "https://example.com/repo"  # cross-filled from repository
+
+
 def test_get_project_info_falls_back_to_installed_metadata(monkeypatch):
     """When pyproject yields no usable version, get_project_info uses installed metadata."""
     monkeypatch.setattr(project_info, "_from_pyproject", lambda: None)

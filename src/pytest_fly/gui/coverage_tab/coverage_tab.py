@@ -2,15 +2,27 @@
 Coverage tab — displays a step-function line chart of combined code coverage over time.
 """
 
+from pathlib import Path
+
 from PySide6.QtCore import QPointF, Qt
 from PySide6.QtGui import QBrush, QPainter, QPen, QPolygonF
-from PySide6.QtWidgets import QGroupBox, QSizePolicy, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QGroupBox, QHBoxLayout, QPushButton, QSizePolicy, QVBoxLayout, QWidget
 
 from ...colors import COVERAGE_FILL_COLOR, COVERAGE_LINE_COLOR, GRID_LINE_COLOR
 from ...interfaces import PytestRunnerState
+from ...logger import get_logger
+from ...pytest_runner.coverage import calculate_coverage
 from ...tick_data import TickData
 from ..graph_tab.time_axis import TimeAxisMapping, compute_grid_ticks
 from ..gui_util import count_test_states, get_text_dimensions, window_text_color
+from ..run_tab.view_coverage import ViewCoverage
+
+log = get_logger()
+
+# Test identifier used when generating the on-demand HTML report.  Kept distinct from
+# the live tracker's "current" identifier so clicking the button never races with the
+# periodic coverage recalculation writing to the same combined data file.
+_HTML_REPORT_IDENTIFIER = "html_report"
 
 # Horizontal grid lines at these percentages
 _Y_GRID_PCTS = [0.25, 0.50, 0.75, 1.00]
@@ -137,18 +149,46 @@ class _CoverageChart(QWidget):
 
 
 class CoverageTab(QGroupBox):
-    """Tab displaying a line chart of combined code coverage over time."""
+    """Tab displaying a line chart of combined code coverage over time.
 
-    def __init__(self):
+    :param data_dir: Application data directory.  When provided, a "View HTML Report"
+        button is shown that generates and opens the detailed line-by-line coverage
+        report.  When ``None`` (e.g. in isolated widget tests) the button is omitted.
+    """
+
+    def __init__(self, data_dir: Path | None = None):
         super().__init__()
         self.setTitle("Coverage")
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+
+        self._data_dir = data_dir
 
         layout = QVBoxLayout()
         self.setLayout(layout)
 
         self.chart = _CoverageChart()
         layout.addWidget(self.chart, stretch=1)
+
+        self.view_report_button: QPushButton | None = None
+        if data_dir is not None:
+            button_row = QHBoxLayout()
+            button_row.addStretch()
+            self.view_report_button = QPushButton("View HTML Report")
+            self.view_report_button.setToolTip("Generate and open the detailed line-by-line HTML coverage report in your browser.")
+            self.view_report_button.setEnabled(False)  # enabled once there is coverage data to report
+            self.view_report_button.clicked.connect(self._on_view_report)
+            button_row.addWidget(self.view_report_button)
+            layout.addLayout(button_row)
+
+    def _on_view_report(self) -> None:
+        """Generate a fresh HTML coverage report from the current data and open it."""
+        if self._data_dir is None:
+            return
+        try:
+            calculate_coverage(_HTML_REPORT_IDENTIFIER, self._data_dir, write_report=True)
+        except Exception as e:
+            log.warning(f"HTML coverage report generation failed: {e}")
+        ViewCoverage(self._data_dir).view()
 
     def update_tick(self, tick: TickData) -> None:
         # Compute status indicator from run states
@@ -166,3 +206,7 @@ class CoverageTab(QGroupBox):
             status_text = ""
 
         self.chart.update_data(tick.coverage_history, tick.effective_min_time_stamp, tick.max_time_stamp, status_text, tick.covered_lines, tick.total_lines)
+
+        # Only offer the report once there is coverage data to render.
+        if self.view_report_button is not None:
+            self.view_report_button.setEnabled(tick.total_lines > 0)

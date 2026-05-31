@@ -149,7 +149,7 @@ class FlyAppMainWindow(QMainWindow):
         self.run_tab = RunTab(self, self.data_dir)
         self.graph_tab = GraphTab()
         self.table_tab = TableTab(self.data_dir)
-        self.coverage_tab = CoverageTab()
+        self.coverage_tab = CoverageTab(self.data_dir)
         self.configuration = Configuration()
         self.about = About(self, self.data_dir)
         self.tab_widget.addTab(self.run_tab, "Run")

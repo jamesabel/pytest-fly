@@ -75,13 +75,15 @@ def _make_tick_data_with_tests():
 
 
 def test_status_window_empty(app):
-    """StatusWindow should display 'Calculating...' when there is no data."""
+    """StatusWindow should prompt the user to press Run when there is no data."""
     window = StatusWindow(None)
     tick = _make_tick_data_empty()
     window.update_tick(tick)
 
     text = window.status_widget.toPlainText()
-    assert "Calculating..." in text
+    assert "press Run" in text
+    assert window.complete_label.text() == "Complete: —"
+    assert window.pass_rate_label.text() == "Pass rate: —"
 
 
 def test_status_window_with_data(app):

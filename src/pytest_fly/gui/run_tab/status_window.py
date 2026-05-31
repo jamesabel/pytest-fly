@@ -29,11 +29,11 @@ class StatusWindow(QGroupBox):
         layout.addWidget(self.progress_bar)
 
         label_font = get_font()
-        self.complete_label = QLabel("Complete: (calculating...)", self)
+        self.complete_label = QLabel("Complete: —", self)
         self.complete_label.setFont(label_font)
         layout.addWidget(self.complete_label)
 
-        self.pass_rate_label = QLabel("Pass rate: (calculating...)", self)
+        self.pass_rate_label = QLabel("Pass rate: —", self)
         self.pass_rate_label.setFont(label_font)
         layout.addWidget(self.pass_rate_label)
 
@@ -127,12 +127,12 @@ class StatusWindow(QGroupBox):
                 if tick.put_version_info.git_dirty:
                     put_line += "  [uncommitted changes]"
                 lines.extend([put_line, ""])
-            lines.append("Calculating...")
+            lines.append("No test run yet — press Run to start.")
 
             self.progress_bar.setValue(0)
-            self.complete_label.setText("Complete: (calculating...)")
+            self.complete_label.setText("Complete: —")
             self.complete_label.setStyleSheet("font-weight: normal;")
-            self.pass_rate_label.setText("Pass rate: (calculating...)")
+            self.pass_rate_label.setText("Pass rate: —")
             self.pass_rate_label.setStyleSheet("")
 
         self.status_widget.set_text("\n".join(lines))

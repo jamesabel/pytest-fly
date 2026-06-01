@@ -89,6 +89,33 @@ class ControlWindow(QGroupBox):
         max_width += 30
         self.setFixedWidth(max_width)
 
+    def _desired_process_count(self) -> int:
+        """Number of worker processes the current preferences call for.
+
+        Serial mode pins this to 1; parallel mode uses the configured Processes count.
+        Read live from preferences so a change in the Configuration tab (or the
+        parallelism selector) is reflected without restarting the run.
+        """
+        pref = get_pref()
+        return 1 if pref.parallelism == ParallelismControl.SERIAL else pref.processes
+
+    def reconcile_process_count(self):
+        """Push the live Processes preference into the active runner, mid-run.
+
+        Called every GUI tick so a change to the Processes count (or the parallelism
+        selector) is incorporated into the running scheduler — growing or shrinking
+        the worker pool — without requiring the user to restart the run.
+        """
+        # Keep the "Parallel (N)" label in sync with the live preference, even when idle.
+        self.parallelism_box.refresh_label()
+
+        if self.pytest_runner is None or not self.pytest_runner.is_running():
+            return
+        desired = self._desired_process_count()
+        if desired != self.num_processes:
+            self.num_processes = desired
+            self.pytest_runner.set_number_of_processes(desired)
+
     def refresh_button_state(self):
         """Enable/disable run, stop, and force stop buttons based on the runner state.
 
@@ -135,7 +162,7 @@ class ControlWindow(QGroupBox):
             self.pytest_runner.stop()
             self.pytest_runner.join()
 
-        processes = 1 if pref.parallelism == ParallelismControl.SERIAL else pref.processes
+        processes = self._desired_process_count()
 
         while get_tests.is_alive():
             get_tests.join(1)

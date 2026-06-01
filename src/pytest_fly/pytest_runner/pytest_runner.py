@@ -10,7 +10,7 @@ tests in parallel via :class:`PytestProcess` subprocesses.
 import time
 from pathlib import Path
 from queue import Empty, Queue
-from threading import Condition, Event, Thread
+from threading import Condition, Event, Lock, Thread
 from typing import Optional
 
 from PySide6.QtGui import QColor
@@ -106,7 +106,14 @@ class PytestRunner(Thread):
         self.put_version = put_version
         self.put_fingerprint = put_fingerprint
 
+        # Worker pool. _pool_lock guards _test_runners, _next_worker_id, and
+        # number_of_processes so the pool can be resized from the GUI thread
+        # (via set_number_of_processes) while run() spins it up on this thread.
+        self._pool_lock = Lock()
         self._test_runners = {}
+        self._next_worker_id = 0
+        self._test_queue: Queue | None = None
+        self._coordinator: _SingletonCoordinator | None = None
         self._started_event = Event()
         self._written_to_db = set()
 
@@ -133,23 +140,72 @@ class PytestRunner(Thread):
 
         coordinator = _SingletonCoordinator()
 
-        for thread_number in range(self.number_of_processes):
-            test_runner = _TestRunner(
-                self.run_guid,
-                test_queue,
-                self.data_dir,
-                self.update_rate,
-                coordinator,
-                put_version=self.put_version,
-                put_fingerprint=self.put_fingerprint,
-            )
-            test_runner.start()
-            self._test_runners[thread_number] = test_runner
-        self._started_event.set()
+        # Publish the queue/coordinator and spawn the initial pool atomically so a
+        # concurrent set_number_of_processes() either sees "not yet started" (and
+        # just records the count for us to use here) or a fully-wired pool.
+        with self._pool_lock:
+            self._test_queue = test_queue
+            self._coordinator = coordinator
+            for _ in range(self.number_of_processes):
+                self._spawn_worker_locked()
+            self._started_event.set()
+
+    def _spawn_worker_locked(self) -> None:
+        """Start one worker thread pulling from the shared queue. Caller holds ``_pool_lock``."""
+        test_runner = _TestRunner(
+            self.run_guid,
+            self._test_queue,
+            self.data_dir,
+            self.update_rate,
+            self._coordinator,
+            put_version=self.put_version,
+            put_fingerprint=self.put_fingerprint,
+        )
+        test_runner.start()
+        self._test_runners[self._next_worker_id] = test_runner
+        self._next_worker_id += 1
+
+    @typechecked()
+    def set_number_of_processes(self, number_of_processes: int) -> None:
+        """Resize the worker pool to *number_of_processes* while the run is in progress.
+
+        Growing spawns additional workers that pull from the same shared queue;
+        shrinking retires the most-recently-spawned workers — each finishes its
+        current test, then exits *without* draining the queue, so its remaining
+        tests stay available to the surviving workers.
+
+        Reconciles against the count of live, non-retiring workers, so it is
+        self-correcting and safe to call repeatedly.  If the pool has not been
+        spun up yet, the new count is simply recorded and used by :meth:`run`.
+
+        :param number_of_processes: Desired number of concurrently-working test processes (>= 1).
+        """
+        if number_of_processes < 1:
+            return
+        with self._pool_lock:
+            self.number_of_processes = number_of_processes
+            if not self._started_event.is_set():
+                # run() has not spawned the pool yet; it will use the updated count.
+                return
+            # Drop workers that have already exited so the reconciliation below
+            # counts only workers that can still pick up (or are running) tests.
+            self._test_runners = {tid: r for tid, r in self._test_runners.items() if r.is_alive()}
+            active = [r for r in self._test_runners.values() if not r.is_retiring()]
+            delta = number_of_processes - len(active)
+            if delta > 0:
+                for _ in range(delta):
+                    self._spawn_worker_locked()
+            elif delta < 0:
+                # Retire the most-recently-spawned workers (dict preserves insertion order).
+                for test_runner in active[delta:]:
+                    test_runner.retire()
+            log.info(f"resized worker pool to {number_of_processes} ({len(active)} active before, delta {delta}) ({self.run_guid=})")
 
     def is_running(self) -> bool:
         """Return ``True`` if any worker thread is still alive."""
-        return any(test_runner.is_alive() for test_runner in self._test_runners.values())
+        with self._pool_lock:
+            test_runners = list(self._test_runners.values())
+        return any(test_runner.is_alive() for test_runner in test_runners)
 
     @typechecked()
     def join(self, timeout_seconds: float | None = None) -> bool:
@@ -162,13 +218,17 @@ class PytestRunner(Thread):
         else:
             self._started_event.wait()
 
-        for test_runner in self._test_runners.values():
+        with self._pool_lock:
+            test_runners = list(self._test_runners.values())
+        for test_runner in test_runners:
             test_runner.join(timeout_seconds)
-        return all(not test_runner.is_alive() for test_runner in self._test_runners.values())
+        return all(not test_runner.is_alive() for test_runner in test_runners)
 
     def stop(self):
         try:
-            for test_runner in self._test_runners.values():
+            with self._pool_lock:
+                test_runners = list(self._test_runners.values())
+            for test_runner in test_runners:
                 test_runner.stop()
         except (OSError, RuntimeError, PermissionError) as e:
             log.error(f"error stopping pytest runner,{self.run_guid=},{e}", exc_info=True, stack_info=True)
@@ -176,7 +236,9 @@ class PytestRunner(Thread):
     def soft_stop(self):
         """Signal workers to finish their current test and stop picking up new ones."""
         try:
-            for test_runner in self._test_runners.values():
+            with self._pool_lock:
+                test_runners = list(self._test_runners.values())
+            for test_runner in test_runners:
                 test_runner.soft_stop()
         except (OSError, RuntimeError, PermissionError) as e:
             log.error(f"error soft-stopping pytest runner,{self.run_guid=},{e}", exc_info=True, stack_info=True)
@@ -189,7 +251,9 @@ class PytestRunner(Thread):
 
         :param test_name: The test node_id to terminate.
         """
-        for test_runner in self._test_runners.values():
+        with self._pool_lock:
+            test_runners = list(self._test_runners.values())
+        for test_runner in test_runners:
             proc = test_runner.process
             if proc is not None and proc.name == test_name:
                 test_runner.force_stop_current()
@@ -296,6 +360,7 @@ class _TestRunner(Thread):
         self.process: Optional[PytestProcess] = None
         self._stop_event = Event()
         self._soft_stop_event = Event()
+        self._retire_event = Event()
         self._force_stop_current_event = Event()
 
         self._coordinator = coordinator
@@ -396,7 +461,7 @@ class _TestRunner(Thread):
         """Consume tests from the queue until it is empty or a stop is requested."""
 
         def should_abort() -> bool:
-            return self._stop_event.is_set() or self._soft_stop_event.is_set()
+            return self._stop_event.is_set() or self._soft_stop_event.is_set() or self._retire_event.is_set()
 
         while not should_abort():
             try:
@@ -418,6 +483,12 @@ class _TestRunner(Thread):
                     break
                 if self._soft_stop_event.is_set():
                     self._drain_queue()
+                    break
+                if self._retire_event.is_set():
+                    # Pool was shrunk while we waited for a slot. Hand the test we
+                    # dequeued back so a surviving worker runs it, then exit without
+                    # draining — the remaining queue belongs to the other workers.
+                    self.pytest_test_queue.put(scheduled_test)
                     break
                 break
 
@@ -441,6 +512,18 @@ class _TestRunner(Thread):
     def soft_stop(self):
         """Signal the worker to finish its current test and stop picking up new ones."""
         self._soft_stop_event.set()
+
+    def retire(self):
+        """Signal the worker to finish its current test, then exit without draining the queue.
+
+        Used to shrink the pool mid-run; unlike :meth:`soft_stop`, the remaining
+        queued tests are left for the surviving workers rather than marked STOPPED.
+        """
+        self._retire_event.set()
+
+    def is_retiring(self) -> bool:
+        """Return ``True`` if this worker has been asked to retire."""
+        return self._retire_event.is_set()
 
     def force_stop_current(self):
         """Signal this worker to terminate its currently running test."""

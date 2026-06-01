@@ -37,9 +37,18 @@ class ParallelismControlBox(QGroupBox):
     def update_preferences(self):
         """Sync the selected radio button back to user preferences."""
         pref = get_pref()
-        self.parallelism_parallel.setText(f"Parallel ({pref.processes})")
-        self.parallelism_parallel.setToolTip(f"Run a fixed number of tests ({pref.processes}) in parallel.")
+        self.refresh_label()
         if self.parallelism_serial.isChecked():
             pref.parallelism = ParallelismControl.SERIAL
         elif self.parallelism_parallel.isChecked():
             pref.parallelism = ParallelismControl.PARALLEL
+
+    def refresh_label(self):
+        """Update the "Parallel (N)" label/tooltip from the live Processes preference.
+
+        Called on each GUI tick so the count shown here tracks edits made in the
+        Configuration tab, matching what the scheduler will actually use.
+        """
+        pref = get_pref()
+        self.parallelism_parallel.setText(f"Parallel ({pref.processes})")
+        self.parallelism_parallel.setToolTip(f"Run a fixed number of tests ({pref.processes}) in parallel.")

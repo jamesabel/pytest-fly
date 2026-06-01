@@ -46,3 +46,5 @@ DISK_READ_COLOR = QColor(255, 140, 0)  # dark orange
 DISK_WRITE_COLOR = QColor(148, 0, 211)  # dark violet
 NET_SENT_COLOR = QColor(34, 139, 34)  # forest green
 NET_RECV_COLOR = QColor(64, 224, 208)  # turquoise
+COMMIT_LINE_COLOR = QColor(199, 21, 133)  # medium violet red — the Windows commit-charge wall
+COMMIT_WARN_COLOR = QColor("red")  # commit charge over the warning threshold

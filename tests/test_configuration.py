@@ -65,6 +65,14 @@ def test_update_utilization_thresholds_warns(app, caplog):
     cfg.update_utilization_low_threshold("bad")  # ValueError swallowed
 
 
+def test_update_commit_warning_threshold(app):
+    cfg = Configuration()
+    cfg.update_commit_warning_threshold("0.9")
+    assert get_pref().commit_warning_threshold == 0.9
+    cfg.update_commit_warning_threshold("bad")  # ValueError swallowed
+    assert get_pref().commit_warning_threshold == 0.9
+
+
 def test_update_resume_skip_put_check(app):
     cfg = Configuration()
     get_pref().run_mode = RunMode.CHECK

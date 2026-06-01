@@ -34,6 +34,7 @@ from pytest_fly.paths import get_default_data_dir, write_last_target
 from pytest_fly.platform.platform_info import get_performance_core_count
 from pytest_fly.preferences import (
     chart_window_minutes_default,
+    commit_warning_threshold_default,
     get_active_put_path,
     get_ordering_aspects_ordered,
     get_pref,
@@ -322,6 +323,11 @@ class Configuration(QWidget):
 
         layout.addWidget(QLabel(""))  # space
 
+        commit_label = f"Commit Charge Warning Threshold (0.0-1.0, {commit_warning_threshold_default} default)"
+        self.commit_warning_threshold_lineedit = _add_labeled_lineedit(layout, commit_label, str(pref.commit_warning_threshold), QDoubleValidator(), self.update_commit_warning_threshold)
+
+        layout.addWidget(QLabel(""))  # space
+
         tooltip_label = f"Tooltip Line Limit (min {minimum_tooltip_line_limit}, {tooltip_line_limit_default} default)"
         self.tooltip_line_limit_lineedit = _add_labeled_lineedit(layout, tooltip_label, str(pref.tooltip_line_limit), QIntValidator(), self.update_tooltip_line_limit, char_width=6)
 
@@ -450,6 +456,14 @@ class Configuration(QWidget):
         except ValueError:
             pass
         self._validate_utilization_thresholds()
+
+    def update_commit_warning_threshold(self, value: str):
+        """Persist the commit-charge warning threshold (fraction of the commit limit)."""
+        pref = get_pref()
+        try:
+            pref.commit_warning_threshold = float(value)
+        except ValueError:
+            pass
 
     def update_tooltip_line_limit(self, value: str):
         """Persist the tooltip line limit (clamped to *minimum_tooltip_line_limit*)."""

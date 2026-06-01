@@ -27,6 +27,7 @@ scheduler_time_quantum_default = 1.0
 refresh_rate_default = 3.0
 utilization_high_threshold_default = 0.8
 utilization_low_threshold_default = 0.5
+commit_warning_threshold_default = 0.85  # warn when system commit charge exceeds this fraction of the commit limit
 run_with_coverage_default = True
 tooltip_line_limit_default = 40  # max lines shown in pytest-output tooltips before truncation
 chart_window_minutes_default = 5.0  # width of the system-metrics chart time window on the Run tab, in minutes
@@ -93,6 +94,8 @@ class FlyPreferences(Pref):
 
     utilization_high_threshold: float = attrib(default=utilization_high_threshold_default)  # above this threshold is considered high utilization
     utilization_low_threshold: float = attrib(default=utilization_low_threshold_default)  # below this threshold is considered low utilization
+
+    commit_warning_threshold: float = attrib(default=commit_warning_threshold_default)  # warn when system commit charge exceeds this fraction of the commit limit
 
     run_mode: RunMode = attrib(default=RunMode.CHECK)  # RESTART=0, RESUME=1, CHECK=2 (Resume with PUT-change check — see resume_skip_put_check)
 

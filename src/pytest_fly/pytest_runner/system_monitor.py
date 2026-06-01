@@ -15,6 +15,7 @@ import psutil
 from typeguard import typechecked
 
 from ..logger import configure_child_logger
+from .commit_memory import commit_charge_and_limit
 
 
 @dataclass(frozen=True)
@@ -30,6 +31,11 @@ class SystemMonitorSample:
     disk_write_mbps: float  # MB/s written since the previous sample
     net_sent_mbps: float  # MB/s sent since the previous sample
     net_recv_mbps: float  # MB/s received since the previous sample
+    # System commit charge (physical RAM + pagefile) — the real memory wall on Windows.
+    # All three are 0.0 when the signal is unavailable (non-Windows / read error).
+    commit_used_gb: float = 0.0  # GiB of commit charge currently in use
+    commit_total_gb: float = 0.0  # GiB commit limit (RAM + pagefile)
+    commit_percent: float = 0.0  # 0.0 - 100.0 (commit_used / commit_limit)
 
 
 _BYTES_PER_MB = 1024.0 * 1024.0
@@ -73,6 +79,18 @@ class SystemMonitor(Process):
             mem_used_gb = vm.used / _BYTES_PER_GB
             mem_total_gb = vm.total / _BYTES_PER_GB
 
+            # System commit charge — unavailable (None) outside Windows / on error → 0.0.
+            commit = commit_charge_and_limit()
+            if commit is not None:
+                commit_total_bytes, commit_limit_bytes = commit
+                commit_used_gb = commit_total_bytes / _BYTES_PER_GB
+                commit_total_gb = commit_limit_bytes / _BYTES_PER_GB
+                commit_percent = min(max(commit_total_bytes / commit_limit_bytes * 100.0, 0.0), 100.0) if commit_limit_bytes > 0 else 0.0
+            else:
+                commit_used_gb = 0.0
+                commit_total_gb = 0.0
+                commit_percent = 0.0
+
             cur_disk = psutil.disk_io_counters()
             cur_net = psutil.net_io_counters()
 
@@ -100,6 +118,9 @@ class SystemMonitor(Process):
                 disk_write_mbps=disk_write_mbps,
                 net_sent_mbps=net_sent_mbps,
                 net_recv_mbps=net_recv_mbps,
+                commit_used_gb=commit_used_gb,
+                commit_total_gb=commit_total_gb,
+                commit_percent=commit_percent,
             )
             self.system_monitor_queue.put(sample)
 

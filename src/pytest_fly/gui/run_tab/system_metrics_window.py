@@ -17,10 +17,11 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 
 from PySide6.QtGui import QColor, QPainter, QPen
-from PySide6.QtWidgets import QGridLayout, QGroupBox, QSizePolicy, QWidget
+from PySide6.QtWidgets import QGridLayout, QGroupBox, QLabel, QSizePolicy, QWidget
 
-from ...colors import CPU_LINE_COLOR, DISK_READ_COLOR, DISK_WRITE_COLOR, GRID_LINE_COLOR, MEMORY_LINE_COLOR, NET_RECV_COLOR, NET_SENT_COLOR
+from ...colors import COMMIT_LINE_COLOR, COMMIT_WARN_COLOR, CPU_LINE_COLOR, DISK_READ_COLOR, DISK_WRITE_COLOR, GRID_LINE_COLOR, MEMORY_LINE_COLOR, NET_RECV_COLOR, NET_SENT_COLOR
 from ...preferences import get_pref
+from ...pytest_runner.commit_memory import commit_warning_active
 from ...pytest_runner.system_monitor import SystemMonitorSample
 from ..graph_tab.time_axis import TimeAxisMapping, compute_grid_ticks, format_elapsed_label
 from ..gui_util import get_text_dimensions, window_text_color
@@ -62,11 +63,15 @@ class _MetricChart(QWidget):
         self._samples: list[SystemMonitorSample] = []
         self._min_ts: float | None = None
         self._max_ts: float | None = None
+        # When True, series are painted in the warning color (used by the Commit chart
+        # when commit charge crosses the configured threshold).
+        self._warn = False
 
-    def update_data(self, samples: list[SystemMonitorSample], min_ts: float | None, max_ts: float | None):
+    def update_data(self, samples: list[SystemMonitorSample], min_ts: float | None, max_ts: float | None, warn: bool = False):
         self._samples = samples
         self._min_ts = min_ts
         self._max_ts = max_ts
+        self._warn = warn
         self.update()
 
     def _current_y_max(self) -> float:
@@ -161,7 +166,7 @@ class _MetricChart(QWidget):
 
         legend_x = margin_left + get_text_dimensions(self._title + "    ").width()
         for text, color in legend_parts:
-            painter.setPen(QPen(color, 1))
+            painter.setPen(QPen(COMMIT_WARN_COLOR if self._warn else color, 1))
             painter.drawText(legend_x, char_h, text)
             legend_x += get_text_dimensions(text + "   ").width()
 
@@ -169,7 +174,7 @@ class _MetricChart(QWidget):
         if self._samples and self._min_ts is not None and self._max_ts is not None and self._max_ts > self._min_ts:
             mapping = TimeAxisMapping(min_ts=self._min_ts, max_ts=self._max_ts, width_pixels=chart_w)
             for series in self._series:
-                painter.setPen(QPen(series.color, 2))
+                painter.setPen(QPen(COMMIT_WARN_COLOR if self._warn else series.color, 2))
                 prev_x: int | None = None
                 prev_y: int | None = None
                 for sample in self._samples:
@@ -215,6 +220,19 @@ class SystemMetricsWindow(QGroupBox):
             unit="%",
             y_max_fixed=100.0,
         )
+        self._commit_chart = _MetricChart(
+            title="Commit",
+            series=[
+                _Series(
+                    label="charge",
+                    color=COMMIT_LINE_COLOR,
+                    getter=lambda s: s.commit_percent,
+                    legend_formatter=lambda s: "N/A" if s.commit_total_gb <= 0 else f"{s.commit_used_gb:.1f}/{s.commit_total_gb:.1f} GB ({s.commit_percent:.0f}%)",
+                )
+            ],
+            unit="%",
+            y_max_fixed=100.0,
+        )
         self._disk_chart = _MetricChart(
             title="Disk",
             series=[
@@ -234,13 +252,24 @@ class SystemMetricsWindow(QGroupBox):
             y_max_fixed=None,
         )
 
-        # 2x2 grid: CPU + Memory stacked in the left column, Disk + Network stacked in the right column.
+        # 3x2 grid: CPU + Memory + Commit stacked in the left column; Disk + Network in the
+        # right column.  The commit-warning banner occupies the empty bottom-right cell.
         layout.addWidget(self._cpu_chart, 0, 0)
         layout.addWidget(self._memory_chart, 1, 0)
+        layout.addWidget(self._commit_chart, 2, 0)
         layout.addWidget(self._disk_chart, 0, 1)
         layout.addWidget(self._network_chart, 1, 1)
+
+        # Warning banner — shown only when commit charge crosses the threshold.
+        self._commit_warning_label = QLabel("")
+        self._commit_warning_label.setWordWrap(True)
+        self._commit_warning_label.setStyleSheet("color: #b25400;")  # warning orange (matches the Configuration-tab restart notice)
+        self._commit_warning_label.setVisible(False)
+        layout.addWidget(self._commit_warning_label, 2, 1)
+
         layout.setRowStretch(0, 1)
         layout.setRowStretch(1, 1)
+        layout.setRowStretch(2, 1)
         layout.setColumnStretch(0, 1)
         layout.setColumnStretch(1, 1)
 
@@ -265,7 +294,17 @@ class SystemMetricsWindow(QGroupBox):
         max_ts = now
         samples_list = list(self._samples)
 
+        # Commit-charge warning: evaluate the latest sample against the configured threshold.
+        latest = samples_list[-1] if samples_list else None
+        if latest is not None and commit_warning_active(latest.commit_percent, latest.commit_total_gb, get_pref().commit_warning_threshold):
+            commit_warn = True
+            self._commit_warning_label.setText(f"⚠ System commit charge near limit ({latest.commit_percent:.0f}%) — risk of paging-file failures / crashed workers.")
+        else:
+            commit_warn = False
+        self._commit_warning_label.setVisible(commit_warn)
+
         self._cpu_chart.update_data(samples_list, min_ts, max_ts)
         self._memory_chart.update_data(samples_list, min_ts, max_ts)
+        self._commit_chart.update_data(samples_list, min_ts, max_ts, warn=commit_warn)
         self._disk_chart.update_data(samples_list, min_ts, max_ts)
         self._network_chart.update_data(samples_list, min_ts, max_ts)

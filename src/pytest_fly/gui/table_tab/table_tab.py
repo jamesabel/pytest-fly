@@ -27,10 +27,25 @@ class Columns(Enum):
     STATE = 1
     CPU = 2
     MEMORY = 3
-    RUNTIME = 4
-    COVERAGE = 5
-    LAST_PASS_START = 6
-    LAST_PASS_DURATION = 7
+    COMMIT = 4
+    RUNTIME = 5
+    COVERAGE = 6
+    LAST_PASS_START = 7
+    LAST_PASS_DURATION = 8
+    SPACER = 9  # empty trailing column that absorbs the stretch so real columns size to content
+
+
+_BYTES_PER_MB = 1024.0 * 1024.0
+_BYTES_PER_GB = 1024.0 * 1024.0 * 1024.0
+
+
+def format_commit(commit_bytes: int | None) -> str:
+    """Format a per-test commit charge for the table — GB at/above 1 GiB, else MB."""
+    if commit_bytes is None:
+        return ""
+    if commit_bytes >= _BYTES_PER_GB:
+        return f"{commit_bytes / _BYTES_PER_GB:.2f} GB"
+    return f"{commit_bytes / _BYTES_PER_MB:.0f} MB"
 
 
 def set_utilization_color(item: QTableWidgetItem, value: float, high_threshold: float, low_threshold: float):
@@ -96,7 +111,7 @@ class TableTab(QGroupBox):
         # Create a table widget to hold the content
         self.table_widget = QTableWidget(parent=scroll_area)
         self.table_widget.setColumnCount(len(Columns))
-        self.table_widget.setHorizontalHeaderLabels(["Name", "State", "CPU", "Memory", "Runtime", "Coverage", "Last Pass Start", "Last Pass Duration"])
+        self.table_widget.setHorizontalHeaderLabels(["Name", "State", "CPU", "Memory", "Commit", "Runtime", "Coverage", "Last Pass Start", "Last Pass Duration", ""])
         self.table_widget.horizontalHeader().setStretchLastSection(True)
         self.table_widget.horizontalHeader().setSortIndicatorShown(True)
         self.table_widget.horizontalHeader().sectionDoubleClicked.connect(self._on_header_double_clicked)
@@ -358,6 +373,14 @@ class TableTab(QGroupBox):
                 memory_value = final_info.memory_percent if (final_info is not None and final_info.memory_percent is not None) else None
                 memory_key = memory_value if memory_value is not None else float("-inf")
                 if self._set_sort_key_if_changed(memory_item, memory_key) and sort_column == Columns.MEMORY.value:
+                    sort_dirty = True
+
+                # Commit charge (peak commit size of the test's process subtree)
+                commit_value = final_info.commit_bytes if (final_info is not None and final_info.commit_bytes is not None) else None
+                commit_item = self._get_or_create_item(row_number, Columns.COMMIT.value)
+                self._set_text_if_changed(commit_item, format_commit(commit_value))
+                commit_key = commit_value if commit_value is not None else float("-inf")
+                if self._set_sort_key_if_changed(commit_item, commit_key) and sort_column == Columns.COMMIT.value:
                     sort_dirty = True
 
                 runtime_item = self._get_or_create_item(row_number, Columns.RUNTIME.value)

@@ -34,3 +34,8 @@ def test_system_monitor_emits_sample():
     assert sample.disk_write_mbps >= 0.0
     assert sample.net_sent_mbps >= 0.0
     assert sample.net_recv_mbps >= 0.0
+    # Commit-charge fields are always present; they read 0.0 when the signal is
+    # unavailable (non-Windows / read error) and are populated on Windows.
+    assert 0.0 <= sample.commit_percent <= 100.0
+    assert sample.commit_used_gb >= 0.0
+    assert sample.commit_total_gb >= 0.0

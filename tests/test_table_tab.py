@@ -5,15 +5,15 @@ import time
 from PySide6.QtGui import QColor
 
 from pytest_fly.gui.gui_main import build_tick_data
-from pytest_fly.gui.table_tab.table_tab import Columns, TableTab, _SortableItem, set_utilization_color
+from pytest_fly.gui.table_tab.table_tab import Columns, TableTab, _SortableItem, format_commit, set_utilization_color
 from pytest_fly.interfaces import PyTestFlyExitCode, PytestProcessInfo
 from pytest_fly.pytest_runner.live_output import live_output_path
 
 from .paths import get_temp_dir
 
 
-def _info(name, pid, exit_code, ts, cpu=None, mem=None, output=None):
-    return PytestProcessInfo(run_guid="g", name=name, pid=pid, exit_code=exit_code, output=output, time_stamp=ts, cpu_percent=cpu, memory_percent=mem)
+def _info(name, pid, exit_code, ts, cpu=None, mem=None, output=None, commit=None):
+    return PytestProcessInfo(run_guid="g", name=name, pid=pid, exit_code=exit_code, output=output, time_stamp=ts, cpu_percent=cpu, memory_percent=mem, commit_bytes=commit)
 
 
 def _completed_tick():
@@ -44,6 +44,26 @@ def test_set_utilization_color_thresholds(app):
     assert item.foreground().color() == QColor("yellow")
     set_utilization_color(item, 0.1, 0.8, 0.5)  # default brush, no crash
     assert item.foreground().color() != QColor("red")
+
+
+def test_format_commit():
+    """Commit charge formats as GB at/above 1 GiB, MB below, and '' when unknown."""
+    assert format_commit(None) == ""
+    assert format_commit(0) == "0 MB"
+    assert format_commit(134 * 1024 * 1024) == "134 MB"
+    assert format_commit(2 * 1024 * 1024 * 1024) == "2.00 GB"
+
+
+def test_table_tab_commit_column(app):
+    """The Commit column shows the final record's peak commit charge."""
+    now = time.time()
+    infos = [
+        _info("tests/test_c.py", None, PyTestFlyExitCode.NONE, now - 5),
+        _info("tests/test_c.py", 1, PyTestFlyExitCode.OK, now - 1, cpu=50.0, mem=1.0, output="ok", commit=2 * 1024 * 1024 * 1024),
+    ]
+    table = TableTab(get_temp_dir("table_commit"))
+    table.update_tick(build_tick_data(infos))
+    assert table.table_widget.item(0, Columns.COMMIT.value).text() == "2.00 GB"
 
 
 def test_sortable_item_numeric_and_text(app):

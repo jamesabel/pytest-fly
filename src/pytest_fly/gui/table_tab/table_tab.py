@@ -32,6 +32,7 @@ class Columns(Enum):
     COVERAGE = 6
     LAST_PASS_START = 7
     LAST_PASS_DURATION = 8
+    SPACER = 9  # empty trailing column that absorbs the stretch so real columns size to content
 
 
 _BYTES_PER_MB = 1024.0 * 1024.0
@@ -110,7 +111,7 @@ class TableTab(QGroupBox):
         # Create a table widget to hold the content
         self.table_widget = QTableWidget(parent=scroll_area)
         self.table_widget.setColumnCount(len(Columns))
-        self.table_widget.setHorizontalHeaderLabels(["Name", "State", "CPU", "Memory", "Commit", "Runtime", "Coverage", "Last Pass Start", "Last Pass Duration"])
+        self.table_widget.setHorizontalHeaderLabels(["Name", "State", "CPU", "Memory", "Commit", "Runtime", "Coverage", "Last Pass Start", "Last Pass Duration", ""])
         self.table_widget.horizontalHeader().setStretchLastSection(True)
         self.table_widget.horizontalHeader().setSortIndicatorShown(True)
         self.table_widget.horizontalHeader().sectionDoubleClicked.connect(self._on_header_double_clicked)

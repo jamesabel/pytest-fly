@@ -18,6 +18,25 @@ def _bind_test_prefs(tmp_path_factory):
     init_preferences_for_put(tmp_path_factory.mktemp("pytest_fly_test_prefs"))
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _isolate_last_target(tmp_path_factory):
+    """Redirect the global last-target file into a tmp dir so tests never clobber the user's real one.
+
+    Per-PUT preferences are isolated by :func:`_bind_test_prefs`, but the last-target file
+    lives in the user config dir (outside any PUT), so it needs its own guard — e.g. the
+    Configuration-tab browse/commit flow calls :func:`write_last_target`, which would otherwise
+    overwrite the real file with a tmp path.  Patching ``_last_target_file`` covers both
+    :func:`read_last_target` and :func:`write_last_target`, which resolve it at call time.
+    """
+    import pytest_fly.paths as paths
+
+    target_file = tmp_path_factory.mktemp("pytest_fly_test_config") / "last_target.txt"
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(paths, "_last_target_file", lambda: target_file)
+    yield
+    monkeypatch.undo()
+
+
 @pytest.fixture(scope="session")
 def app():
     return QApplication.instance() or QApplication([])

@@ -22,7 +22,7 @@ from pytest_fly.gui.run_tab.run_mode_control_box import RunModeControlBox
 from pytest_fly.gui.run_tab.run_tab import RunTab
 from pytest_fly.gui.run_tab.status_window import StatusWindow
 from pytest_fly.gui.run_tab.view_coverage import ViewCoverage
-from pytest_fly.gui.table_tab.table_tab import TableTab
+from pytest_fly.gui.table_tab.table_tab import Columns, TableTab
 from pytest_fly.guid import generate_uuid
 from pytest_fly.interfaces import PyTestFlyExitCode, PytestProcessInfo, PytestRunnerState, ScheduledTest
 from pytest_fly.pytest_runner.pytest_runner import PytestRunner, PytestRunState
@@ -151,7 +151,7 @@ def test_table_tab_per_test_coverage(app):
     coverage_by_name = {}
     for row in range(table.table_widget.rowCount()):
         name_item = table.table_widget.item(row, 0)
-        cov_item = table.table_widget.item(row, 5)  # COVERAGE column
+        cov_item = table.table_widget.item(row, Columns.COVERAGE.value)
         assert cov_item is not None, f"row {row} COVERAGE item is None"
         coverage_by_name[name_item.text()] = cov_item.text()
 
@@ -176,7 +176,7 @@ def test_per_test_coverage_not_greater_than_combined(app):
     table.update_tick(tick)
     for row in range(table.table_widget.rowCount()):
         name_item = table.table_widget.item(row, 0)
-        cov_item = table.table_widget.item(row, 5)
+        cov_item = table.table_widget.item(row, Columns.COVERAGE.value)
         cov_text = cov_item.text()
         if cov_text:
             # Parse back the percentage and verify it's <= combined

@@ -12,6 +12,7 @@ from psutil import Process as PsutilProcess
 from typeguard import typechecked
 
 from ..logger import configure_child_logger
+from .commit_memory import subtree_commit
 
 
 @dataclass(frozen=True)
@@ -24,6 +25,7 @@ class PytestProcessMonitorInfo:
     cpu_percent: float | None  # CPU usage percent
     memory_percent: float | None  # Memory usage percent
     time_stamp: float  # time stamp of the info update
+    commit_bytes: int | None = None  # commit charge of the process subtree in bytes (Windows: pagefile)
 
 
 @typechecked()
@@ -78,8 +80,10 @@ class ProcessMonitor(Process):
                     cpu_percent = None
                     memory_percent = None
                 if cpu_percent is not None and memory_percent is not None:
+                    # Commit charge of the whole process subtree (the test may spawn children).
+                    commit_bytes = subtree_commit(self._pid)
                     pytest_process_info = PytestProcessMonitorInfo(
-                        run_guid=self._run_guid, name=self._name, pid=self._pid, cpu_percent=cpu_percent, memory_percent=memory_percent, time_stamp=time.time()
+                        run_guid=self._run_guid, name=self._name, pid=self._pid, cpu_percent=cpu_percent, memory_percent=memory_percent, time_stamp=time.time(), commit_bytes=commit_bytes
                     )
                     self.process_monitor_queue.put(pytest_process_info)
 

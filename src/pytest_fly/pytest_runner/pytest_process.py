@@ -229,6 +229,7 @@ class PytestProcess(Process):
         self._process_monitor_process.request_stop()
         cpu_samples = []
         memory_samples = []
+        commit_samples = []
         drain_deadline = time.time() + 100.0
         while True:
             try:
@@ -237,6 +238,8 @@ class PytestProcess(Process):
                     cpu_samples.append(monitor_info.cpu_percent)
                 if monitor_info.memory_percent is not None:
                     memory_samples.append(monitor_info.memory_percent)
+                if monitor_info.commit_bytes is not None:
+                    commit_samples.append(monitor_info.commit_bytes)
             except Empty:
                 if not self._process_monitor_process.is_alive():
                     break
@@ -249,6 +252,7 @@ class PytestProcess(Process):
             self._process_monitor_process.join(5.0)
         peak_cpu = max(cpu_samples) if cpu_samples else None
         peak_memory = max(memory_samples) if memory_samples else None
+        peak_commit = max(commit_samples) if commit_samples else None
 
         # update the pytest process info to show that the test has finished
         with PytestProcessInfoDB(self.data_dir) as db:
@@ -263,6 +267,7 @@ class PytestProcess(Process):
                 peak_memory,
                 put_version=self.put_version,
                 put_fingerprint=self.put_fingerprint,
+                commit_bytes=peak_commit,
             )
             db.write(pytest_process_info)
 

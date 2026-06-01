@@ -16,6 +16,8 @@ bad memory reading never breaks the GUI or a test run.
 
 import sys
 
+import psutil
+
 from ..logger import get_logger
 
 log = get_logger()
@@ -73,6 +75,31 @@ def commit_charge_and_limit() -> tuple[int, int] | None:
             log.warning(f"could not read system commit charge ({e}); commit indicator disabled")
             _warned_once = True
         return None
+
+
+def subtree_commit(pid: int) -> int:
+    """Return the commit charge of *pid* plus all its descendants, in **bytes**.
+
+    A test module may spawn its own subprocess tree, so the module's true memory cost is
+    the sum over the worker process and every descendant.  On Windows this uses each
+    process's ``pagefile`` (the "Commit Size" shown in Task Manager); on other platforms
+    it falls back to ``vms`` as an approximation.  Fails open — returns ``0`` if the tree
+    can't be read (the process already exited, access denied, etc.).
+    """
+    try:
+        proc = psutil.Process(pid)
+        procs = [proc, *proc.children(recursive=True)]
+    except (psutil.NoSuchProcess, psutil.AccessDenied, ValueError):
+        # ValueError: psutil rejects non-positive PIDs.
+        return 0
+    total = 0
+    for p in procs:
+        try:
+            mem = p.memory_info()
+            total += getattr(mem, "pagefile", None) or mem.vms
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
+    return total
 
 
 def commit_warning_active(commit_percent: float, commit_total_gb: float, threshold_fraction: float) -> bool:

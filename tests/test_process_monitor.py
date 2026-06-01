@@ -54,3 +54,4 @@ def test_process_monitor_samples_own_process():
     assert sample.pid == os.getpid()
     assert sample.cpu_percent is not None
     assert sample.memory_percent is not None
+    assert sample.commit_bytes is not None and sample.commit_bytes > 0

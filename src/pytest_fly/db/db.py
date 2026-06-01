@@ -54,6 +54,7 @@ class PytestProcessInfoDB(MSQLite):
             memory_percent=0.0,
             put_version="",
             put_fingerprint="",
+            commit_bytes=0,
         )
         for column, value in asdict(dummy_pytest_process_info).items():
             # "equivalent" SQLite types

@@ -173,3 +173,4 @@ class PytestProcessInfo:
     memory_percent: float | None = None  # peak memory usage during the run (percent of total physical RAM)
     put_version: str | None = None  # program-under-test short label (e.g. "pytest-fly 0.3.19 (abc1234)")
     put_fingerprint: str | None = None  # program-under-test fingerprint for RunMode.CHECK comparison
+    commit_bytes: int | None = None  # peak commit charge of the test's process subtree, in bytes (Windows: pagefile / "Commit Size")

@@ -1,11 +1,12 @@
 """Tests for pytest_runner.commit_memory."""
 
+import os
 import sys
 
 import pytest
 
 from pytest_fly.pytest_runner import commit_memory
-from pytest_fly.pytest_runner.commit_memory import commit_charge_and_limit, commit_warning_active
+from pytest_fly.pytest_runner.commit_memory import commit_charge_and_limit, commit_warning_active, subtree_commit
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="commit charge read is Windows-only in v1")
@@ -39,6 +40,16 @@ def test_commit_charge_and_limit_fails_open(monkeypatch):
 
     monkeypatch.setattr("builtins.__import__", boom)
     assert commit_charge_and_limit() is None  # no exception propagates
+
+
+def test_subtree_commit_current_process():
+    # The current process is alive, so its subtree commit must be positive.
+    assert subtree_commit(os.getpid()) > 0
+
+
+def test_subtree_commit_missing_pid_fails_open():
+    # A PID that cannot exist degrades to 0 rather than raising.
+    assert subtree_commit(-1) == 0
 
 
 def test_commit_warning_active():

@@ -155,6 +155,10 @@ class FlyPreferences(Pref):
 
     perf_logging: bool = attrib(default=False)  # log per-tick phase timings (db query, build_tick_data, each tab update) to diagnose UI lag
 
+    # Wall-clock start of the most recent run; the Progress Graph time-axis origin, restored on
+    # restart so RESUME-carried records still shift onto the run timeline (0.0 = none).
+    last_run_start: float = attrib(default=0.0)
+
     def get_sqlite_path(self) -> Path:
         # Override pref's default appdirs-based resolution so storage lives under the active PUT.
         path = get_preferences_db_path()

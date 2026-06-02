@@ -7,7 +7,7 @@ import time
 from dataclasses import dataclass
 from multiprocessing import Event, Process, Queue
 
-from psutil import NoSuchProcess
+from psutil import AccessDenied, NoSuchProcess
 from psutil import Process as PsutilProcess
 from typeguard import typechecked
 
@@ -22,7 +22,7 @@ class PytestProcessMonitorInfo:
     run_guid: str  # pytest run GUID
     name: str  # process name
     pid: int | None  # process ID from the OS
-    cpu_percent: float | None  # CPU usage percent
+    cpu_percent: float | None  # CPU usage percent of the process subtree (raw psutil scale: one full core == 100, so a multi-core subtree can exceed 100)
     memory_percent: float | None  # Memory usage percent
     time_stamp: float  # time stamp of the info update
     commit_bytes: int | None = None  # commit charge of the process subtree in bytes (Windows: pagefile)
@@ -69,16 +69,45 @@ class ProcessMonitor(Process):
         psutil_process = PsutilProcess(self._pid)
         psutil_process.cpu_percent()  # initialize psutil's CPU usage (ignore the first 0.0)
 
+        # Persistent per-descendant handle cache. psutil's cpu_percent() reports usage as a delta
+        # against the SAME Process object's previous call, so a child handle must persist across
+        # samples — re-creating it each sample would make every descendant read the meaningless
+        # first-call 0.0, silently dropping the CPU of any subprocess/.exe a test spawns (the test
+        # would then look near-idle even while a child burned a core).
+        child_cpu_procs: dict[int, PsutilProcess] = {}
+
+        def subtree_cpu_percent() -> float | None:
+            """Sum CPU percent of the target process plus all descendants (raw psutil scale)."""
+            try:
+                total = psutil_process.cpu_percent()
+            except NoSuchProcess:
+                return None
+            try:
+                children = psutil_process.children(recursive=True)
+            except (NoSuchProcess, AccessDenied):
+                children = []
+            for child in children:
+                cached = child_cpu_procs.get(child.pid)
+                try:
+                    if cached is None:
+                        # New descendant: cache + prime now (contributes 0 this sample, real after).
+                        child_cpu_procs[child.pid] = child
+                        child.cpu_percent()
+                    else:
+                        total += cached.cpu_percent()
+                except (NoSuchProcess, AccessDenied):
+                    child_cpu_procs.pop(child.pid, None)
+            return total
+
         def put_process_monitor_data():
             """Take one CPU/memory sample and enqueue it."""
             if psutil_process.is_running():
                 try:
                     # memory percent default is "rss"
-                    cpu_percent = psutil_process.cpu_percent()
                     memory_percent = psutil_process.memory_percent()
                 except NoSuchProcess:
-                    cpu_percent = None
                     memory_percent = None
+                cpu_percent = subtree_cpu_percent()
                 if cpu_percent is not None and memory_percent is not None:
                     # Commit charge of the whole process subtree (the test may spawn children).
                     commit_bytes = subtree_commit(self._pid)

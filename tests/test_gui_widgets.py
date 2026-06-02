@@ -2,7 +2,7 @@
 
 import time
 
-from PySide6.QtCore import QSize
+from PySide6.QtCore import QRect, QSize
 
 from pytest_fly.gui.coverage_tab import CoverageTab
 from pytest_fly.gui.gui_main import FlyAppMainWindow, build_tick_data
@@ -14,6 +14,7 @@ from pytest_fly.interfaces import (
     RunMode,
     ScheduledTest,
 )
+from pytest_fly.preferences import get_pref
 from pytest_fly.pytest_runner.system_monitor import SystemMonitorSample
 
 from .paths import get_temp_dir
@@ -245,3 +246,37 @@ def test_fly_app_main_window_constructs(app):
         # Delete the widget directly — avoids qtbot's close() which would invoke
         # closeEvent (persisting preferences and potentially blocking on cleanup).
         window.deleteLater()
+
+
+def test_window_geometry_round_trips_without_drift(app):
+    """Reopening the app restores to a stable geometry — no per-launch drift.
+
+    Regression for the frameGeometry-save vs setGeometry-restore mismatch (one set the outer
+    frame, the other the client area), which shifted and grew the window on every relaunch.
+    Exercises the real save (closeEvent) and restore (__init__) paths; geometry serialization
+    converges after the first reopen, so two successive reopens must produce identical geometry.
+    """
+    data_dir = get_temp_dir("test_window_geometry_drift")
+
+    class _Event:
+        def accept(self):
+            pass
+
+    def open_and_close(set_rect: QRect | None = None) -> str:
+        window = FlyAppMainWindow(data_dir)
+        window.timer.stop()
+        if set_rect is not None:
+            window.setGeometry(set_rect)
+        window.closeEvent(_Event())  # persists window_geometry and stops the system monitor
+        if window._system_monitor.is_alive():
+            window._system_monitor.terminate()
+            window._system_monitor.join(5.0)
+        window.deleteLater()
+        return get_pref().window_geometry
+
+    open_and_close(QRect(140, 110, 900, 600))  # first launch: set + save a known geometry
+    geometry_after_first_reopen = open_and_close()  # restore it, then re-save
+    geometry_after_second_reopen = open_and_close()  # restore again, re-save
+
+    assert geometry_after_first_reopen != ""
+    assert geometry_after_first_reopen == geometry_after_second_reopen  # stable: no drift

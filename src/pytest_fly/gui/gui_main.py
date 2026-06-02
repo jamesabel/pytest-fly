@@ -12,7 +12,7 @@ from dataclasses import replace
 from pathlib import Path
 from queue import Empty
 
-from PySide6.QtCore import QCoreApplication, QRect, QTimer
+from PySide6.QtCore import QByteArray, QCoreApplication, QRect, QTimer
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QApplication,
@@ -135,19 +135,20 @@ class FlyAppMainWindow(QMainWindow):
         if space_dimension.width() != wide_character_dimension.width():
             log.warning(f"monospace font not used (font={font})")
 
-        # restore window size and position
+        # Restore window geometry. saveGeometry/restoreGeometry round-trips the exact frame
+        # position, size, and maximized/fullscreen state (and clamps to the available screens),
+        # which a manual frame-rect save + setGeometry restore cannot — setGeometry sets the
+        # client area while frameGeometry includes the frame, so that pairing drifted the window
+        # by the frame thickness on every reopen.
         pref = get_pref()
-        # ensure window is not off the screen
-        screen = QApplication.primaryScreen()
-        screen_geometry = screen.availableGeometry()
-        restore_rect = QRect(int(float(pref.window_x)), int(float(pref.window_y)), int(float(pref.window_width)), int(float(pref.window_height)))
-        if not screen_geometry.contains(restore_rect):
-            padding = 0.1  # when resizing, leave a little padding on each side
+        restored = bool(pref.window_geometry) and self.restoreGeometry(QByteArray.fromHex(pref.window_geometry.encode("ascii")))
+        if not restored:
+            # First run (or unreadable geometry): size to a padded fraction of the primary screen.
+            screen_geometry = QApplication.primaryScreen().availableGeometry()
+            padding = 0.1  # leave a little padding on each side
             screen_width = screen_geometry.width()
             screen_height = screen_geometry.height()
-            restore_rect = QRect(int(padding * screen_width), int(padding * screen_height), int((1.0 - 2 * padding) * screen_width), int((1.0 - 2 * padding) * screen_height))
-            log.info(f"window is off the screen, moving to {restore_rect=}")
-        self.setGeometry(restore_rect)
+            self.setGeometry(QRect(int(padding * screen_width), int(padding * screen_height), int((1.0 - 2 * padding) * screen_width), int((1.0 - 2 * padding) * screen_height)))
 
         self.setWindowTitle(application_name)
 
@@ -207,12 +208,10 @@ class FlyAppMainWindow(QMainWindow):
 
         pref = get_pref()
 
-        # save window size and position using frameGeometry (includes window frame)
-        frame = self.frameGeometry()
-        pref.window_x = frame.x()
-        pref.window_y = frame.y()
-        pref.window_width = frame.width()
-        pref.window_height = frame.height()
+        # Save window geometry via Qt's own serialization (frame, size, and maximized state), so
+        # restoreGeometry() on next launch returns to the exact prior placement. Matches the hex
+        # persistence used for the Run-tab splitters.
+        pref.window_geometry = self.saveGeometry().toHex().data().decode("ascii")
 
         if (pytest_runner := self.run_tab.control_window.pytest_runner) is not None and pytest_runner.is_running():
             pytest_runner.stop()

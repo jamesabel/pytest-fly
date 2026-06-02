@@ -105,10 +105,10 @@ def _ensure_preferences_dir() -> None:
 class FlyPreferences(Pref):
     """Persistent per-PUT user preferences backed by a local SQLite file."""
 
-    window_x: int = attrib(default=-1)
-    window_y: int = attrib(default=-1)
-    window_width: int = attrib(default=-1)
-    window_height: int = attrib(default=-1)
+    # Main-window geometry (position, size, and maximized/fullscreen state) as QWidget.saveGeometry()
+    # hex-encoded. Using Qt's own (de)serialization round-trips the exact frame and screen placement
+    # across multi-monitor / maximized cases; empty = first run.
+    window_geometry: str = attrib(default="")
 
     verbose: bool = attrib(default=False)
     refresh_rate: float = attrib(default=refresh_rate_default)  # display minimum refresh rate in seconds

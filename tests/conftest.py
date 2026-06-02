@@ -1,6 +1,8 @@
 import faulthandler
 import multiprocessing
 import os
+import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -24,6 +26,34 @@ if os.environ.get("CI"):
     faulthandler.dump_traceback_later(1200, exit=True)
 
 pytest_plugins = "pytester"
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """On Windows, route pytest's temp dirs to a fixed basetemp.
+
+    pytest's default temp scheme creates a ``pytest-current`` *directory* symlink and prunes
+    numbered run dirs as an atexit cleanup. On Windows that cleanup calls ``Path.unlink()`` on the
+    directory symlink, which raises ``PermissionError`` (WinError 5) — directory symlinks require
+    ``rmdir`` — producing a noisy "Exception ignored in atexit callback" after every run and, once
+    the symlink gets stuck, leaking numbered run dirs. Giving pytest an explicit ``--basetemp``
+    makes it use that dir directly and skip the numbered-dir + ``pytest-current`` symlink machinery
+    entirely, so the failing path never runs. Scoped to Windows so Linux/CI behavior is unchanged;
+    an explicit ``--basetemp`` on the command line is respected.
+
+    The basetemp lives under the system temp dir (not in the repo) so that tests which create a
+    fake project in ``tmp_path`` and probe its surroundings — e.g. PUT git-version detection that
+    walks parent dirs for ``.git`` — don't accidentally pick up this repo's ``.git``.
+    """
+    if sys.platform != "win32" or config.option.basetemp:
+        return
+    basetemp = Path(tempfile.gettempdir()) / "pytest_fly_basetemp"
+    config.option.basetemp = str(basetemp)
+    # The tmp-path factory captured the (then-empty) option in its own tryfirst pytest_configure,
+    # which runs before this hook. getbasetemp() is lazy, so pushing the resolved path onto the
+    # live factory before any temp dir is created still takes effect.
+    factory = getattr(config, "_tmp_path_factory", None)
+    if factory is not None and getattr(factory, "_basetemp", None) is None:
+        factory._given_basetemp = basetemp.resolve()
 
 
 @pytest.fixture(scope="session", autouse=True)

@@ -107,6 +107,21 @@ class _MetricChart(QWidget):
             return float(max(math.ceil(peak * 1.15), 1))  # whole-number axis, never collapse to zero
         return max(peak * 1.15, 1.0)  # 15% headroom, but never collapse to zero
 
+    def _y_grid_ticks(self, y_max: float) -> list[float]:
+        """Y-axis tick values (in data units) for horizontal gridlines and labels.
+
+        Continuous charts (CPU, Memory, MB/s) use evenly spaced fractions of ``y_max``.
+        Integer-count charts (e.g. Activity) instead use a whole-number step so the labels
+        are always distinct and the top tick lands exactly on ``y_max`` — fixed fractions of
+        a small max otherwise round to duplicates (e.g. ``y_max == 1`` → 0, 0, 1, 1).
+        """
+        if not self._integer_y:
+            return [y_max * pct for pct in _Y_GRID_PCTS]
+        top = max(int(round(y_max)), 1)
+        step = max(1, math.ceil(top / len(_Y_GRID_PCTS)))
+        # Build from the top down so the highest tick is always y_max, then present ascending.
+        return [float(value) for value in range(top, 0, -step)][::-1]
+
     def _format_y_label(self, value: float) -> str:
         if self._integer_y:
             return str(int(round(value)))
@@ -140,16 +155,20 @@ class _MetricChart(QWidget):
 
         text_color = window_text_color(self)
 
-        # Horizontal grid lines + y labels
+        # Horizontal grid lines + y labels (tick values are in data units so integer-count
+        # charts get distinct whole-number labels rather than rounded fractions).
+        y_ticks = self._y_grid_ticks(y_max)
         painter.setPen(QPen(GRID_LINE_COLOR, 1))
-        for pct in _Y_GRID_PCTS:
+        for value in y_ticks:
+            pct = value / y_max if y_max > 0 else 0.0
             y = margin_top + int(chart_h * (1.0 - pct))
             painter.drawLine(margin_left, y, w - 4, y)
 
         painter.setPen(QPen(text_color, 1))
-        for pct in _Y_GRID_PCTS:
+        for value in y_ticks:
+            pct = value / y_max if y_max > 0 else 0.0
             y = margin_top + int(chart_h * (1.0 - pct))
-            label = self._format_y_label(y_max * pct)
+            label = self._format_y_label(value)
             label_w = get_text_dimensions(label).width()
             painter.drawText(margin_left - label_w - 4, y + 4, label)
 

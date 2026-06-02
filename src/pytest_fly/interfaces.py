@@ -169,7 +169,7 @@ class PytestProcessInfo:
     exit_code: PyTestFlyExitCode | ExitCode
     output: str | None  # output from the pytest run, None if the test is still running
     time_stamp: float  # time stamp of the info update
-    cpu_percent: float | None = None  # peak CPU usage during the run, as reported by psutil (100.0 = one full logical CPU; can exceed 100 on multi-core)
+    cpu_percent: float | None = None  # peak CPU usage of the process subtree during the run, per psutil (100.0 = one full core; can exceed 100 on multi-core / busy subprocesses)
     memory_percent: float | None = None  # peak memory usage during the run (percent of total physical RAM)
     put_version: str | None = None  # program-under-test short label (e.g. "pytest-fly 0.3.19 (abc1234)")
     put_fingerprint: str | None = None  # program-under-test fingerprint for RunMode.CHECK comparison

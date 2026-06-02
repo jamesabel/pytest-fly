@@ -469,7 +469,7 @@ class _StallWatchdog(Thread):
         self._state_lock = Lock()
         self._stall_info = StallInfo(stalled=False)
 
-        self._cpu_procs: dict[int, psutil.Process] = {}  # per-pid handle cache for interval=None sampling
+        self._cpu_procs: dict[int, psutil.Process] = {}  # persistent per-pid handle cache (roots + descendants) for interval=None subtree sampling
         self._last_fingerprint = None
         self._last_progress_monotonic = clock()
         self._escalated = False
@@ -596,27 +596,37 @@ class _StallWatchdog(Thread):
         return fingerprint, stuck, running_pids, len(latest)
 
     def _default_cpu_sampler(self, pid: int) -> float | None:
-        """Sample a pid's subtree CPU percent (single-core-equiv), priming on first sight."""
+        """Sample a pid's whole-subtree CPU percent (single-core-equiv), priming on first sight.
+
+        psutil's ``cpu_percent(interval=None)`` returns usage as a delta against the *same* Process
+        object's previous call, so every sampled process — the root **and each descendant** — needs
+        a handle that persists across ticks (all cached in ``self._cpu_procs``). Re-creating child
+        handles each tick would make them perpetually report the meaningless first-call ``0.0``,
+        silently dropping the CPU of any subprocess/.exe a test spawns (so a test that offloads its
+        work to a child would always read idle). Newly-seen descendants are primed here (they
+        contribute ``0.0`` this tick, real readings thereafter); handles whose process has exited
+        are dropped.
+        """
         try:
-            proc = self._cpu_procs.get(pid)
-            if proc is None:
-                proc = psutil.Process(pid)
-                self._cpu_procs[pid] = proc
-                # Prime cpu_percent for the proc and its current children; first reading is meaningless.
-                proc.cpu_percent(interval=None)
-                for child in proc.children(recursive=True):
-                    try:
-                        child.cpu_percent(interval=None)
-                    except (psutil.NoSuchProcess, psutil.AccessDenied):
-                        continue
-                return None
-            total = proc.cpu_percent(interval=None)
-            for child in proc.children(recursive=True):
+            root = self._cpu_procs.get(pid)
+            first_sight = root is None
+            if root is None:
+                root = psutil.Process(pid)
+                self._cpu_procs[pid] = root
+                root.cpu_percent(interval=None)  # prime; first reading is meaningless
+            total = 0.0 if first_sight else root.cpu_percent(interval=None)
+            for child in root.children(recursive=True):
+                cached = self._cpu_procs.get(child.pid)
                 try:
-                    total += child.cpu_percent(interval=None)
+                    if cached is None:
+                        # New descendant: cache + prime now so the next tick reads real usage.
+                        self._cpu_procs[child.pid] = child
+                        child.cpu_percent(interval=None)
+                    else:
+                        total += cached.cpu_percent(interval=None)
                 except (psutil.NoSuchProcess, psutil.AccessDenied):
-                    continue
-            return normalize_cpu_percent(total, get_performance_core_count())
+                    self._cpu_procs.pop(child.pid, None)
+            return None if first_sight else normalize_cpu_percent(total, get_performance_core_count())
         except (psutil.NoSuchProcess, psutil.AccessDenied, ValueError):
             self._cpu_procs.pop(pid, None)
             return None

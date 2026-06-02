@@ -33,6 +33,30 @@ tooltip_line_limit_default = 40  # max lines shown in pytest-output tooltips bef
 chart_window_minutes_default = 5.0  # width of the system-metrics chart time window on the Run tab, in minutes
 graph_font_size_default = 10  # point size of the font used in the Progress Graph tab
 
+# Time-duration units offered for the stall timeouts. Stored as a (value, unit) pair so the
+# user can express a timeout in whichever unit reads best; converted to seconds for the runner.
+TIME_UNITS = ("Seconds", "Minutes", "Hours")
+_seconds_per_unit = {"Seconds": 1.0, "Minutes": 60.0, "Hours": 3600.0}
+
+
+def duration_to_seconds(value: float, unit: str) -> float:
+    """Convert a ``(value, unit)`` duration to seconds. Unknown units fall back to seconds."""
+    return value * _seconds_per_unit.get(unit, 1.0)
+
+
+# Liveness / recovery (see docs/pytest-fly-liveness-recovery-spec.md).
+stall_detection_enabled_default = True  # run the read-only stall watchdog (advisory banner only)
+stall_warn_value_default = 10.0  # run-wide no-progress + no-CPU window before the stall banner appears (10 minutes)
+stall_warn_unit_default = "Minutes"
+cpu_active_epsilon_default = 1.0  # in-flight subtree CPU at/below this percent (single-core-equiv) counts as "idle"
+auto_force_stop_on_stall_default = False  # opt-in: automatically Force-stop & reset after the stall-kill window
+stall_kill_value_default = 30.0  # escalation delay when auto_force_stop_on_stall is enabled (30 minutes; must exceed the warn window)
+stall_kill_unit_default = "Minutes"
+process_count_gate_enabled_default = False  # opt-in: throttle dispatch on descendant-process count
+max_descendant_processes_default = 8 * get_performance_core_count()  # process-count admission ceiling
+commit_gate_enabled_default = False  # opt-in: throttle dispatch on system commit charge
+commit_gate_threshold_default = 0.90  # defer dispatch while system commit charge exceeds this fraction of the limit
+
 
 class ParallelismControl(IntEnum):
     """How test parallelism is determined."""
@@ -96,6 +120,19 @@ class FlyPreferences(Pref):
     utilization_low_threshold: float = attrib(default=utilization_low_threshold_default)  # below this threshold is considered low utilization
 
     commit_warning_threshold: float = attrib(default=commit_warning_threshold_default)  # warn when system commit charge exceeds this fraction of the commit limit
+
+    # Liveness / recovery knobs (see docs/pytest-fly-liveness-recovery-spec.md).
+    stall_detection_enabled: bool = attrib(default=stall_detection_enabled_default)  # run the read-only stall watchdog (advisory)
+    stall_warn_value: float = attrib(default=stall_warn_value_default)  # no-progress + no-CPU window before the stall banner
+    stall_warn_unit: str = attrib(default=stall_warn_unit_default)  # one of TIME_UNITS
+    cpu_active_epsilon: float = attrib(default=cpu_active_epsilon_default)  # subtree CPU at/below this percent counts as "idle"
+    auto_force_stop_on_stall: bool = attrib(default=auto_force_stop_on_stall_default)  # opt-in automatic Force-stop & reset on stall
+    stall_kill_value: float = attrib(default=stall_kill_value_default)  # escalation delay; must exceed the warn window
+    stall_kill_unit: str = attrib(default=stall_kill_unit_default)  # one of TIME_UNITS
+    process_count_gate_enabled: bool = attrib(default=process_count_gate_enabled_default)  # opt-in process-count admission gate
+    max_descendant_processes: int = attrib(default=max_descendant_processes_default)  # process-count admission ceiling
+    commit_gate_enabled: bool = attrib(default=commit_gate_enabled_default)  # opt-in commit-charge admission gate
+    commit_gate_threshold: float = attrib(default=commit_gate_threshold_default)  # defer dispatch above this fraction of the commit limit
 
     run_mode: RunMode = attrib(default=RunMode.CHECK)  # RESTART=0, RESUME=1, CHECK=2 (Resume with PUT-change check — see resume_skip_put_check)
 

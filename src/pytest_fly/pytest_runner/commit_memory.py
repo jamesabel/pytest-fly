@@ -102,6 +102,21 @@ def subtree_commit(pid: int) -> int:
     return total
 
 
+def subtree_process_count(pid: int) -> int:
+    """Return the number of processes in *pid*'s tree (the process itself plus all descendants).
+
+    Counts grandchildren the controller never spawned directly — the spawn-explosion signal
+    the commit-charge gate misses.  Fails open — returns ``0`` (i.e. "below any ceiling", so
+    admit) if the tree can't be read.
+    """
+    try:
+        proc = psutil.Process(pid)
+        return 1 + len(proc.children(recursive=True))
+    except (psutil.NoSuchProcess, psutil.AccessDenied, ValueError):
+        # ValueError: psutil rejects non-positive PIDs.
+        return 0
+
+
 def commit_warning_active(commit_percent: float, commit_total_gb: float, threshold_fraction: float) -> bool:
     """Return ``True`` when commit charge is over the warning threshold.
 

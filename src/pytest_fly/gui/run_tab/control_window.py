@@ -18,11 +18,11 @@ from ...db import PytestProcessInfoDB
 from ...guid import generate_uuid
 from ...interfaces import OrderingAspect, PutVersionInfo, PyTestFlyExitCode, RunMode, ScheduledTest
 from ...logger import get_logger
-from ...preferences import ParallelismControl, get_active_put_path, get_ordering_aspects_ordered, get_pref
+from ...preferences import ParallelismControl, duration_to_seconds, get_active_put_path, get_ordering_aspects_ordered, get_pref
 from ...put_version import detect_put_version
 from ...pytest_runner.coverage import compute_per_test_coverage
 from ...pytest_runner.ordering import OrderingContext, apply_ordering_aspects
-from ...pytest_runner.pytest_runner import PytestRunner
+from ...pytest_runner.pytest_runner import PytestRunner, _AdmissionGateConfig, _StallConfig
 from ...pytest_runner.test_list import GetTests
 from .control_pushbutton import ControlButton
 from .parallelism_control_box import ParallelismControlBox
@@ -123,7 +123,11 @@ class ControlWindow(QGroupBox):
         call to schedule a repaint — when that was overridden, a repaint request
         would silently mutate button state instead.
         """
-        if self.pytest_runner is None or not self.pytest_runner.is_running():
+        runner = self.pytest_runner
+        # Part D: gate Run on terminal-state completion (or force-stop), not pure thread
+        # liveness — so a wedged worker thread can never permanently disable Run. A run is
+        # "done" for the user when every test reached a terminal state or it was force-stopped.
+        if runner is None or runner.is_user_complete() or not runner.is_running():
             self.run_button.setEnabled(True)
             self.stop_button.setEnabled(False)
             self.force_stop_button.setEnabled(False)
@@ -254,7 +258,22 @@ class ControlWindow(QGroupBox):
 
         put_label = self.put_version_info.short_label() if self.put_version_info else ""
         put_fp = self.put_version_info.fingerprint() if self.put_version_info else ""
-        self.pytest_runner = PytestRunner(self.run_guid, tests, processes, self.data_dir, refresh_rate, put_version=put_label, put_fingerprint=put_fp)
+        gate_config = _AdmissionGateConfig(
+            process_count_gate_enabled=pref.process_count_gate_enabled,
+            max_descendant_processes=pref.max_descendant_processes,
+            commit_gate_enabled=pref.commit_gate_enabled,
+            commit_gate_threshold=pref.commit_gate_threshold,
+        )
+        stall_config = _StallConfig(
+            enabled=pref.stall_detection_enabled,
+            warn_seconds=duration_to_seconds(pref.stall_warn_value, pref.stall_warn_unit),
+            cpu_active_epsilon=pref.cpu_active_epsilon,
+            auto_force_stop=pref.auto_force_stop_on_stall,
+            kill_seconds=duration_to_seconds(pref.stall_kill_value, pref.stall_kill_unit),
+        )
+        self.pytest_runner = PytestRunner(
+            self.run_guid, tests, processes, self.data_dir, refresh_rate, put_version=put_label, put_fingerprint=put_fp, gate_config=gate_config, stall_config=stall_config
+        )
         self.pytest_runner.start()
 
         self.run_button.setEnabled(False)
@@ -313,8 +332,14 @@ class ControlWindow(QGroupBox):
         self.stop_button.setEnabled(False)
 
     def force_stop(self):
-        """Immediately terminate all running tests."""
-        self.pytest_runner.stop()
+        """Force-stop & reset: terminate all running tests and mark the run complete (Part B/D).
+
+        Routes through :meth:`PytestRunner.force_stop_and_reset` so a wedged run is fully
+        recovered — in-flight process trees are killed (unblocking wedged workers), remaining
+        non-terminal tests are written STOPPED, and the run reports done so Run re-enables.
+        """
+        if self.pytest_runner is not None:
+            self.pytest_runner.force_stop_and_reset()
         self.run_button.setEnabled(True)
         self.stop_button.setEnabled(False)
         self.force_stop_button.setEnabled(False)

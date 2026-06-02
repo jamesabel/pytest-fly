@@ -12,15 +12,24 @@ class _FakeRunner:
         self.soft_stopped = False
         self.stopped = False
         self._running = True
+        self._user_complete = False
 
     def is_running(self):
         return self._running
+
+    def is_user_complete(self):
+        return self._user_complete
 
     def soft_stop(self):
         self.soft_stopped = True
 
     def stop(self):
         self.stopped = True
+
+    def force_stop_and_reset(self):
+        # Mirrors PytestRunner.force_stop_and_reset: stop + reset to a completed state.
+        self.stopped = True
+        self._user_complete = True
 
 
 def test_refresh_button_state_no_runner(app):

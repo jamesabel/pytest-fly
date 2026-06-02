@@ -10,6 +10,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QDoubleValidator, QIntValidator, QValidator
 from PySide6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QFileDialog,
     QGroupBox,
     QHBoxLayout,
@@ -19,6 +20,7 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QStyle,
     QVBoxLayout,
@@ -33,14 +35,21 @@ from pytest_fly.logger import get_logger
 from pytest_fly.paths import get_default_data_dir, write_last_target
 from pytest_fly.platform.platform_info import get_performance_core_count
 from pytest_fly.preferences import (
+    TIME_UNITS,
     chart_window_minutes_default,
+    commit_gate_threshold_default,
     commit_warning_threshold_default,
+    cpu_active_epsilon_default,
+    duration_to_seconds,
     get_active_put_path,
     get_ordering_aspects_ordered,
     get_pref,
     graph_font_size_default,
+    max_descendant_processes_default,
     refresh_rate_default,
     set_ordering_aspects_ordered,
+    stall_kill_value_default,
+    stall_warn_value_default,
     tooltip_line_limit_default,
     utilization_high_threshold_default,
     utilization_low_threshold_default,
@@ -242,6 +251,7 @@ def _add_labeled_lineedit(
     validator: QValidator,
     on_changed: Callable[[str], None],
     char_width: int = 4,
+    tooltip: str = "",
 ) -> QLineEdit:
     """Create a labelled :class:`QLineEdit` with a validator and add it to *layout*.
 
@@ -254,16 +264,65 @@ def _add_labeled_lineedit(
     :param validator: Input validator (e.g. ``QIntValidator``).
     :param on_changed: Slot connected to ``textChanged``.
     :param char_width: Number of monospace characters used to size the field.
+    :param tooltip: Optional hover text applied to both the label and the input.
     :return: The created :class:`QLineEdit`.
     """
-    layout.addWidget(QLabel(label_text))
+    label = QLabel(label_text)
     lineedit = QLineEdit()
     lineedit.setText(initial_value)
     lineedit.setValidator(validator)
     lineedit.setFixedWidth(get_text_dimensions(char_width * "X", True).width())
     lineedit.textChanged.connect(on_changed)
+    if tooltip:
+        label.setToolTip(tooltip)
+        lineedit.setToolTip(tooltip)
+    layout.addWidget(label)
     layout.addWidget(lineedit)
     return lineedit
+
+
+def _format_number(value: float) -> str:
+    """Render a number without a trailing ``.0`` (so ``10.0`` shows as ``10``)."""
+    return str(int(value)) if float(value).is_integer() else str(value)
+
+
+def _add_labeled_duration(
+    layout: QVBoxLayout,
+    label_text: str,
+    value: float,
+    unit: str,
+    on_changed: Callable[..., None],
+    char_width: int = 5,
+    tooltip: str = "",
+) -> tuple[QLineEdit, QComboBox]:
+    """Create a labelled value line-edit plus a Seconds/Minutes/Hours unit selector.
+
+    Lets a timeout be entered in whichever unit reads best; both widgets call *on_changed*
+    (which should read both and persist). Returns the ``(lineedit, combobox)`` pair.
+
+    :param tooltip: Optional hover text applied to the label, value field, and unit selector.
+    """
+    label = QLabel(label_text)
+    row = QHBoxLayout()
+    row.setAlignment(Qt.AlignLeft)
+    lineedit = QLineEdit()
+    lineedit.setText(_format_number(value))
+    lineedit.setValidator(QDoubleValidator())
+    lineedit.setFixedWidth(get_text_dimensions(char_width * "X", True).width())
+    lineedit.textChanged.connect(on_changed)
+    row.addWidget(lineedit)
+    combo = QComboBox()
+    combo.addItems(TIME_UNITS)
+    combo.setCurrentText(unit if unit in TIME_UNITS else TIME_UNITS[0])
+    combo.currentTextChanged.connect(on_changed)
+    row.addWidget(combo)
+    if tooltip:
+        label.setToolTip(tooltip)
+        lineedit.setToolTip(tooltip)
+        combo.setToolTip(tooltip)
+    layout.addWidget(label)
+    layout.addLayout(row)
+    return lineedit, combo
 
 
 class Configuration(QWidget):
@@ -274,9 +333,33 @@ class Configuration(QWidget):
 
         self.setWindowTitle("Configuration")
 
+        # Wrap the content in a scroll area so the (now fairly tall) set of options never
+        # forces the main window's minimum height past the screen — the tab scrolls instead.
+        outer_layout = QVBoxLayout()
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+        self.setLayout(outer_layout)
+
+        scroll_area = QScrollArea(self)
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setFrameShape(QScrollArea.Shape.NoFrame)
+        outer_layout.addWidget(scroll_area)
+
+        content = QWidget()
+        scroll_area.setWidget(content)
+
+        # Two columns: general options on the left, the (tall) Liveness / Recovery group on the
+        # right. Horizontal room is plentiful; vertical is not, so spread out sideways.
+        columns_layout = QHBoxLayout()
+        columns_layout.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+        content.setLayout(columns_layout)
+
         layout = QVBoxLayout()
         layout.setAlignment(Qt.AlignTop | Qt.AlignLeft)
-        self.setLayout(layout)
+        columns_layout.addLayout(layout)
+
+        right_column = QVBoxLayout()
+        right_column.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+        columns_layout.addLayout(right_column)
 
         pref = get_pref()
 
@@ -380,6 +463,145 @@ class Configuration(QWidget):
         results_dir_row.addWidget(self.test_results_db_dir_browse)
         layout.addLayout(results_dir_row)
 
+        # Liveness / recovery group — stall watchdog and admission gates. Lives in the right
+        # column (see the two-column content layout above) so the tall set of options uses the
+        # available horizontal room instead of overflowing vertically.
+        # See docs/pytest-fly-liveness-recovery-spec.md.
+        liveness_group = QGroupBox("Liveness / Recovery")
+        liveness_group.setToolTip(
+            "Detect and recover from wedged runs, and throttle runaway process spawning.\n"
+            "The stall watchdog is advisory only (a banner); it never kills a test on its own\n"
+            "unless automatic escalation is explicitly enabled. The admission gates are off by\n"
+            "default and only defer dispatching new tests — they never cap how long a test runs."
+        )
+        liveness_layout = QVBoxLayout()
+        liveness_group.setLayout(liveness_layout)
+
+        self.stall_detection_enabled_checkbox = QCheckBox("Stall Detection (advisory banner, default: on)")
+        self.stall_detection_enabled_checkbox.setToolTip(
+            "Watches for a wedged run — a hung test whose nested process tree has deadlocked, which\n"
+            "would otherwise keep pytest-fly reporting 'running' forever and never re-enable Run.\n\n"
+            "Flags the run as stalled (a banner only — nothing is killed) when, for the whole Stall\n"
+            "Warn Window, no test starts or finishes AND no in-flight test uses any CPU. A test that\n"
+            "is genuinely working keeps using CPU and never trips this, no matter how long it runs.\n\n"
+            "When stalled, click Force Stop to recover: in-flight processes are killed, leftover tests\n"
+            "are marked stopped, and Run re-enables — without killing pytest-fly from the OS."
+        )
+        self.stall_detection_enabled_checkbox.setChecked(to_bool_strict(pref.stall_detection_enabled))
+        self.stall_detection_enabled_checkbox.stateChanged.connect(self.update_stall_detection_enabled)
+        liveness_layout.addWidget(self.stall_detection_enabled_checkbox)
+
+        self.stall_warn_value_lineedit, self.stall_warn_unit_combo = _add_labeled_duration(
+            liveness_layout,
+            f"Stall Warn Window (default: {_format_number(stall_warn_value_default)} minutes)",
+            pref.stall_warn_value,
+            pref.stall_warn_unit,
+            self.update_stall_warn,
+            tooltip=(
+                "How long the run must show no progress and no CPU activity before the stall banner\n"
+                "appears. This is a run-wide signal, not a per-test timeout: a long but active test\n"
+                "never triggers it. Enter the duration in seconds, minutes, or hours."
+            ),
+        )
+
+        self.cpu_active_epsilon_lineedit = _add_labeled_lineedit(
+            liveness_layout,
+            f"CPU Idle Epsilon (percent, {cpu_active_epsilon_default} default)",
+            str(pref.cpu_active_epsilon),
+            QDoubleValidator(),
+            self.update_cpu_active_epsilon,
+            char_width=6,
+            tooltip=(
+                "The CPU level (percent of one core) below which an in-flight test counts as 'idle'\n"
+                "for stall detection. A deadlocked process tree sits near 0%; a working test stays\n"
+                "above this and keeps resetting the stall timer. ~1% is a good default.\n\n"
+                "Note: a test blocked on slow network or disk I/O also looks idle — which is why\n"
+                "stall detection only warns by default rather than killing anything."
+            ),
+        )
+
+        self.auto_force_stop_on_stall_checkbox = QCheckBox("Auto Force-stop & Reset on Stall (default: off)")
+        self.auto_force_stop_on_stall_checkbox.setToolTip(
+            "When OFF (default), a stall only shows a banner — you click Force Stop to recover.\n\n"
+            "When ON, after the Stall Kill Window of continuous stalling the run is automatically\n"
+            "force-stopped and reset (useful for unattended CI). Leave OFF if your tests can\n"
+            "legitimately block on slow network/disk I/O, since that also reads as idle and could\n"
+            "trigger a false recovery."
+        )
+        self.auto_force_stop_on_stall_checkbox.setChecked(to_bool_strict(pref.auto_force_stop_on_stall))
+        self.auto_force_stop_on_stall_checkbox.stateChanged.connect(self.update_auto_force_stop_on_stall)
+        liveness_layout.addWidget(self.auto_force_stop_on_stall_checkbox)
+
+        self.stall_kill_value_lineedit, self.stall_kill_unit_combo = _add_labeled_duration(
+            liveness_layout,
+            f"Stall Kill Window (must exceed the warn window; default: {_format_number(stall_kill_value_default)} minutes)",
+            pref.stall_kill_value,
+            pref.stall_kill_unit,
+            self.update_stall_kill,
+            tooltip=(
+                "Only used when 'Auto Force-stop & Reset on Stall' is enabled. How long the run must\n"
+                "stay continuously stalled before it is automatically force-stopped and reset.\n\n"
+                "Must be longer than the Stall Warn Window, or automatic escalation is disabled.\n"
+                "Enter the duration in seconds, minutes, or hours."
+            ),
+        )
+
+        self.process_count_gate_enabled_checkbox = QCheckBox("Process-count Admission Gate (default: off)")
+        self.process_count_gate_enabled_checkbox.setToolTip(
+            "Throttles runaway process spawning. Before starting another test, pytest-fly waits while\n"
+            "the total number of processes in its tree — every test process plus anything those tests\n"
+            "spawn (subprocesses, multiprocessing pools) — is at or above 'Max Descendant Processes'.\n\n"
+            "Only defers starting new tests; it never caps how long a running test takes, and at least\n"
+            "one test always runs so the suite can't deadlock behind the gate. Off by default."
+        )
+        self.process_count_gate_enabled_checkbox.setChecked(to_bool_strict(pref.process_count_gate_enabled))
+        self.process_count_gate_enabled_checkbox.stateChanged.connect(self.update_process_count_gate_enabled)
+        liveness_layout.addWidget(self.process_count_gate_enabled_checkbox)
+
+        self.max_descendant_processes_lineedit = _add_labeled_lineedit(
+            liveness_layout,
+            f"Max Descendant Processes ({max_descendant_processes_default} default)",
+            str(pref.max_descendant_processes),
+            QIntValidator(),
+            self.update_max_descendant_processes,
+            char_width=7,
+            tooltip=(
+                "The ceiling for the process-count admission gate: pytest-fly defers starting new tests\n"
+                "while its whole process tree is at or above this many processes.\n\n"
+                "Counts grandchildren that tests spawn themselves, not just the test workers. The\n"
+                "default scales with your CPU core count."
+            ),
+        )
+
+        self.commit_gate_enabled_checkbox = QCheckBox("Commit-charge Admission Gate (default: off)")
+        self.commit_gate_enabled_checkbox.setToolTip(
+            "Throttles dispatch by memory commitment rather than process count. Before starting another\n"
+            "test, pytest-fly waits while system commit charge (RAM + page file currently committed)\n"
+            "exceeds the threshold below.\n\n"
+            "Complements the process-count gate; when both are on, both must allow a test before it\n"
+            "starts. Only defers new tests, and at least one always runs. Off by default. (Commit\n"
+            "charge is read on Windows; on other platforms this gate stays out of the way.)"
+        )
+        self.commit_gate_enabled_checkbox.setChecked(to_bool_strict(pref.commit_gate_enabled))
+        self.commit_gate_enabled_checkbox.stateChanged.connect(self.update_commit_gate_enabled)
+        liveness_layout.addWidget(self.commit_gate_enabled_checkbox)
+
+        self.commit_gate_threshold_lineedit = _add_labeled_lineedit(
+            liveness_layout,
+            f"Commit Gate Threshold (0.0-1.0, {commit_gate_threshold_default} default)",
+            str(pref.commit_gate_threshold),
+            QDoubleValidator(),
+            self.update_commit_gate_threshold,
+            tooltip=(
+                "The fraction of the system commit limit (0.0–1.0) at or above which the commit-charge\n"
+                "gate defers starting new tests. For example, 0.90 means 'hold off once commit charge\n"
+                "reaches 90% of the limit.' Only used when the Commit-charge Admission Gate is enabled."
+            ),
+        )
+
+        right_column.addWidget(liveness_group)
+        right_column.addStretch()
+
         layout.addWidget(QLabel(""))  # space
 
         # Expert group — settings most users should not need to change. Placed last to de-emphasize.
@@ -462,6 +684,64 @@ class Configuration(QWidget):
         pref = get_pref()
         try:
             pref.commit_warning_threshold = float(value)
+        except ValueError:
+            pass
+
+    def update_stall_detection_enabled(self):
+        """Persist the stall-detection (watchdog) enable checkbox."""
+        get_pref().stall_detection_enabled = self.stall_detection_enabled_checkbox.isChecked()
+
+    def update_stall_warn(self, *_args):
+        """Persist the stall warn window (value + unit) from its two widgets."""
+        pref = get_pref()
+        try:
+            pref.stall_warn_value = max(float(self.stall_warn_value_lineedit.text()), 0.0)
+        except ValueError:
+            return
+        pref.stall_warn_unit = self.stall_warn_unit_combo.currentText()
+
+    def update_cpu_active_epsilon(self, value: str):
+        """Persist the CPU idle epsilon (percent below which a subtree counts as idle)."""
+        pref = get_pref()
+        try:
+            pref.cpu_active_epsilon = max(float(value), 0.0)
+        except ValueError:
+            pass
+
+    def update_auto_force_stop_on_stall(self):
+        """Persist the opt-in automatic Force-stop & reset on stall."""
+        get_pref().auto_force_stop_on_stall = self.auto_force_stop_on_stall_checkbox.isChecked()
+
+    def update_stall_kill(self, *_args):
+        """Persist the stall escalation delay (value + unit); warn if it does not exceed the warn window."""
+        pref = get_pref()
+        try:
+            pref.stall_kill_value = max(float(self.stall_kill_value_lineedit.text()), 0.0)
+        except ValueError:
+            return
+        pref.stall_kill_unit = self.stall_kill_unit_combo.currentText()
+        if duration_to_seconds(pref.stall_kill_value, pref.stall_kill_unit) <= duration_to_seconds(pref.stall_warn_value, pref.stall_warn_unit):
+            log.warning("Stall kill window must exceed the stall warn window; automatic escalation will be disabled")
+
+    def update_process_count_gate_enabled(self):
+        """Persist the process-count admission gate enable checkbox."""
+        get_pref().process_count_gate_enabled = self.process_count_gate_enabled_checkbox.isChecked()
+
+    def update_max_descendant_processes(self, value: str):
+        """Persist the process-count admission ceiling."""
+        pref = get_pref()
+        if value.isnumeric():
+            pref.max_descendant_processes = max(int(value), 1)
+
+    def update_commit_gate_enabled(self):
+        """Persist the commit-charge admission gate enable checkbox."""
+        get_pref().commit_gate_enabled = self.commit_gate_enabled_checkbox.isChecked()
+
+    def update_commit_gate_threshold(self, value: str):
+        """Persist the commit-charge admission threshold (fraction of the commit limit)."""
+        pref = get_pref()
+        try:
+            pref.commit_gate_threshold = float(value)
         except ValueError:
             pass
 

@@ -37,6 +37,9 @@ class TickData:
     soft_stop_requested: bool = False
     singleton_names: set[str] = field(default_factory=set)  # node_ids of tests marked with @pytest.mark.singleton — displayed last in test-listing tabs
     put_version_info: PutVersionInfo | None = None  # program-under-test metadata detected at the start of the current run
+    # Stall watchdog snapshot (Part B); typed as Any to avoid a circular import with pytest_runner. None when no watchdog is running.
+    stall_info: object | None = None
+    run_complete_stuck: list[str] = field(default_factory=list)  # non-terminal tests when the run is otherwise finished (Part D); drives the "finished — N stuck" message
 
     @property
     def effective_min_time_stamp(self) -> float | None:

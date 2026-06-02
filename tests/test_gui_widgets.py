@@ -94,6 +94,34 @@ def test_system_metrics_window_empty_paint(qtbot):
     _force_paint(window, 800, 600)
 
 
+def test_system_metrics_window_activity_chart(qtbot):
+    """The Activity chart should record a per-tick running/idle/stalled sample and paint it."""
+    from pytest_fly.pytest_runner.pytest_runner import PytestRunState, StallInfo
+    from pytest_fly.tick_data import TickData
+
+    window = SystemMetricsWindow(None)
+    qtbot.addWidget(window)
+
+    now = time.time()
+    run_states = {
+        "tests/test_a.py": PytestRunState([PytestProcessInfo("g", "tests/test_a.py", 111, PyTestFlyExitCode.NONE, None, time_stamp=now)]),
+        "tests/test_b.py": PytestRunState([PytestProcessInfo("g", "tests/test_b.py", 222, PyTestFlyExitCode.NONE, None, time_stamp=now)]),
+    }
+    tick = TickData(process_infos=[], run_states=run_states)
+    tick.stall_info = StallInfo(stalled=True, idle_pids=[111, 222], seconds_since_progress=700.0)
+
+    window.update_tick(tick)
+
+    assert len(window._activity_samples) == 1
+    sample = window._activity_samples[-1]
+    assert sample.running == 2
+    assert sample.idle == 2
+    assert sample.stalled is True
+
+    _force_paint(window, 800, 600)
+    _force_paint(window._activity_chart, 300, 150)
+
+
 def test_coverage_tab_paint_forced(qtbot):
     """Force a real paintEvent on the coverage chart with data."""
     tab = CoverageTab()

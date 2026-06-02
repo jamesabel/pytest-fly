@@ -11,6 +11,7 @@ Chart style follows ``coverage_tab._CoverageChart`` — custom ``QPainter`` with
 ``TimeAxisMapping`` + ``compute_grid_ticks`` from the graph-tab time-axis module.
 """
 
+import math
 import time
 from collections import deque
 from collections.abc import Callable, Iterable
@@ -20,11 +21,17 @@ from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import QGridLayout, QGroupBox, QLabel, QSizePolicy, QWidget
 
 from ...colors import COMMIT_LINE_COLOR, COMMIT_WARN_COLOR, CPU_LINE_COLOR, DISK_READ_COLOR, DISK_WRITE_COLOR, GRID_LINE_COLOR, MEMORY_LINE_COLOR, NET_RECV_COLOR, NET_SENT_COLOR
+from ...interfaces import PytestRunnerState
 from ...preferences import get_pref
 from ...pytest_runner.commit_memory import commit_warning_active
 from ...pytest_runner.system_monitor import SystemMonitorSample
+from ...tick_data import TickData
 from ..graph_tab.time_axis import TimeAxisMapping, compute_grid_ticks, format_elapsed_label
 from ..gui_util import get_text_dimensions, window_text_color
+
+# Activity-chart line colors: tests that are running vs. those sampled idle (near-zero CPU).
+ACTIVITY_RUNNING_COLOR = QColor("#2e7d32")  # green
+ACTIVITY_IDLE_COLOR = QColor("#b25400")  # amber (matches the warning accent)
 
 _Y_GRID_PCTS = [0.25, 0.50, 0.75, 1.00]
 _MIN_CHART_HEIGHT = 70  # pixels — each sub-chart minimum
@@ -36,20 +43,32 @@ class _Series:
 
     label: str
     color: QColor
-    getter: Callable[[SystemMonitorSample], float]
-    legend_formatter: Callable[[SystemMonitorSample], str] | None = None
+    getter: Callable[[object], float]
+    legend_formatter: Callable[[object], str] | None = None
+
+
+@dataclass(frozen=True)
+class _ActivitySample:
+    """One time-stamped snapshot of in-flight test activity for the Activity chart."""
+
+    time_stamp: float
+    running: int  # tests in the RUNNING state
+    idle: int  # running tests whose subtree CPU is below the idle epsilon
+    stalled: bool  # the watchdog has flagged the run as stalled
 
 
 class _MetricChart(QWidget):
     """Single time-series chart for one metric family (e.g. CPU or Network)."""
 
-    def __init__(self, title: str, series: list[_Series], unit: str, y_max_fixed: float | None):
+    def __init__(self, title: str, series: list[_Series], unit: str, y_max_fixed: float | None, integer_y: bool = False):
         """
         :param title: Panel title shown in the top-left of the chart.
         :param series: Line series painted over the same axes.
         :param unit: Unit suffix for y-axis tick labels (``"%"`` or ``"MB/s"``).
         :param y_max_fixed: Fixed y-axis maximum (e.g. ``100.0`` for percent).  ``None`` → auto-scale
             to the largest sample in the current window, with a small minimum so the axis never flattens.
+        :param integer_y: When ``True`` the y-axis is treated as whole-number counts (e.g. number of
+            tests) — labels are rendered as integers and the auto-scaled maximum is rounded up.
         """
         super().__init__()
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
@@ -59,6 +78,7 @@ class _MetricChart(QWidget):
         self._series = series
         self._unit = unit
         self._y_max_fixed = y_max_fixed
+        self._integer_y = integer_y
 
         self._samples: list[SystemMonitorSample] = []
         self._min_ts: float | None = None
@@ -83,9 +103,13 @@ class _MetricChart(QWidget):
                 value = series.getter(sample)
                 if value > peak:
                     peak = value
+        if self._integer_y:
+            return float(max(math.ceil(peak * 1.15), 1))  # whole-number axis, never collapse to zero
         return max(peak * 1.15, 1.0)  # 15% headroom, but never collapse to zero
 
     def _format_y_label(self, value: float) -> str:
+        if self._integer_y:
+            return str(int(round(value)))
         if self._unit == "%":
             return f"{int(round(value))}%"
         if value >= 100:
@@ -252,41 +276,72 @@ class SystemMetricsWindow(QGroupBox):
             y_max_fixed=None,
         )
 
-        # 3x2 grid: CPU + Memory + Commit stacked in the left column; Disk + Network in the
-        # right column.  The commit-warning banner occupies the empty bottom-right cell.
+        # Test-activity chart — running vs. idle in-flight test counts over time. Plotted like the
+        # other charts so a wedge is visible at a glance (idle climbs to meet running). Lines turn
+        # warning-colored while the stall watchdog has the run flagged as stalled.
+        self._activity_chart = _MetricChart(
+            title="Activity",
+            series=[
+                _Series(label="running", color=ACTIVITY_RUNNING_COLOR, getter=lambda s: float(s.running), legend_formatter=lambda s: str(s.running)),
+                _Series(label="idle", color=ACTIVITY_IDLE_COLOR, getter=lambda s: float(s.idle), legend_formatter=lambda s: str(s.idle)),
+            ],
+            unit="",
+            y_max_fixed=None,
+            integer_y=True,
+        )
+        self._activity_chart.setToolTip(
+            "In-flight test activity over time.\n\n"
+            "'running' = tests currently executing; 'idle' = running tests whose subtree CPU is below\n"
+            "the configured CPU Idle Epsilon (a deadlocked process tree sits near 0% CPU). When idle\n"
+            "rises to meet running and stays there with no progress for the Stall Warn Window, the run\n"
+            "is flagged stalled and these lines turn orange. Configure thresholds in the Configuration tab."
+        )
+
+        # 3x2 grid: CPU + Memory + Commit in the left column; Disk + Network + Activity in the right.
         layout.addWidget(self._cpu_chart, 0, 0)
         layout.addWidget(self._memory_chart, 1, 0)
         layout.addWidget(self._commit_chart, 2, 0)
         layout.addWidget(self._disk_chart, 0, 1)
         layout.addWidget(self._network_chart, 1, 1)
+        layout.addWidget(self._activity_chart, 2, 1)
 
-        # Warning banner — shown only when commit charge crosses the threshold.
+        # Warning banner — shown only when commit charge crosses the threshold. Spans the full width
+        # beneath the chart grid so it never steals a chart cell.
         self._commit_warning_label = QLabel("")
         self._commit_warning_label.setWordWrap(True)
         self._commit_warning_label.setStyleSheet("color: #b25400;")  # warning orange (matches the Configuration-tab restart notice)
         self._commit_warning_label.setVisible(False)
-        layout.addWidget(self._commit_warning_label, 2, 1)
+        layout.addWidget(self._commit_warning_label, 3, 0, 1, 2)
 
         layout.setRowStretch(0, 1)
         layout.setRowStretch(1, 1)
         layout.setRowStretch(2, 1)
+        layout.setRowStretch(3, 0)
         layout.setColumnStretch(0, 1)
         layout.setColumnStretch(1, 1)
 
         self._samples: deque[SystemMonitorSample] = deque()
+        self._activity_samples: deque[_ActivitySample] = deque()
 
     def ingest_samples(self, samples: Iterable[SystemMonitorSample]) -> None:
         """Append new samples to the ring buffer (called once per GUI tick)."""
         for sample in samples:
             self._samples.append(sample)
 
-    def update_tick(self) -> None:
-        """Prune stale samples and repaint all four sub-charts."""
+    def update_tick(self, tick: TickData | None = None) -> None:
+        """Prune stale samples, repaint all sub-charts, and append/repaint the activity chart."""
         window_seconds = max(get_pref().chart_window_minutes, 0.5) * 60.0
         now = time.time()
         cutoff = now - window_seconds
         while self._samples and self._samples[0].time_stamp < cutoff:
             self._samples.popleft()
+
+        # Append one activity sample per tick (from the runner/watchdog snapshot in *tick*), then
+        # prune to the same time window as the system samples.
+        if tick is not None:
+            self._activity_samples.append(self._build_activity_sample(tick, now))
+        while self._activity_samples and self._activity_samples[0].time_stamp < cutoff:
+            self._activity_samples.popleft()
 
         # Time axis always spans the full configured window ending at "now" so the charts
         # animate smoothly (the right edge is always the current moment).
@@ -308,3 +363,22 @@ class SystemMetricsWindow(QGroupBox):
         self._commit_chart.update_data(samples_list, min_ts, max_ts, warn=commit_warn)
         self._disk_chart.update_data(samples_list, min_ts, max_ts)
         self._network_chart.update_data(samples_list, min_ts, max_ts)
+
+        activity_list = list(self._activity_samples)
+        activity_stalled = bool(activity_list and activity_list[-1].stalled)
+        self._activity_chart.update_data(activity_list, min_ts, max_ts, warn=activity_stalled)
+
+    @staticmethod
+    def _build_activity_sample(tick: TickData, now: float) -> "_ActivitySample":
+        """Build one :class:`_ActivitySample` from a GUI tick.
+
+        Running count is DB-derived (RUNNING state); idle count and the stalled flag come from the
+        stall watchdog's latest :class:`StallInfo` (``tick.stall_info``), published each tick while a
+        run is active and stall detection is enabled. When there is no watchdog data the sample is
+        simply ``idle == 0`` and not stalled.
+        """
+        running = sum(1 for rs in tick.run_states.values() if rs.get_state() == PytestRunnerState.RUNNING)
+        stall_info = tick.stall_info
+        idle = len(getattr(stall_info, "idle_pids", []) or []) if stall_info is not None else 0
+        stalled = bool(getattr(stall_info, "stalled", False)) if stall_info is not None else False
+        return _ActivitySample(time_stamp=now, running=running, idle=min(idle, running), stalled=stalled)

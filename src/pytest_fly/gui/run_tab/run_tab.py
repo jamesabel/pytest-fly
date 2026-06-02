@@ -74,7 +74,7 @@ class RunTab(QWidget):
         self.status_window.update_tick(tick)
         self.failed_tests_window.update_tick(tick)
         self.live_output_window.update_tick(tick)
-        self.system_metrics_window.update_tick()
+        self.system_metrics_window.update_tick(tick)
         self.control_window.reconcile_process_count()
         self.control_window.refresh_button_state()
 

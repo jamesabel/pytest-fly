@@ -806,3 +806,39 @@ def test_full_pipeline(app):
     graph.update_tick(tick)
     assert len(graph.progress_bars) == 1
     assert "tests/test_no_operation.py" in graph.progress_bars
+
+
+def test_build_tick_data_shifts_carried_over_records_for_graph(app):
+    """RESUME-carried records (genuine past timestamps) are shifted onto the current
+    run timeline at render time, so the Progress Graph/Status render them in-window
+    while the durations are preserved (delta-invariant)."""
+    guid = "test-guid-carried"
+    now = time.time()
+    run_start = now
+
+    infos = [
+        # Carried-over (already-passed in a prior run, copied with genuine past timestamps):
+        # started ~2 hours ago, ran for 5s.
+        _make_process_info(guid, "tests/test_old.py", None, PyTestFlyExitCode.NONE, time_stamp=now - 7200 - 1),
+        _make_process_info(guid, "tests/test_old.py", 1001, PyTestFlyExitCode.NONE, time_stamp=now - 7200),
+        _make_process_info(guid, "tests/test_old.py", 1001, PyTestFlyExitCode.OK, output="1 passed", time_stamp=now - 7200 + 5),
+        # Freshly running this session (at/after the run start).
+        _make_process_info(guid, "tests/test_new.py", None, PyTestFlyExitCode.NONE, time_stamp=run_start),
+        _make_process_info(guid, "tests/test_new.py", 1002, PyTestFlyExitCode.NONE, time_stamp=run_start + 1),
+    ]
+
+    tick = build_tick_data(infos, current_run_start=run_start)
+
+    # No record displayed before the run origin — the carried-over ones were shifted forward.
+    assert all(info.time_stamp >= run_start for info in tick.process_infos)
+
+    # The carried-over test's started records now sit at/after the origin, so the Run-tab
+    # status time window starts at the run origin rather than 2 hours in the past.
+    assert tick.min_time_stamp_started is not None
+    assert tick.min_time_stamp_started >= run_start
+
+    # Duration is delta-invariant: test_old's 5s span survives the shift.
+    old_infos = tick.infos_by_name["tests/test_old.py"]
+    old_started = min(i.time_stamp for i in old_infos if i.pid is not None)
+    old_finished = max(i.time_stamp for i in old_infos)
+    assert old_finished - old_started == 5

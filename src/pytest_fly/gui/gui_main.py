@@ -8,6 +8,7 @@ GUI tabs.
 """
 
 import time
+from dataclasses import replace
 from pathlib import Path
 from queue import Empty
 
@@ -71,6 +72,21 @@ def build_tick_data(
     :return: A fully populated :class:`TickData` instance.
     """
     singletons = singleton_names if singleton_names is not None else set()
+
+    # RESUME mode copies prior-run records for already-passed tests into the current run so
+    # they appear in every GUI tab.  Those copies keep their genuine historical timestamps in
+    # the DB (so query_last_pass / the "Last Pass Start" column report real wall-clock times),
+    # but the Progress Graph and Run-tab status use current_run_start as their time-axis origin,
+    # so historical records would fall off the left edge.  Shift the carried-over records (those
+    # predating the run's start) onto the current run's timeline here, at render time, preserving
+    # their relative spacing and leaving the DB untouched.  Durations are delta-invariant, so the
+    # table's Runtime column is unaffected.
+    if current_run_start is not None:
+        earliest_carried = min((info.time_stamp for info in process_infos if info.time_stamp < current_run_start), default=None)
+        if earliest_carried is not None:
+            delta = current_run_start - earliest_carried
+            process_infos = [replace(info, time_stamp=info.time_stamp + delta) if info.time_stamp < current_run_start else info for info in process_infos]
+
     grouped = group_process_infos_by_name(process_infos)
     ordered_names = sorted(grouped, key=lambda n: (n in singletons, n))
     infos_by_name = {name: grouped[name] for name in ordered_names}

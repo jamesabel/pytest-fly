@@ -76,7 +76,11 @@ class ControlWindow(QGroupBox):
         self.prior_durations: dict[str, float] = {}
         self.num_processes: int = 1
         self._soft_stop_requested: bool = False
-        self.current_run_start: float | None = None
+        # Restore the most recent run's start so the Progress Graph keeps its time-axis origin
+        # after an app restart — RESUME-carried records (with genuine historical timestamps) are
+        # shifted onto this origin at render time in build_tick_data.
+        restored_run_start = get_pref().last_run_start
+        self.current_run_start: float | None = restored_run_start if restored_run_start > 0.0 else None
         self.singleton_names: set[str] = set()
         self.put_version_info: PutVersionInfo | None = None
 
@@ -161,6 +165,8 @@ class ControlWindow(QGroupBox):
         # from DB records (copied RESUME records also have exit_code == NONE,
         # which made the DB-derived origin fall back to a prior-run timestamp).
         self.current_run_start = time.time()
+        # Persist so the graph time-axis origin survives an app restart (see __init__).
+        pref.last_run_start = self.current_run_start
 
         if self.pytest_runner is not None and self.pytest_runner.is_running():
             self.pytest_runner.stop()
@@ -201,9 +207,11 @@ class ControlWindow(QGroupBox):
         # In RESUME mode (or CHECK-as-RESUME), copy the complete prior-run records for
         # previously-passed tests into the current run so they appear in all GUI tabs
         # (table, graph, status) with their original data (runtime, CPU, memory, output, etc.).
-        # Timestamps are shifted uniformly so the copied records fall within the current
-        # run's time window; the Progress Graph uses current_run_start as its origin, so
-        # records retaining their historical timestamps would render off the visible axis.
+        # The copies retain their genuine historical timestamps so query_last_pass — and thus
+        # the table's "Last Pass Start" column — reports real wall-clock times.  The Progress
+        # Graph, which uses current_run_start as its time-axis origin, shifts these carried-over
+        # records onto the current timeline at render time (see build_tick_data); the DB is left
+        # truthful rather than rewritten with synthetic timestamps.
         if effective_mode == RunMode.RESUME:
             skipped_node_ids = all_node_ids - {t.node_id for t in tests}
             if skipped_node_ids:
@@ -212,10 +220,9 @@ class ControlWindow(QGroupBox):
                     prior_by_name.setdefault(r.name, []).append(r)
                 records_to_copy = [rec for nid in sorted(skipped_node_ids) for rec in prior_by_name.get(nid, [])]
                 if records_to_copy:
-                    delta = self.current_run_start - min(r.time_stamp for r in records_to_copy)
                     with PytestProcessInfoDB(self.data_dir) as db:
                         for record in records_to_copy:
-                            db.write(replace(record, run_guid=self.run_guid, time_stamp=record.time_stamp + delta))
+                            db.write(replace(record, run_guid=self.run_guid))
 
         # Use last-pass durations for ETA estimation (from the most recent passing run)
         self.prior_durations = {name: duration for name, (_, duration) in last_pass_data.items()}

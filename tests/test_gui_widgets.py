@@ -122,6 +122,22 @@ def test_system_metrics_window_activity_chart(qtbot):
     _force_paint(window._activity_chart, 300, 150)
 
 
+def test_activity_chart_y_labels_are_distinct_integers(qtbot):
+    """Integer-count charts must never render duplicate y-axis labels (regression).
+
+    With fixed 0.25/0.5/0.75/1.0 fractions, a small ``y_max`` (e.g. 1) rounded to integers
+    produced duplicates like 0, 0, 1, 1. Whole-number ticks keep every label distinct and
+    put the top tick exactly on ``y_max``.
+    """
+    chart = SystemMetricsWindow(None)._activity_chart
+    for y_max in [1, 2, 3, 4, 5, 7, 8, 10, 16, 19, 32]:
+        ticks = chart._y_grid_ticks(float(y_max))
+        labels = [chart._format_y_label(value) for value in ticks]
+        assert len(labels) == len(set(labels)), f"duplicate y labels for {y_max=}: {labels}"
+        assert all("." not in label for label in labels), f"non-integer y label for {y_max=}: {labels}"
+        assert ticks[-1] == float(y_max), f"top tick should equal y_max for {y_max=}: {ticks}"
+
+
 def test_coverage_tab_paint_forced(qtbot):
     """Force a real paintEvent on the coverage chart with data."""
     tab = CoverageTab()

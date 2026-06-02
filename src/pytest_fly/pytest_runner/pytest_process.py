@@ -11,6 +11,7 @@ import traceback
 from multiprocessing import Process
 from pathlib import Path
 from queue import Empty
+from typing import TextIO
 
 import psutil
 import pytest
@@ -223,6 +224,35 @@ class PytestProcess(Process):
 
         self._process_monitor_process = None
 
+    def _open_live_output(self, live_path: Path, retry_timeout: float = 5.0, retry_interval: float = 0.2) -> tuple[TextIO, Path]:
+        """Open the per-test live-output log for writing, tolerating a transiently locked file.
+
+        The live-output path is keyed by test name only, so when the suite auto-restarts on a
+        code change the previous run's process for the same test may still be terminating and
+        holding this file open. Windows then refuses to truncate or delete it (WinError 32), and
+        an uncaught error here would kill this whole process so the test never runs and never
+        records a result. Opening in ``"w"`` mode truncates (no separate ``unlink`` needed);
+        retry briefly, and if the file stays locked fall back to a pid-unique sibling so the test
+        always runs. In that rare fallback the GUI (which tails the canonical path) won't show
+        this test's live output, but the completed output still lands in the DB.
+
+        :param live_path: The preferred live-output path (the one the GUI tails).
+        :param retry_timeout: Seconds to keep retrying the canonical path before falling back.
+        :param retry_interval: Seconds to wait between retries.
+        :return: ``(open_file, actual_path)`` — *actual_path* is the pid-unique fallback if locked.
+        """
+        deadline = time.time() + retry_timeout
+        last_error: OSError | None = None
+        while time.time() < deadline:
+            try:
+                return open(live_path, "w", buffering=1, encoding="utf-8", errors="replace", newline=""), live_path
+            except OSError as e:  # PermissionError (WinError 32) etc. while another holder has it open
+                last_error = e
+                time.sleep(retry_interval)
+        fallback = live_path.with_name(f"{live_path.stem}.{self.pid}{live_path.suffix}")
+        log.warning(f"live-output file {live_path} stayed locked ({last_error}); falling back to {fallback}")
+        return open(fallback, "w", buffering=1, encoding="utf-8", errors="replace", newline=""), fallback
+
     def run(self) -> None:
 
         configure_child_logger(f"{sanitize_test_name(self.name)}.log")
@@ -251,8 +281,8 @@ class PytestProcess(Process):
         # pytest's own capture so prints stream immediately.
         live_path = live_output_path(self.data_dir, self.name)
         live_path.parent.mkdir(parents=True, exist_ok=True)
-        live_path.unlink(missing_ok=True)
-        with open(live_path, "w", buffering=1, encoding="utf-8", errors="replace", newline="") as live_file:
+        live_file, live_path = self._open_live_output(live_path)
+        with live_file:
             with contextlib.redirect_stdout(live_file), contextlib.redirect_stderr(live_file):
                 # create a temp coverage file and then move it so if the file exists, the content is complete (the save is not necessarily instantaneous and atomic)
                 coverage_dir = Path(self.data_dir, "coverage")

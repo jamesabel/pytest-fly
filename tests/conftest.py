@@ -1,9 +1,27 @@
+import faulthandler
+import multiprocessing
+import os
 from pathlib import Path
 
 import pytest
 from PySide6.QtWidgets import QApplication
 
 from pytest_fly.preferences import init_preferences_for_put
+
+# Force the 'spawn' multiprocessing start method on all platforms. pytest-fly's controller is
+# multi-threaded (a worker pool plus the stall watchdog) and starts test subprocesses; on POSIX
+# the default 'fork' lets a child inherit a lock held by another thread at fork time and deadlock.
+# Windows — the primary dev/test platform — already uses 'spawn', so this aligns POSIX (CI) with
+# the known-good path. Must run before any Process is created, hence at conftest import time.
+try:
+    multiprocessing.set_start_method("spawn", force=True)
+except RuntimeError:
+    pass
+
+# CI hang safety net: if the suite ever wedges, dump every thread's traceback and abort rather
+# than running until GitHub's 6-hour limit. Generous timeout so a slow (spawn) run never trips it.
+if os.environ.get("CI"):
+    faulthandler.dump_traceback_later(1200, exit=True)
 
 pytest_plugins = "pytester"
 

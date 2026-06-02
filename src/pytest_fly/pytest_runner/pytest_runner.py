@@ -7,12 +7,15 @@ tests in parallel via :class:`PytestProcess` subprocesses.
 :class:`PytestRunState` converts raw DB records into a display-friendly state.
 """
 
+import os
 import time
+from dataclasses import dataclass, field
 from pathlib import Path
 from queue import Empty, Queue
 from threading import Condition, Event, Lock, Thread
 from typing import Optional
 
+import psutil
 from PySide6.QtGui import QColor
 from typeguard import typechecked
 
@@ -20,8 +23,11 @@ from ..colors import BAR_COLORS, TABLE_COLORS
 from ..db import PytestProcessInfoDB
 from ..interfaces import PyTestFlyExitCode, PytestRunnerState, ScheduledTest
 from ..logger import get_logger
+from ..platform import get_performance_core_count
+from .commit_memory import commit_charge_and_limit, subtree_process_count
 from .const import TIMEOUT
-from .pytest_process import PytestProcess, PytestProcessInfo, terminate_process_tree
+from .process_monitor import normalize_cpu_percent
+from .pytest_process import PytestProcess, PytestProcessInfo, reap_pids, terminate_process_tree
 
 log = get_logger()
 
@@ -81,6 +87,56 @@ class PytestRunState:
         return TABLE_COLORS[self._state]
 
 
+@dataclass(frozen=True)
+class _AdmissionGateConfig:
+    """Configuration for the dispatch-time admission gates (Part C).
+
+    Both gates default to disabled, so dispatch behavior is unchanged until a gate is
+    explicitly enabled. The gates only *defer* starting new tests; they never cap how
+    long a running test may take.
+    """
+
+    process_count_gate_enabled: bool = False
+    max_descendant_processes: int = 0  # ignored when the process-count gate is disabled
+    commit_gate_enabled: bool = False
+    commit_gate_threshold: float = 0.90  # fraction of the system commit limit
+
+
+@dataclass(frozen=True)
+class _StallConfig:
+    """Configuration for the stall watchdog (Part B)."""
+
+    enabled: bool = True
+    warn_seconds: float = 600.0
+    cpu_active_epsilon: float = 1.0
+    auto_force_stop: bool = False
+    kill_seconds: float = 1800.0
+
+
+@dataclass(frozen=True)
+class StallInfo:
+    """Snapshot of the stall watchdog's view of the run (Part B). Read-only, GUI-facing."""
+
+    stalled: bool
+    stuck_tests: list[str] = field(default_factory=list)  # non-terminal test node-ids
+    idle_pids: list[int] = field(default_factory=list)  # in-flight test PIDs sampled below cpu_active_epsilon
+    descendant_count: int = 0  # processes in the controller's tree
+    seconds_since_progress: float = 0.0  # wall time since the last DB state transition
+
+
+_TERMINAL_STATES = frozenset({PytestRunnerState.PASS, PytestRunnerState.FAIL, PytestRunnerState.TERMINATED, PytestRunnerState.STOPPED})
+
+
+def _latest_info_per_name(infos: list[PytestProcessInfo]) -> dict[str, PytestProcessInfo]:
+    """Return the most recent :class:`PytestProcessInfo` per test name (by ``time_stamp``)."""
+    latest: dict[str, PytestProcessInfo] = {}
+    for info in infos:
+        prior = latest.get(info.name)
+        if prior is None or info.time_stamp >= prior.time_stamp:
+            latest[info.name] = info
+    return latest
+
+
 class PytestRunner(Thread):
     """
     Orchestrates parallel test execution by spawning a pool of :class:`_TestRunner`
@@ -97,6 +153,8 @@ class PytestRunner(Thread):
         update_rate: float,
         put_version: str = "",
         put_fingerprint: str = "",
+        gate_config: _AdmissionGateConfig | None = None,
+        stall_config: _StallConfig | None = None,
     ):
         self.run_guid = run_guid
         self.tests = tests
@@ -105,6 +163,9 @@ class PytestRunner(Thread):
         self.update_rate = update_rate
         self.put_version = put_version
         self.put_fingerprint = put_fingerprint
+        self.gate_config = gate_config or _AdmissionGateConfig()
+        self.stall_config = stall_config or _StallConfig()
+        self._controller_pid = os.getpid()
 
         # Worker pool. _pool_lock guards _test_runners, _next_worker_id, and
         # number_of_processes so the pool can be resized from the GUI thread
@@ -116,6 +177,8 @@ class PytestRunner(Thread):
         self._coordinator: _SingletonCoordinator | None = None
         self._started_event = Event()
         self._written_to_db = set()
+        self._watchdog: _StallWatchdog | None = None
+        self._force_stopped = False  # one-way latch: user (or auto-escalation) force-stopped & reset
 
         super().__init__()
 
@@ -150,6 +213,20 @@ class PytestRunner(Thread):
                 self._spawn_worker_locked()
             self._started_event.set()
 
+        # Part B: start the read-only stall watchdog once workers exist (so is_running()
+        # is meaningful). It self-terminates when the run finishes.
+        if self.stall_config.enabled and self._watchdog is None:
+            self._watchdog = _StallWatchdog(
+                self.run_guid,
+                self.data_dir,
+                self._controller_pid,
+                self.stall_config,
+                self.is_running,
+                self.force_stop_and_reset,
+                sample_interval=max(self.update_rate, 1.0),
+            )
+            self._watchdog.start()
+
     def _spawn_worker_locked(self) -> None:
         """Start one worker thread pulling from the shared queue. Caller holds ``_pool_lock``."""
         test_runner = _TestRunner(
@@ -160,6 +237,8 @@ class PytestRunner(Thread):
             self._coordinator,
             put_version=self.put_version,
             put_fingerprint=self.put_fingerprint,
+            controller_pid=self._controller_pid,
+            gate_config=self.gate_config,
         )
         test_runner.start()
         self._test_runners[self._next_worker_id] = test_runner
@@ -206,6 +285,88 @@ class PytestRunner(Thread):
         with self._pool_lock:
             test_runners = list(self._test_runners.values())
         return any(test_runner.is_alive() for test_runner in test_runners)
+
+    def get_run_completion(self) -> tuple[int, int, list[str]] | None:
+        """Return ``(n_terminal, n_total, stuck)`` derived from the DB, or ``None`` on error (Part D).
+
+        *terminal* means the test's latest record is PASS / FAIL / TERMINATED / STOPPED; a latest
+        record of NONE (QUEUED or RUNNING) is non-terminal. This is the honest, DB-backed view of
+        completion — unlike :meth:`is_running` (thread liveness), a wedged worker cannot make it
+        report "still running" forever. Returns ``None`` on any DB error so callers fall back to
+        :meth:`is_running`.
+        """
+        try:
+            with PytestProcessInfoDB(self.data_dir) as db:
+                infos = db.query(self.run_guid)
+        except Exception as e:
+            log.warning(f"get_run_completion DB read failed, falling back to is_running: {e}")
+            return None
+        latest = _latest_info_per_name(infos)
+        if not latest:
+            return 0, 0, []
+        stuck = sorted(name for name, info in latest.items() if PytestRunState([info]).get_state() not in _TERMINAL_STATES)
+        n_total = len(latest)
+        n_terminal = n_total - len(stuck)
+        return n_terminal, n_total, stuck
+
+    def is_user_complete(self) -> bool:
+        """Return ``True`` if the run is finished from the *user's* perspective (Part D).
+
+        True when the user/auto force-stopped, or every test reached a terminal state. Falls back
+        to ``not is_running()`` if the completion view is unavailable. Drives Run-button
+        enablement so a wedged worker thread can never permanently disable Run.
+        """
+        if self._force_stopped:
+            return True
+        completion = self.get_run_completion()
+        if completion is None:
+            return not self.is_running()
+        n_terminal, n_total, _stuck = completion
+        return n_total > 0 and n_terminal == n_total
+
+    def was_force_stopped(self) -> bool:
+        """Return ``True`` if this run was force-stopped & reset."""
+        return self._force_stopped
+
+    def get_stall_info(self) -> StallInfo | None:
+        """Return the latest :class:`StallInfo` from the watchdog, or ``None`` if not running (Part B)."""
+        watchdog = self._watchdog
+        if watchdog is None:
+            return None
+        return watchdog.get_stall_info()
+
+    def force_stop_and_reset(self) -> None:
+        """Force-stop every worker and mark all non-terminal tests STOPPED so the run completes (Part D).
+
+        Recovery for a wedged run: :meth:`stop` tree-kills in-flight processes, which unblocks each
+        wedged poll loop (``is_alive()`` flips False) and each ``acquire_singleton`` waiter (the stop
+        predicate fires), so all worker threads drain naturally. Remaining non-terminal tests
+        (the just-killed wedged test plus singletons blocked behind it) are written STOPPED so the
+        table is internally consistent. Idempotent.
+        """
+        self._force_stopped = True
+        self.stop()
+        try:
+            with PytestProcessInfoDB(self.data_dir) as db:
+                infos = db.query(self.run_guid)
+                latest = _latest_info_per_name(infos)
+                for name, info in latest.items():
+                    if PytestRunState([info]).get_state() in _TERMINAL_STATES:
+                        continue
+                    db.write(
+                        PytestProcessInfo(
+                            self.run_guid,
+                            name,
+                            None,
+                            PyTestFlyExitCode.STOPPED,
+                            None,
+                            time_stamp=time.time(),
+                            put_version=self.put_version,
+                            put_fingerprint=self.put_fingerprint,
+                        )
+                    )
+        except Exception as e:
+            log.warning(f"force_stop_and_reset: error marking remaining tests STOPPED: {e}", exc_info=True)
 
     @typechecked()
     def join(self, timeout_seconds: float | None = None) -> bool:
@@ -260,6 +421,205 @@ class PytestRunner(Thread):
                 log.info(f'force stop requested for test "{test_name}" ({self.run_guid=})')
                 return
         log.warning(f'force stop: no running process found for test "{test_name}" ({self.run_guid=})')
+
+
+class _StallWatchdog(Thread):
+    """Read-only watchdog that flags a run as *stalled* (Part B).
+
+    A run is stalled when, for at least ``warn_seconds``: a worker is alive and at least one
+    test is non-terminal, **no** DB state transition has occurred, **and** no in-flight test's
+    subtree CPU has exceeded ``cpu_active_epsilon``. This is a run-wide, activity-based signal —
+    deliberately *not* a per-test clock: a long test that is actually burning CPU keeps resetting
+    the timer and never flags, no matter how long it runs.
+
+    The watchdog never terminates anything itself except the opt-in escalation
+    (``auto_force_stop`` → ``escalate_fn`` after ``kill_seconds``); otherwise it only reads DB +
+    psutil and publishes a :class:`StallInfo`, so it can never become a source of deadlock.
+
+    The CPU sampler and progress source are injectable so tests can drive the watchdog with a
+    fake clock and synthetic samples without depending on the host.
+    """
+
+    def __init__(
+        self,
+        run_guid: str,
+        data_dir: Path,
+        controller_pid: int | None,
+        config: _StallConfig,
+        is_running_fn,
+        escalate_fn,
+        sample_interval: float,
+        clock=time.monotonic,
+        cpu_sampler=None,
+        progress_source=None,
+    ) -> None:
+        super().__init__(daemon=True)
+        self.run_guid = run_guid
+        self.data_dir = data_dir
+        self.controller_pid = controller_pid
+        self.config = config
+        self._is_running_fn = is_running_fn
+        self._escalate_fn = escalate_fn
+        self._sample_interval = max(sample_interval, 0.1)
+        self._clock = clock
+        self._cpu_sampler = cpu_sampler or self._default_cpu_sampler
+        self._progress_source = progress_source or self._default_progress_source
+
+        self._stop_event = Event()
+        self._state_lock = Lock()
+        self._stall_info = StallInfo(stalled=False)
+
+        self._cpu_procs: dict[int, psutil.Process] = {}  # per-pid handle cache for interval=None sampling
+        self._last_fingerprint = None
+        self._last_progress_monotonic = clock()
+        self._escalated = False
+
+    def stop(self) -> None:
+        self._stop_event.set()
+
+    def is_stalled(self) -> bool:
+        with self._state_lock:
+            return self._stall_info.stalled
+
+    def get_stall_info(self) -> StallInfo | None:
+        with self._state_lock:
+            return self._stall_info
+
+    def run(self) -> None:
+        # Wait for at least one worker to exist so is_running() is meaningful, then tick until
+        # the run finishes (all workers exited) or we are stopped.
+        while not self._stop_event.is_set():
+            try:
+                self.tick()
+            except Exception as e:  # fail-open: never let a watchdog error stall or crash the run
+                log.warning(f"stall watchdog tick error (logged once per tick): {e}")
+                with self._state_lock:
+                    self._stall_info = StallInfo(stalled=False)
+            if not self._is_running_fn():
+                break  # run finished — workers all drained
+            self._stop_event.wait(self._sample_interval)
+
+    def tick(self) -> None:
+        """Evaluate the stall signal once and publish a fresh :class:`StallInfo`."""
+        now = self._clock()
+        fingerprint, stuck_tests, running_pids, _n_total = self._progress_source()
+
+        live = self._is_running_fn() and len(stuck_tests) > 0
+        if not live:
+            self._last_progress_monotonic = now
+            self._last_fingerprint = fingerprint
+            self._publish(StallInfo(stalled=False))
+            return
+
+        # Progress: any DB state transition resets the no-progress timer.
+        if fingerprint != self._last_fingerprint:
+            self._last_fingerprint = fingerprint
+            self._last_progress_monotonic = now
+
+        # CPU activity: any in-flight test above epsilon resets the timer. Newly-seen pids are
+        # primed (their first reading is meaningless) and treated as activity-unknown.
+        idle_pids: list[int] = []
+        any_active = False
+        real_readings = 0
+        for pid in running_pids:
+            cpu = self._cpu_sampler(pid)
+            if cpu is None:
+                continue  # unknown (just primed or unreadable)
+            real_readings += 1
+            if cpu > self.config.cpu_active_epsilon:
+                any_active = True
+            else:
+                idle_pids.append(pid)
+        # Reset on real activity, or when we have running pids but no usable reading yet
+        # (never fabricate a stall from a transient psutil error or an unprimed sampler).
+        if any_active or (running_pids and real_readings == 0):
+            self._last_progress_monotonic = now
+
+        elapsed = now - self._last_progress_monotonic
+        stalled = elapsed >= self.config.warn_seconds
+        # Only walk the controller tree when we have something to report — avoids a recursive
+        # process-tree walk on every healthy tick.
+        descendant_count = subtree_process_count(self.controller_pid) if (stalled and self.controller_pid is not None) else 0
+        info = StallInfo(stalled=stalled, stuck_tests=sorted(stuck_tests), idle_pids=idle_pids, descendant_count=descendant_count, seconds_since_progress=elapsed)
+        self._publish(info)
+
+        if stalled:
+            log.warning(
+                f"run appears stalled: {len(stuck_tests)} test(s) not progressing for {elapsed:.0f}s, "
+                f"{len(idle_pids)} in-flight idle, {descendant_count} descendant process(es) ({self.run_guid=})"
+            )
+            self._maybe_escalate(elapsed)
+
+    def _maybe_escalate(self, elapsed: float) -> None:
+        cfg = self.config
+        if not cfg.auto_force_stop or self._escalated:
+            return
+        if cfg.kill_seconds <= cfg.warn_seconds:
+            log.warning("auto-force-stop enabled but the stall kill window is not greater than the stall warn window; escalation disabled")
+            self._escalated = True  # log once
+            return
+        if elapsed >= cfg.kill_seconds:
+            log.warning(f"auto-escalating: Force-stop & reset after {elapsed:.0f}s stall ({self.run_guid=})")
+            self._escalated = True
+            try:
+                self._escalate_fn()
+            except Exception as e:
+                log.warning(f"error during auto Force-stop & reset: {e}", exc_info=True)
+
+    def _publish(self, info: StallInfo) -> None:
+        with self._state_lock:
+            self._stall_info = info
+
+    def _default_progress_source(self):
+        """Read latest-per-name DB records → (fingerprint, stuck_tests, running_pids, n_total)."""
+        with PytestProcessInfoDB(self.data_dir) as db:
+            infos = db.query(self.run_guid)
+        latest = _latest_info_per_name(infos)
+        stuck: list[str] = []
+        running_pids: list[int] = []
+        n_terminal = 0
+        n_running = 0
+        max_started_ts = 0.0
+        for name, info in latest.items():
+            state = PytestRunState([info]).get_state()
+            if state in _TERMINAL_STATES:
+                n_terminal += 1
+            else:
+                stuck.append(name)
+                if state == PytestRunnerState.RUNNING:
+                    n_running += 1
+                    if info.pid is not None:
+                        running_pids.append(info.pid)
+            if info.pid is not None:
+                max_started_ts = max(max_started_ts, info.time_stamp)
+        fingerprint = (n_terminal, n_running, max_started_ts)
+        return fingerprint, stuck, running_pids, len(latest)
+
+    def _default_cpu_sampler(self, pid: int) -> float | None:
+        """Sample a pid's subtree CPU percent (single-core-equiv), priming on first sight."""
+        try:
+            proc = self._cpu_procs.get(pid)
+            if proc is None:
+                proc = psutil.Process(pid)
+                self._cpu_procs[pid] = proc
+                # Prime cpu_percent for the proc and its current children; first reading is meaningless.
+                proc.cpu_percent(interval=None)
+                for child in proc.children(recursive=True):
+                    try:
+                        child.cpu_percent(interval=None)
+                    except (psutil.NoSuchProcess, psutil.AccessDenied):
+                        continue
+                return None
+            total = proc.cpu_percent(interval=None)
+            for child in proc.children(recursive=True):
+                try:
+                    total += child.cpu_percent(interval=None)
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    continue
+            return normalize_cpu_percent(total, get_performance_core_count())
+        except (psutil.NoSuchProcess, psutil.AccessDenied, ValueError):
+            self._cpu_procs.pop(pid, None)
+            return None
 
 
 class _SingletonCoordinator:
@@ -321,6 +681,16 @@ class _SingletonCoordinator:
             self._active -= 1
             self._cond.notify_all()
 
+    def active_slot_count(self) -> int:
+        """Return the number of in-flight slots (normal + singleton).
+
+        ``0`` means nothing is currently running, which the admission gate uses for
+        its min-1 forward-progress guarantee: a heavy test is always admitted when no
+        other test is in flight, so the suite can never deadlock behind the gate.
+        """
+        with self._cond:
+            return self._active
+
 
 class _TestRunner(Thread):
     """
@@ -339,6 +709,8 @@ class _TestRunner(Thread):
         coordinator: _SingletonCoordinator,
         put_version: str = "",
         put_fingerprint: str = "",
+        controller_pid: int | None = None,
+        gate_config: "_AdmissionGateConfig | None" = None,
     ) -> None:
         """
         :param run_guid: GUID identifying the overall test run.
@@ -347,6 +719,9 @@ class _TestRunner(Thread):
         :param update_rate: Polling / process-monitor sample interval in seconds.
         :param coordinator: Shared :class:`_SingletonCoordinator` that gates
             singleton vs. parallel execution across all workers.
+        :param controller_pid: PID of the pytest-fly controller process, used by the
+            process-count admission gate to measure the descendant tree.
+        :param gate_config: Admission-gate configuration (Part C). ``None`` disables both gates.
         """
         super().__init__()
 
@@ -356,6 +731,8 @@ class _TestRunner(Thread):
         self.update_rate = update_rate
         self.put_version = put_version
         self.put_fingerprint = put_fingerprint
+        self.controller_pid = controller_pid
+        self.gate_config = gate_config or _AdmissionGateConfig()
 
         self.process: Optional[PytestProcess] = None
         self._stop_event = Event()
@@ -432,6 +809,11 @@ class _TestRunner(Thread):
     def _run_single_test(self, test: str):
         """Run a single test process.  Caller owns the coordinator slot."""
 
+        # Rolling snapshot of the test's descendant tree as {(pid, create_time)}.
+        # Captured while the test is still alive because once PytestProcess exits
+        # its children can no longer be enumerated from the (dead) parent. Reaped
+        # on the normal-exit path so a finished test leaves no orphans (Part A).
+        descendant_snapshot: set[tuple[int, float]] = set()
         try:
             self.process = PytestProcess(self.run_guid, test, self.data_dir, self.update_rate, self.put_version, self.put_fingerprint)
             log.info(f'Starting process for test "{test}" ({self.run_guid=})')
@@ -443,6 +825,7 @@ class _TestRunner(Thread):
                     # terminate_process_tree already SIGKILL'd; don't loop and retry
                     break
 
+                self._refresh_descendant_snapshot(descendant_snapshot)
                 self.process.join(self.update_rate)
 
             self.process.join(TIMEOUT)  # should already be done, but just in case
@@ -451,7 +834,33 @@ class _TestRunner(Thread):
             else:
                 log.info(f'process for test "{self.process.name}" completed ({self.run_guid=})')
         finally:
+            # Part A: reap any descendants left behind by a test that finished on its
+            # own. Skip the stop branch — _terminate_process already tree-killed there —
+            # and only reap once the parent is confirmed dead (so survivors are
+            # unambiguous orphans, not a still-running test). Fail-open inside reap_pids.
+            stopped = self._stop_event.is_set() or self._force_stop_current_event.is_set()
+            if not stopped and self.process is not None and not self.process.is_alive():
+                reap_pids(descendant_snapshot)
             self._force_stop_current_event.clear()
+
+    def _refresh_descendant_snapshot(self, snapshot: set[tuple[int, float]]) -> None:
+        """Union the test process's current descendants into *snapshot* as ``(pid, create_time)``.
+
+        Accumulates rather than replaces: a child that dies before the next poll would
+        otherwise be missed, and the ``create_time`` match in :func:`reap_pids` discards
+        dead or recycled entries at reap time. Fail-open — any psutil error is ignored.
+        """
+        proc = self.process
+        if proc is None or proc.pid is None:
+            return
+        try:
+            for child in psutil.Process(proc.pid).children(recursive=True):
+                try:
+                    snapshot.add((child.pid, child.create_time()))
+                except (psutil.NoSuchProcess, psutil.AccessDenied, ValueError):
+                    continue
+        except (psutil.NoSuchProcess, psutil.AccessDenied, ValueError):
+            pass
 
     # ------------------------------------------------------------------
     # Main loop
@@ -472,24 +881,20 @@ class _TestRunner(Thread):
             test = scheduled_test.node_id
             is_singleton = scheduled_test.singleton
 
+            # Part C: throttle BEFORE acquiring a coordinator slot. A worker that has
+            # dequeued but not yet acquired holds nothing, so deferring here can never
+            # starve a singleton or deadlock when every worker is waiting.
+            if not self._await_admission(should_abort):
+                self._handle_not_acquired(scheduled_test, test)
+                break
+
             if is_singleton:
                 acquired = self._coordinator.acquire_singleton(should_abort, self.update_rate)
             else:
                 acquired = self._coordinator.acquire_normal(should_abort, self.update_rate)
 
             if not acquired:
-                if self._stop_event.is_set():
-                    self._handle_stop_request(test)
-                    break
-                if self._soft_stop_event.is_set():
-                    self._drain_queue()
-                    break
-                if self._retire_event.is_set():
-                    # Pool was shrunk while we waited for a slot. Hand the test we
-                    # dequeued back so a surviving worker runs it, then exit without
-                    # draining — the remaining queue belongs to the other workers.
-                    self.pytest_test_queue.put(scheduled_test)
-                    break
+                self._handle_not_acquired(scheduled_test, test)
                 break
 
             try:
@@ -504,6 +909,65 @@ class _TestRunner(Thread):
 
         if self._soft_stop_event.is_set() and not self._stop_event.is_set():
             self._drain_queue()
+
+    def _handle_not_acquired(self, scheduled_test: ScheduledTest, test: str) -> None:
+        """Dispose of a dequeued test when a slot could not be acquired or admission was aborted.
+
+        Shared by the admission-gate-abort path and the coordinator-acquire-failure path:
+        on stop, tree-kill the (not-yet-started) current process; on soft-stop, drain the
+        remaining queue to STOPPED; on retire, hand the dequeued test back to a surviving worker.
+        """
+        if self._stop_event.is_set():
+            self._handle_stop_request(test)
+        elif self._soft_stop_event.is_set():
+            self._drain_queue()
+        elif self._retire_event.is_set():
+            # Pool was shrunk while we waited. Hand the test we dequeued back so a
+            # surviving worker runs it, then exit without draining — the remaining
+            # queue belongs to the other workers.
+            self.pytest_test_queue.put(scheduled_test)
+
+    def _await_admission(self, should_abort) -> bool:
+        """Defer dispatching the next test while an enabled admission gate is over budget (Part C).
+
+        Composes the process-count and commit-charge gates as a logical AND. The min-1
+        forward-progress guarantee (admit whenever nothing is in flight) overrides both, so a
+        single heavy test can never deadlock the suite. Fail-open: a read error or a disabled
+        gate admits. Poll-interruptible via *should_abort*.
+
+        :return: ``True`` if admitted, ``False`` if *should_abort* went true while deferring.
+        """
+        cfg = self.gate_config
+        if not (cfg.process_count_gate_enabled or cfg.commit_gate_enabled):
+            return True
+        while not should_abort():
+            process_ok = not cfg.process_count_gate_enabled or self._process_count_ok()
+            commit_ok = not cfg.commit_gate_enabled or self._commit_ok()
+            if process_ok and commit_ok:
+                return True
+            if self._coordinator.active_slot_count() == 0:
+                return True  # min-1: nothing in flight, always make forward progress
+            self._stop_event.wait(self.update_rate)  # interruptible defer
+        return False
+
+    def _process_count_ok(self) -> bool:
+        """Return ``True`` if the controller's descendant tree is below the ceiling (fail-open)."""
+        if self.controller_pid is None:
+            return True
+        count = subtree_process_count(self.controller_pid)
+        if count <= 0:  # fail-open: tree could not be read
+            return True
+        return count < self.gate_config.max_descendant_processes
+
+    def _commit_ok(self) -> bool:
+        """Return ``True`` if system commit charge is below the gate threshold (fail-open)."""
+        commit = commit_charge_and_limit()
+        if commit is None:
+            return True  # signal unavailable -> admit
+        commit_total, commit_limit = commit
+        if commit_limit <= 0:
+            return True
+        return (commit_total / commit_limit) < self.gate_config.commit_gate_threshold
 
     def stop(self):
         """Signal all work to stop as soon as possible."""

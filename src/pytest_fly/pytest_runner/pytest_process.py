@@ -129,6 +129,74 @@ def terminate_process_tree(pid: int | None, terminate_timeout: float = 3.0, kill
             log.warning(f"process did not die after kill: pid={proc.pid}")
 
 
+# One-shot guard so a persistently failing reap path logs at WARNING once rather than per call.
+_reap_warned_once = False
+
+
+@typechecked()
+def reap_pids(snapshot: set[tuple[int, float]], terminate_timeout: float = 3.0, kill_timeout: float = 2.0) -> None:
+    """Kill orphaned processes captured in *snapshot* after their parent has already exited.
+
+    On the normal-exit path a test's :class:`PytestProcess` is already dead, so its
+    descendant tree can no longer be walked from the parent. Instead the worker snapshots
+    the descendant set as ``{(pid, create_time)}`` while the test runs, and this reaps from
+    that snapshot afterward.  ``create_time`` is matched before killing so a recycled PID
+    belonging to an unrelated process is never touched (PID-reuse guard).
+
+    Fail-open: any psutil error is swallowed (logged once at WARNING); this never raises.
+
+    :param snapshot: ``{(pid, create_time)}`` captured while the test was alive.
+    :param terminate_timeout: Seconds to wait after SIGTERM before escalating to SIGKILL.
+    :param kill_timeout: Seconds to wait after SIGKILL for the OS to reap the processes.
+    """
+    global _reap_warned_once
+    if not snapshot:
+        return
+    try:
+        # Resolve only the snapshot entries that are still alive AND whose create_time
+        # still matches — anything else is already gone or a recycled PID we must not touch.
+        targets: list[psutil.Process] = []
+        for pid, create_time in snapshot:
+            try:
+                proc = psutil.Process(pid)
+                if abs(proc.create_time() - create_time) < 1e-3:
+                    targets.append(proc)
+            except (psutil.NoSuchProcess, psutil.AccessDenied, ValueError):
+                continue
+
+        if not targets:
+            return
+
+        log.info(f"reaping {len(targets)} orphaned process(es) left behind by a completed test")
+
+        for proc in targets:
+            try:
+                proc.terminate()
+            except (psutil.NoSuchProcess, psutil.AccessDenied) as e:
+                log.debug(f"could not terminate orphan pid={proc.pid}: {e}")
+
+        _, alive = psutil.wait_procs(targets, timeout=terminate_timeout)
+        if not alive:
+            return
+
+        for proc in alive:
+            try:
+                proc.kill()
+            except (psutil.NoSuchProcess, psutil.AccessDenied) as e:
+                log.debug(f"could not kill orphan pid={proc.pid}: {e}")
+
+        _, still_alive = psutil.wait_procs(alive, timeout=kill_timeout)
+        for proc in still_alive:
+            try:
+                log.warning(f"orphan did not die after kill: pid={proc.pid} name={proc.name()}")
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                log.warning(f"orphan did not die after kill: pid={proc.pid}")
+    except Exception as e:  # fail-open: reaping must never raise into the worker loop
+        if not _reap_warned_once:
+            _reap_warned_once = True
+            log.warning(f"error reaping orphaned processes (logged once): {e}", exc_info=True)
+
+
 class PytestProcess(Process):
     """
     A process that performs a pytest run.

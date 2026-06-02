@@ -267,6 +267,15 @@ class FlyAppMainWindow(QMainWindow):
             )
             tick.last_pass_data = last_pass_data
             tick.soft_stop_requested = control._soft_stop_requested
+            runner = control.pytest_runner
+            if runner is not None:
+                tick.stall_info = runner.get_stall_info()
+                # When a run has finished but some tests never reached a terminal state
+                # (e.g. singletons that were blocked behind a wedged slot), surface them.
+                completion = runner.get_run_completion()
+                if completion is not None and runner.is_user_complete():
+                    _n_terminal, _n_total, stuck = completion
+                    tick.run_complete_stuck = stuck
 
         with timer.time("cov"):
             self._coverage_tracker.handle_new_run(control.run_guid)
@@ -329,8 +338,9 @@ def fly_main(data_dir: Path, *, auto_start: bool = False, auto_quit_on_done: boo
                 return
             if runner.is_running():
                 state["saw_running"] = True
-                return
-            if state["saw_running"]:
+            # Quit once a run has started and is finished. Use the terminal-state completion
+            # view (Part D) in addition to thread liveness so a wedged worker can't prevent quit.
+            if state["saw_running"] and (not runner.is_running() or runner.is_user_complete()):
                 quit_timer.stop()
                 fly_app.close()
 

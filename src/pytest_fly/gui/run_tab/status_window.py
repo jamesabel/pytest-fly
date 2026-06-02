@@ -18,6 +18,14 @@ class StatusWindow(QGroupBox):
         layout = QVBoxLayout()
         self.setLayout(layout)
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.MinimumExpanding)
+        # Stall / completion banner (Part B/D). Rendered distinctly from the normal status text
+        # and hidden unless there is something to say.
+        self.stall_banner_label = QLabel("", self)
+        self.stall_banner_label.setFont(get_font())
+        self.stall_banner_label.setWordWrap(True)
+        self.stall_banner_label.setVisible(False)
+        layout.addWidget(self.stall_banner_label)
+
         self.status_widget = PlainTextWidget(self, "Loading...")
         layout.addWidget(self.status_widget)
 
@@ -136,6 +144,29 @@ class StatusWindow(QGroupBox):
             self.pass_rate_label.setStyleSheet("")
 
         self.status_widget.set_text("\n".join(lines))
+        self._update_banner(tick)
+
+    def _update_banner(self, tick: TickData) -> None:
+        """Render the stall warning (Part B) or the 'finished — N stuck' notice (Part D)."""
+        stall_info = tick.stall_info
+        if stall_info is not None and getattr(stall_info, "stalled", False):
+            stuck = getattr(stall_info, "stuck_tests", [])
+            idle = getattr(stall_info, "idle_pids", [])
+            seconds = getattr(stall_info, "seconds_since_progress", 0.0)
+            text = f"⚠ Run appears stalled — {len(stuck)} test(s) not progressing for {format_runtime(seconds)}, {len(idle)} in-flight process(es) idle.\nUse Force Stop to recover."
+            self.stall_banner_label.setText(text)
+            self.stall_banner_label.setStyleSheet("color: #b25400; font-weight: bold;")
+            self.stall_banner_label.setVisible(True)
+            return
+
+        if tick.run_complete_stuck:
+            n = len(tick.run_complete_stuck)
+            self.stall_banner_label.setText(f"Run finished — {n} test(s) stuck/skipped (never reached a terminal state).")
+            self.stall_banner_label.setStyleSheet("color: #b25400;")
+            self.stall_banner_label.setVisible(True)
+            return
+
+        self.stall_banner_label.setVisible(False)
 
     def _calculate_stopping_eta(self, tick: TickData) -> float | None:
         """Estimate wall-clock seconds until all running tests finish after a soft stop.

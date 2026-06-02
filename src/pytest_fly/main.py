@@ -1,6 +1,7 @@
 """Application bootstrap — configures logging and launches the Qt GUI."""
 
 import argparse
+import multiprocessing
 from pathlib import Path
 
 from .__version__ import application_name
@@ -25,6 +26,15 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def app_main(argv: list[str] | None = None):
     """Initialize logging and launch the GUI."""
+    # Force the 'spawn' start method on all platforms before any test subprocess is created.
+    # The controller is multi-threaded (worker pool + stall watchdog); on POSIX the default
+    # 'fork' lets a child inherit a lock held by another thread and deadlock. Windows already
+    # uses 'spawn', so this aligns POSIX with the known-good path.
+    try:
+        multiprocessing.set_start_method("spawn", force=True)
+    except RuntimeError:
+        pass
+
     args = _parse_args(argv)
 
     # Resolve the PUT first; per-PUT preferences live under <PUT>/.pytest-fly/, so every

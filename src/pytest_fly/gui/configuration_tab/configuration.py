@@ -4,7 +4,6 @@ parallelism, refresh rate, and utilization thresholds.
 """
 
 from collections.abc import Callable
-from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QDoubleValidator, QIntValidator, QValidator
@@ -18,7 +17,6 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QListWidgetItem,
-    QMessageBox,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -32,7 +30,7 @@ from pytest_fly.gui.about_tab.project_info import get_project_info
 from pytest_fly.gui.gui_util import get_text_dimensions
 from pytest_fly.interfaces import OrderingAspect, RunMode
 from pytest_fly.logger import get_logger
-from pytest_fly.paths import get_default_data_dir, write_last_target
+from pytest_fly.paths import get_default_data_dir
 from pytest_fly.platform.platform_info import get_performance_core_count
 from pytest_fly.preferences import (
     TIME_UNITS,
@@ -428,24 +426,18 @@ class Configuration(QWidget):
 
         layout.addWidget(QLabel(""))  # space
 
-        # Target project path (PUT). Per-PUT preferences live under <PUT>/.pytest-fly/, so
-        # the active PUT can't be changed without reopening the preference DB — edits here
-        # take effect on the next launch.
+        # Target project path (PUT). The PUT is always the directory pytest-fly was launched
+        # from (or an explicit --target); it is not user-configurable here. Per-PUT preferences
+        # live under <PUT>/.pytest-fly/, so changing it requires relaunching from that directory.
         self._active_put_path = str(get_active_put_path())
         layout.addWidget(QLabel("Target Project Path (program under test)"))
-        target_path_row = QHBoxLayout()
         self.target_project_path_lineedit = QLineEdit()
         self.target_project_path_lineedit.setText(self._active_put_path)
-        self.target_project_path_lineedit.editingFinished.connect(self._commit_target_project_path)
-        target_path_row.addWidget(self.target_project_path_lineedit)
-        self.target_project_path_browse = QPushButton("Browse…")
-        self.target_project_path_browse.clicked.connect(self._browse_target_project_path)
-        target_path_row.addWidget(self.target_project_path_browse)
-        layout.addLayout(target_path_row)
-        self.target_project_path_restart_label = QLabel("Restart pytest-fly to apply the new target.")
-        self.target_project_path_restart_label.setStyleSheet("color: #b25400;")
-        self.target_project_path_restart_label.setVisible(False)
-        layout.addWidget(self.target_project_path_restart_label)
+        self.target_project_path_lineedit.setReadOnly(True)
+        layout.addWidget(self.target_project_path_lineedit)
+        target_path_hint = QLabel("Set by the launch directory or --target. Relaunch pytest-fly from another project to change it.")
+        target_path_hint.setStyleSheet("color: gray;")
+        layout.addWidget(target_path_hint)
 
         layout.addWidget(QLabel(""))  # space
 
@@ -764,32 +756,6 @@ class Configuration(QWidget):
         pref = get_pref()
         if value.isnumeric():
             pref.graph_font_size = max(int(value), minimum_graph_font_size)
-
-    def _commit_target_project_path(self):
-        """Persist the target-project path and prompt for a restart if it changed."""
-        new_value = self.target_project_path_lineedit.text().strip()
-        if not new_value:
-            # Empty input is meaningless — restore the displayed value to the active PUT.
-            self.target_project_path_lineedit.setText(self._active_put_path)
-            return
-        new_path = Path(new_value).resolve()
-        if str(new_path) == self._active_put_path:
-            return  # no change
-        write_last_target(new_path)
-        self.target_project_path_restart_label.setVisible(True)
-        QMessageBox.information(
-            self,
-            "Restart required",
-            f"Target project will change to:\n\n{new_path}\n\nRestart pytest-fly to apply.",
-        )
-
-    def _browse_target_project_path(self):
-        """Open a directory picker to choose the target project path."""
-        start = self.target_project_path_lineedit.text().strip() or self._active_put_path
-        selected = QFileDialog.getExistingDirectory(self, "Select target project directory", start)
-        if selected:
-            self.target_project_path_lineedit.setText(selected)
-            self._commit_target_project_path()
 
     def update_test_results_db_dir(self, value: str):
         """Persist the test-results DB directory override (empty = platform default)."""

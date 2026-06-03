@@ -2,7 +2,7 @@
 
 import pytest
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QFileDialog, QMessageBox
+from PySide6.QtWidgets import QFileDialog
 
 from pytest_fly.gui.configuration_tab.configuration import Configuration, OrderingAspectsWidget
 from pytest_fly.interfaces import RunMode
@@ -101,44 +101,22 @@ def test_test_results_db_dir_update(app):
     assert get_pref().test_results_db_dir == "/some/dir"
 
 
-def test_commit_target_project_path(app, tmp_path, monkeypatch):
-    """A changed target path is persisted and surfaces the restart label."""
-    monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: None)
-    written = {}
-    monkeypatch.setattr("pytest_fly.gui.configuration_tab.configuration.write_last_target", lambda p: written.setdefault("path", p))
-
+def test_target_project_path_is_read_only(app):
+    """The PUT is set by the launch directory / --target, so the field is display-only."""
     cfg = Configuration()
-    new_dir = tmp_path / "new_target"
-    new_dir.mkdir()
-    cfg.target_project_path_lineedit.setText(str(new_dir))
-    cfg._commit_target_project_path()
-
-    assert written["path"] == new_dir.resolve()
-    # isVisible() is False while the parent window is unshown; isHidden() reflects the explicit setVisible(True).
-    assert not cfg.target_project_path_restart_label.isHidden()
-
-
-def test_commit_target_project_path_empty_restores(app):
-    """Empty input restores the active PUT path and persists nothing."""
-    cfg = Configuration()
-    cfg.target_project_path_lineedit.setText("   ")
-    cfg._commit_target_project_path()
+    assert cfg.target_project_path_lineedit.isReadOnly()
     assert cfg.target_project_path_lineedit.text() == cfg._active_put_path
 
 
 def test_browse_dialogs(app, tmp_path, monkeypatch):
-    """The Browse buttons feed the picked directory into the line edits."""
+    """The Browse button feeds the picked directory into the results-DB line edit."""
     picked = str(tmp_path / "picked")
     (tmp_path / "picked").mkdir()
     monkeypatch.setattr(QFileDialog, "getExistingDirectory", lambda *a, **k: picked)
-    monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: None)
 
     cfg = Configuration()
     cfg._browse_test_results_db_dir()
     assert cfg.test_results_db_dir_lineedit.text() == picked
-
-    cfg._browse_target_project_path()
-    assert cfg.target_project_path_lineedit.text() == picked
 
 
 def test_ordering_widget_move_and_toggle(app):

@@ -1,18 +1,21 @@
 """Tests for the Configuration tab preference-editing logic."""
 
+from pathlib import Path
+
 import pytest
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QFileDialog
 
 from pytest_fly.gui.configuration_tab.configuration import Configuration, OrderingAspectsWidget
 from pytest_fly.interfaces import RunMode
-from pytest_fly.preferences import get_pref, init_preferences_for_put
+from pytest_fly.paths import get_workspace_dir, init_workspace
+from pytest_fly.preferences import get_active_put_path, get_pref
 
 
 @pytest.fixture(autouse=True)
-def _isolated_prefs(tmp_path):
-    """Rebind preferences to a per-test tmp dir so edits never touch shared state."""
-    init_preferences_for_put(tmp_path)
+def _isolated_workspace(tmp_path):
+    """Rebind the workspace to a per-test tmp dir so edits never touch shared state."""
+    init_workspace(tmp_path)
 
 
 def test_update_checkbox_prefs(app):
@@ -101,15 +104,40 @@ def test_test_results_db_dir_update(app):
     assert get_pref().test_results_db_dir == "/some/dir"
 
 
-def test_target_project_path_is_read_only(app):
-    """The PUT is set by the launch directory / --target, so the field is display-only."""
+def test_target_project_path_defaults_to_workspace(app):
+    """With no stored PUT, the field shows the workspace dir (empty pref resolves to it)."""
     cfg = Configuration()
-    assert cfg.target_project_path_lineedit.isReadOnly()
-    assert cfg.target_project_path_lineedit.text() == cfg._active_put_path
+    assert get_pref().put_path == ""
+    assert cfg.target_project_path_lineedit.text() == str(get_workspace_dir())
+
+
+def test_commit_target_project_path_persists(app, tmp_path):
+    """Editing the field persists the PUT preference, applied on the next run."""
+    new_dir = tmp_path / "new_target"
+    new_dir.mkdir()
+
+    cfg = Configuration()
+    cfg.target_project_path_lineedit.setText(str(new_dir))
+    cfg._commit_target_project_path()
+
+    assert get_pref().put_path == str(new_dir.resolve())
+    assert get_active_put_path() == new_dir.resolve()
+
+
+def test_commit_empty_target_falls_back_to_workspace(app, tmp_path):
+    """Clearing the field clears the stored PUT and restores the workspace dir."""
+    cfg = Configuration()
+    get_pref().put_path = str(tmp_path / "stale")
+
+    cfg.target_project_path_lineedit.setText("   ")
+    cfg._commit_target_project_path()
+
+    assert get_pref().put_path == ""
+    assert cfg.target_project_path_lineedit.text() == str(get_workspace_dir())
 
 
 def test_browse_dialogs(app, tmp_path, monkeypatch):
-    """The Browse button feeds the picked directory into the results-DB line edit."""
+    """The Browse buttons feed the picked directory into their line edits."""
     picked = str(tmp_path / "picked")
     (tmp_path / "picked").mkdir()
     monkeypatch.setattr(QFileDialog, "getExistingDirectory", lambda *a, **k: picked)
@@ -117,6 +145,10 @@ def test_browse_dialogs(app, tmp_path, monkeypatch):
     cfg = Configuration()
     cfg._browse_test_results_db_dir()
     assert cfg.test_results_db_dir_lineedit.text() == picked
+
+    cfg._browse_target_project_path()
+    assert cfg.target_project_path_lineedit.text() == picked
+    assert get_pref().put_path == str(Path(picked).resolve())
 
 
 def test_ordering_widget_move_and_toggle(app):

@@ -8,8 +8,8 @@ from .__version__ import application_name
 from .gui import fly_main
 from .gui.about_tab.project_info import get_project_info
 from .logger import get_logger, init_parent_logger
-from .paths import get_default_data_dir
-from .preferences import get_pref, init_preferences_for_put
+from .paths import get_default_data_dir, get_workspace_dir, init_workspace
+from .preferences import get_active_put_path, get_pref, set_active_put_path
 from .put_version import detect_put_version
 
 log = get_logger(application_name)
@@ -17,7 +17,12 @@ log = get_logger(application_name)
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog=application_name, description="pytest-fly: pytest runner and observer GUI")
-    parser.add_argument("--target", type=Path, default=None, help="Target project directory (the program under test). Defaults to the current working directory.")
+    parser.add_argument(
+        "--target",
+        type=Path,
+        default=None,
+        help="Target project directory (the program under test). Persisted as the configured PUT; defaults to the last configured value, else the launch directory.",
+    )
     parser.add_argument("--data-dir", type=Path, default=None, help="Override the test-results DB directory for this run. Takes precedence over the saved preference and the platform default.")
     parser.add_argument("--auto-start", action="store_true", help="Automatically click the Run button shortly after the window appears.")
     parser.add_argument("--auto-quit-on-done", action="store_true", help="Close the window once the active test run finishes. Pair with --auto-start for unattended runs.")
@@ -37,21 +42,27 @@ def app_main(argv: list[str] | None = None):
 
     args = _parse_args(argv)
 
-    # Resolve the PUT first; per-PUT preferences live under <PUT>/.pytest-fly/, so every
-    # subsequent pref access (including verbose-flag-driven log init) needs this bound.
-    # Precedence: explicit --target > current working directory. The PUT is always local
-    # to where pytest-fly is launched; there is no global "remembered target" pointer.
-    put_path = args.target.resolve() if args.target is not None else Path.cwd()
-    init_preferences_for_put(put_path)
-    log.info(f"program under test path: {put_path}")
+    # Bind the workspace first: pytest-fly's storage (preferences, logs, results DB) all lives
+    # under <workspace>/.pytest-fly/, where the workspace is the launch directory. Every
+    # subsequent pref/log access depends on this binding.
+    init_workspace(Path.cwd())
 
     pref = get_pref()
+    # The PUT (program under test) is a stored preference, independent of the workspace.
+    # An explicit --target persists as the new configured PUT; otherwise the stored value
+    # (or the workspace dir, when unset) is used.
+    if args.target is not None:
+        set_active_put_path(args.target.resolve())
+    put_path = get_active_put_path()
+
     init_parent_logger(verbose=pref.verbose)
+    log.info(f"workspace: {get_workspace_dir()}")
+    log.info(f"program under test path: {put_path}")
 
     project_info = get_project_info()
     log.info(f"{project_info.application_name} version {project_info.version}")
 
-    # Precedence: --data-dir CLI > pref.test_results_db_dir > platform default.
+    # Precedence: --data-dir CLI > pref.test_results_db_dir > workspace-local default.
     if args.data_dir is not None:
         data_dir = args.data_dir.resolve()
     elif pref.test_results_db_dir:

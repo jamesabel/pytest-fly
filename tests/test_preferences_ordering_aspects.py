@@ -3,12 +3,12 @@
 import pytest
 
 from pytest_fly.interfaces import OrderingAspect
+from pytest_fly.paths import init_workspace
 from pytest_fly.preferences import (
     _default_ordering_aspect_seed,
     get_ordering_aspects_ordered,
     get_ordering_aspects_set,
     get_pref,
-    init_preferences_for_put,
     reset_pref_cache,
     set_ordering_aspects_ordered,
 )
@@ -16,12 +16,12 @@ from pytest_fly.preferences import (
 
 @pytest.fixture
 def isolated_prefs(tmp_path):
-    """Bind preference storage to a unique tmp PUT dir for each test.
+    """Bind the workspace to a unique tmp dir for each test.
 
-    Per-PUT preferences live at ``<PUT>/.pytest-fly/preferences.db``; pointing
-    the PUT at ``tmp_path`` gives each test a fresh, isolated DB.
+    All preferences live at ``<workspace>/.pytest-fly/preferences.db``; pointing
+    the workspace at ``tmp_path`` gives each test a fresh, isolated DB.
     """
-    init_preferences_for_put(tmp_path)
+    init_workspace(tmp_path)
     yield tmp_path
     reset_pref_cache()
 

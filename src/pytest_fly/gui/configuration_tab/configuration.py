@@ -435,6 +435,12 @@ class Configuration(QWidget):
         target_path_row = QHBoxLayout()
         self.target_project_path_lineedit = QLineEdit()
         self.target_project_path_lineedit.setText(self._active_put_path)
+        self.target_project_path_lineedit.setToolTip(
+            "Tests are collected recursively from this path. To run only a subset (e.g. just your\n"
+            "'tests' directory), point this at that subdirectory.\n\n"
+            "Note: pytest's testpaths setting is not used — pytest-fly passes this path to pytest\n"
+            "explicitly, which overrides testpaths."
+        )
         self.target_project_path_lineedit.editingFinished.connect(self._commit_target_project_path)
         target_path_row.addWidget(self.target_project_path_lineedit)
         self.target_project_path_browse = QPushButton("Browse…")
@@ -786,6 +792,20 @@ class Configuration(QWidget):
         if selected:
             self.target_project_path_lineedit.setText(selected)
             self._commit_target_project_path()
+
+    def refresh_target_project_path(self):
+        """Re-read the configured PUT into the field (e.g. after the missing-path dialog set it)."""
+        self._active_put_path = str(get_active_put_path())
+        self.target_project_path_lineedit.setText(self._active_put_path)
+
+    def showEvent(self, event):
+        """Refresh the PUT field on each show so it always reflects the current preference.
+
+        The missing-path dialog (run-time or startup) can change the PUT out from under this tab;
+        refreshing on show keeps the field current and avoids re-committing a stale path.
+        """
+        self.refresh_target_project_path()
+        super().showEvent(event)
 
     def update_test_results_db_dir(self, value: str):
         """Persist the test-results DB directory override (empty = workspace-local default)."""

@@ -36,7 +36,7 @@ pip install pytest-fly
   - **Coverage** — line chart of combined code coverage over time with covered/total line counts
   - **Configuration** — Resume-vs-Check toggle, a reorderable test-ordering aspect list, process
     count, refresh rate, utilization thresholds, tooltip line limit, system-metrics chart window,
-    Progress Graph font size, target project path (restart required to switch projects),
+    Progress Graph font size, target project path (applies on the next run),
     test-results DB directory, and an Expert group (verbose logging, UI performance logging)
   - **About** — system and project information
 - Parallel test execution at the module level with configurable process count.
@@ -51,10 +51,13 @@ complete. The Coverage tab plots coverage over time, and the Table shows per-tes
 Coverage persists across restarts so previously-passed tests contribute to the total.
 - Singleton test support via `@pytest.mark.singleton` — singleton tests run exclusively with no other tests
 executing concurrently.
-- Per-project preferences — each program under test gets its own settings at
-`<project>/.pytest-fly/preferences.db`, so parallelism, run mode, and ordering choices follow the
-project rather than the user. Select the project at startup with `--target <path>` (the last
-selection is remembered across launches) or change it from the Configuration tab and relaunch.
+- Workspace-local storage — pytest-fly keeps everything it produces (preferences, logs, and the
+test-results DB) under `<workspace>/.pytest-fly/`, where the *workspace* is the directory
+pytest-fly is launched from. Nothing is written to per-user "appdir" space, so settings, logs, and
+results follow the project rather than the user.
+- Configurable program under test (PUT) — the project whose tests are collected and run is set
+with `--target <path>` at startup or from the Configuration tab's *Target Project Path* field, and
+takes effect on the next run (no relaunch). See [Choosing Which Tests Run](#choosing-which-tests-run).
 
 # Screenshots
 
@@ -127,6 +130,30 @@ All aspects apply in every run mode, including Restart — prior-run data shapes
 not *which* tests run. Tests missing the data an aspect needs tie for last under that aspect.
 `singleton` tests always run last, regardless of these settings, to maximize parallel throughput
 before exclusive execution begins.
+
+## Choosing Which Tests Run
+
+`pytest-fly` discovers tests by running `pytest --collect-only` against the **Target Project Path**
+(the program under test) and collecting *every* test under that path, recursively. So the simplest
+way to control which tests run is to point the Target Project Path at the directory you want — for
+example, set it to `<project>/tests` to run only the tests there and skip sibling directories such
+as example or demo code.
+
+Set it with `--target <path>` at startup, or in the Configuration tab's **Target Project Path**
+field (Browse… to pick a directory). Changes apply on the next run. Your project-root `pytest.ini`
+/ `pyproject.toml` is still located normally, so `pythonpath`, markers, and other settings keep
+working — only the *collection scope* narrows to the chosen path.
+
+> **Note:** pytest's `testpaths` setting is **not** honored under pytest-fly. pytest-fly passes the
+> Target Project Path to pytest as an explicit positional argument, and an explicit path overrides
+> `testpaths` (which pytest only consults when invoked with no path arguments). To scope collection,
+> use the Target Project Path, or — if you need the Target Project Path to stay at the project root
+> (e.g. for whole-project coverage) — exclude directories with a root `conftest.py`:
+>
+> ```python
+> # conftest.py (project root)
+> collect_ignore_glob = ["fly_demo/*"]
+> ```
 
 # What's Up With The Name?
 

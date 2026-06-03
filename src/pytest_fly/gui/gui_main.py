@@ -38,6 +38,7 @@ from .graph_tab import GraphTab
 from .gui_util import PhaseTimer, compute_average_parallelism, compute_time_window, get_font, get_text_dimensions, group_process_infos_by_name
 from .run_tab import RunTab
 from .table_tab import TableTab
+from .target_path_dialog import ensure_valid_target_project_path
 
 log = get_logger()
 
@@ -333,6 +334,13 @@ def fly_main(data_dir: Path, *, auto_start: bool = False, auto_quit_on_done: boo
     app = QApplication([])
     fly_app = FlyAppMainWindow(data_dir)
     fly_app.show()
+
+    # If the configured target project path is missing, guide the user to a valid one right away
+    # rather than letting them discover an empty run later. Skipped under automation (auto_start),
+    # where a modal would block and the path is controlled by the caller.
+    if not auto_start:
+        if ensure_valid_target_project_path(fly_app) is not None:
+            fly_app.configuration.refresh_target_project_path()
 
     if auto_start:
         # Give the window one paint cycle so test discovery has a populated UI to render into.

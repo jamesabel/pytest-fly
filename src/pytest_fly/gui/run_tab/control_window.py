@@ -18,12 +18,13 @@ from ...db import PytestProcessInfoDB
 from ...guid import generate_uuid
 from ...interfaces import OrderingAspect, PutVersionInfo, PyTestFlyExitCode, RunMode, ScheduledTest
 from ...logger import get_logger
-from ...preferences import ParallelismControl, duration_to_seconds, get_active_put_path, get_ordering_aspects_ordered, get_pref
+from ...preferences import ParallelismControl, duration_to_seconds, get_ordering_aspects_ordered, get_pref
 from ...put_version import detect_put_version
 from ...pytest_runner.coverage import compute_per_test_coverage
 from ...pytest_runner.ordering import OrderingContext, apply_ordering_aspects
 from ...pytest_runner.pytest_runner import PytestRunner, _AdmissionGateConfig, _StallConfig
 from ...pytest_runner.test_list import GetTests
+from ..target_path_dialog import ensure_valid_target_project_path
 from .control_pushbutton import ControlButton
 from .parallelism_control_box import ParallelismControlBox
 from .run_mode_control_box import RunModeControlBox
@@ -149,9 +150,13 @@ class ControlWindow(QGroupBox):
         """Discover tests and launch a new :class:`PytestRunner`."""
         pref = get_pref()
 
-        # Resolve the PUT path bound at app startup so test discovery and PUT-version
-        # detection use the same root the rest of the app sees.
-        project_root = get_active_put_path()
+        # Resolve the configured PUT for test discovery and PUT-version detection. If it points at
+        # a directory that no longer exists, guide the user to a valid one before discovering;
+        # abort the run if they cancel rather than collecting from a missing path.
+        project_root = ensure_valid_target_project_path(self)
+        if project_root is None:
+            log.info("Run aborted: target project path is not set to an existing directory.")
+            return
         self.put_version_info = detect_put_version(project_root)
         log.info(f"PUT detected: {self.put_version_info}")
 

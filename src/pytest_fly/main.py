@@ -8,7 +8,7 @@ from .__version__ import application_name
 from .gui import fly_main
 from .gui.about_tab.project_info import get_project_info
 from .logger import get_logger, init_parent_logger
-from .paths import get_default_data_dir, read_last_target, write_last_target
+from .paths import get_default_data_dir
 from .preferences import get_pref, init_preferences_for_put
 from .put_version import detect_put_version
 
@@ -39,15 +39,10 @@ def app_main(argv: list[str] | None = None):
 
     # Resolve the PUT first; per-PUT preferences live under <PUT>/.pytest-fly/, so every
     # subsequent pref access (including verbose-flag-driven log init) needs this bound.
-    # Precedence: explicit --target > persisted last_target file > cwd.
-    if args.target is not None:
-        put_path = args.target.resolve()
-    else:
-        saved = read_last_target()
-        put_path = saved.resolve() if saved is not None else Path.cwd()
+    # Precedence: explicit --target > current working directory. The PUT is always local
+    # to where pytest-fly is launched; there is no global "remembered target" pointer.
+    put_path = args.target.resolve() if args.target is not None else Path.cwd()
     init_preferences_for_put(put_path)
-    # Persist whichever PUT we just resolved so a no-arg relaunch picks the same one.
-    write_last_target(put_path)
     log.info(f"program under test path: {put_path}")
 
     pref = get_pref()

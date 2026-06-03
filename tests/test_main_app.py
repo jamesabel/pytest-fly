@@ -33,10 +33,9 @@ def test_app_main_resolves_target_and_launches(tmp_path, monkeypatch):
         captured["auto_start"] = auto_start
         captured["auto_quit_on_done"] = auto_quit_on_done
 
-    # Stub out the blocking GUI launch and the global-logging reconfig / last-target side effect.
+    # Stub out the blocking GUI launch and the global-logging reconfig.
     monkeypatch.setattr(main_module, "fly_main", fake_fly_main)
     monkeypatch.setattr(main_module, "init_parent_logger", lambda verbose: None)
-    monkeypatch.setattr(main_module, "write_last_target", lambda target: None)
 
     target = tmp_path / "put"
     target.mkdir()
@@ -50,20 +49,21 @@ def test_app_main_resolves_target_and_launches(tmp_path, monkeypatch):
     assert data_dir.exists()  # app_main creates the data dir
 
 
-def test_app_main_uses_saved_target_when_no_arg(tmp_path, monkeypatch):
-    """With no --target, app_main falls back to the persisted last-target path."""
+def test_app_main_uses_cwd_when_no_target_arg(tmp_path, monkeypatch):
+    """With no --target, app_main resolves the PUT to the current working directory."""
     captured = {}
-    saved_target = tmp_path / "saved_put"
-    saved_target.mkdir()
 
     monkeypatch.setattr(main_module, "fly_main", lambda data_dir, **kw: captured.setdefault("data_dir", data_dir))
     monkeypatch.setattr(main_module, "init_parent_logger", lambda verbose: None)
-    monkeypatch.setattr(main_module, "write_last_target", lambda target: captured.setdefault("written", target))
-    monkeypatch.setattr(main_module, "read_last_target", lambda: saved_target)
+    monkeypatch.setattr(main_module, "init_preferences_for_put", lambda put_path: captured.setdefault("put_path", put_path))
+
+    cwd = tmp_path / "cwd_put"
+    cwd.mkdir()
+    monkeypatch.chdir(cwd)
 
     data_dir = tmp_path / "results2"
     app_main(["--data-dir", str(data_dir)])
 
-    # The saved target was resolved and persisted again.
-    assert captured["written"].resolve() == saved_target.resolve()
+    # The PUT is the cwd; nothing global was consulted.
+    assert captured["put_path"].resolve() == cwd.resolve()
     assert captured["data_dir"] == data_dir.resolve()

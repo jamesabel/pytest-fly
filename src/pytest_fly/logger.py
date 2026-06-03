@@ -10,7 +10,7 @@ directory.
 """
 
 import logging
-from logging import FileHandler, Formatter, Logger
+from logging import Formatter, Logger
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
@@ -32,6 +32,22 @@ def _resolve_log_directory() -> Path:
     return log_dir
 
 
+def _purge_process_monitor_logs(log_dir: Path) -> None:
+    """Delete stale ``process_monitor-<pid>.log`` files left by prior runs.
+
+    One of these is created per monitored PID (:meth:`ProcessMonitor.run`), but the
+    monitor itself logs almost nothing, so they accumulate as thousands of orphaned
+    near-empty files that slow every directory scan.  They are per-run ephemeral debug
+    files, so a fresh parent launch can clear them.  Files still held open by a
+    concurrently running instance raise on unlink and are skipped.
+    """
+    for path in log_dir.glob("process_monitor-*.log"):
+        try:
+            path.unlink()
+        except OSError:
+            pass  # locked by a live monitor, or already gone — leave it
+
+
 def init_parent_logger(verbose: bool) -> Path:
     """Configure the parent process's root logger.
 
@@ -41,6 +57,7 @@ def init_parent_logger(verbose: bool) -> Path:
     """
     global _log_directory
     log_dir = _resolve_log_directory()
+    _purge_process_monitor_logs(log_dir)
     level = logging.DEBUG if verbose else logging.INFO
     formatter = Formatter(_LOG_FORMAT)
 
@@ -58,19 +75,23 @@ def init_parent_logger(verbose: bool) -> Path:
 
 
 def configure_child_logger(log_file_name: str) -> None:
-    """Install a per-child :class:`FileHandler` on the root logger.
+    """Install a per-child :class:`RotatingFileHandler` on the root logger.
 
     Spawn children inherit no handlers; without this the stdlib falls back
     to ``logging.lastResort`` → a potentially-closed ``sys.stderr`` and
     raises ``ValueError`` on the first record. Each child writes DEBUG+ to
     its own file so nothing is dropped.
+
+    The handler rotates (10 MB × 5 backups) so a chatty test no longer grows a
+    single log without bound across runs — these files append on every run, and
+    at DEBUG a single long test could otherwise reach gigabytes.
     """
     log_dir = _resolve_log_directory()
     root = logging.getLogger()
     for handler in list(root.handlers):
         root.removeHandler(handler)
     root.setLevel(logging.DEBUG)
-    file_handler = FileHandler(log_dir / log_file_name, mode="a", encoding="utf-8")
+    file_handler = RotatingFileHandler(log_dir / log_file_name, maxBytes=_MAX_BYTES, backupCount=_BACKUP_COUNT, encoding="utf-8")
     file_handler.setFormatter(Formatter(_LOG_FORMAT))
     root.addHandler(file_handler)
 

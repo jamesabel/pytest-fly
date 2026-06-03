@@ -4,6 +4,7 @@ parallelism, refresh rate, and utilization thresholds.
 """
 
 from collections.abc import Callable
+from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QDoubleValidator, QIntValidator, QValidator
@@ -45,6 +46,7 @@ from pytest_fly.preferences import (
     graph_font_size_default,
     max_descendant_processes_default,
     refresh_rate_default,
+    set_active_put_path,
     set_ordering_aspects_ordered,
     stall_kill_value_default,
     stall_warn_value_default,
@@ -426,22 +428,26 @@ class Configuration(QWidget):
 
         layout.addWidget(QLabel(""))  # space
 
-        # Target project path (PUT). The PUT is always the directory pytest-fly was launched
-        # from (or an explicit --target); it is not user-configurable here. Per-PUT preferences
-        # live under <PUT>/.pytest-fly/, so changing it requires relaunching from that directory.
+        # Target project path (PUT). Stored as a preference (independent of where pytest-fly keeps
+        # its own data), so it is freely editable here and takes effect on the next test run.
         self._active_put_path = str(get_active_put_path())
         layout.addWidget(QLabel("Target Project Path (program under test)"))
+        target_path_row = QHBoxLayout()
         self.target_project_path_lineedit = QLineEdit()
         self.target_project_path_lineedit.setText(self._active_put_path)
-        self.target_project_path_lineedit.setReadOnly(True)
-        layout.addWidget(self.target_project_path_lineedit)
-        target_path_hint = QLabel("Set by the launch directory or --target. Relaunch pytest-fly from another project to change it.")
+        self.target_project_path_lineedit.editingFinished.connect(self._commit_target_project_path)
+        target_path_row.addWidget(self.target_project_path_lineedit)
+        self.target_project_path_browse = QPushButton("Browse…")
+        self.target_project_path_browse.clicked.connect(self._browse_target_project_path)
+        target_path_row.addWidget(self.target_project_path_browse)
+        layout.addLayout(target_path_row)
+        target_path_hint = QLabel("The project whose tests are run. Applies on the next run; empty resolves to the launch directory.")
         target_path_hint.setStyleSheet("color: gray;")
         layout.addWidget(target_path_hint)
 
         layout.addWidget(QLabel(""))  # space
 
-        # Test results DB directory — empty means use the platform default (platformdirs user data dir).
+        # Test results DB directory — empty means use the workspace-local default (<workspace>/.pytest-fly/).
         default_results_dir = str(get_default_data_dir())
         layout.addWidget(QLabel(f"Test Results DB Directory (empty = default: {default_results_dir})"))
         results_dir_row = QHBoxLayout()
@@ -757,8 +763,32 @@ class Configuration(QWidget):
         if value.isnumeric():
             pref.graph_font_size = max(int(value), minimum_graph_font_size)
 
+    def _commit_target_project_path(self):
+        """Persist the edited target-project (PUT) path; empty input falls back to the workspace dir."""
+        new_value = self.target_project_path_lineedit.text().strip()
+        if not new_value:
+            # Empty means "use the launch directory" — clear the stored override and reflect the resolved path.
+            get_pref().put_path = ""
+            self._active_put_path = str(get_active_put_path())
+            self.target_project_path_lineedit.setText(self._active_put_path)
+            return
+        new_path = Path(new_value).resolve()
+        if str(new_path) == self._active_put_path:
+            return  # no change
+        set_active_put_path(new_path)
+        self._active_put_path = str(new_path)
+        self.target_project_path_lineedit.setText(self._active_put_path)
+
+    def _browse_target_project_path(self):
+        """Open a directory picker to choose the target project (PUT) path."""
+        start = self.target_project_path_lineedit.text().strip() or self._active_put_path
+        selected = QFileDialog.getExistingDirectory(self, "Select target project directory", start)
+        if selected:
+            self.target_project_path_lineedit.setText(selected)
+            self._commit_target_project_path()
+
     def update_test_results_db_dir(self, value: str):
-        """Persist the test-results DB directory override (empty = platform default)."""
+        """Persist the test-results DB directory override (empty = workspace-local default)."""
         pref = get_pref()
         pref.test_results_db_dir = value.strip()
 

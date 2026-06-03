@@ -1,11 +1,10 @@
 """
-Persistent user preferences backed by a per-PUT SQLite file via the *pref* library.
+Persistent user preferences backed by a workspace-local SQLite file via the *pref* library.
 
-Each program under test (PUT) gets its own preferences DB at
-``<PUT>/.pytest-fly/preferences.db``.  The PUT path is established at
-application startup via :func:`init_preferences_for_put`; every preference
-accessor downstream — including :class:`FlyPreferences` and the ordering-aspect
-:class:`PrefOrderedSet` — resolves storage relative to that path.
+Preferences live at ``<workspace>/.pytest-fly/preferences.db`` — the *workspace* is the
+directory pytest-fly was launched from (see :mod:`pytest_fly.paths`).  The program-under-test
+(PUT) — the project whose tests are run — is itself one of these preferences (:attr:`put_path`),
+so it can be reconfigured at runtime without moving the preference DB.
 """
 
 from enum import IntEnum
@@ -16,10 +15,9 @@ from pref import Pref, PrefOrderedSet
 
 from .__version__ import application_name, author
 from .interfaces import OrderingAspect, RunMode
+from .paths import get_preferences_db_path, get_workspace_dir, preferences_file_name
 from .platform import get_performance_core_count
 
-preferences_file_name = "preferences.db"
-preferences_dir_name = f".{application_name}"  # ".pytest-fly" — hidden dir inside the PUT root
 _ordering_aspects_table = "ordering_aspects"
 _default_ordering_aspect_seed: list[OrderingAspect] = [OrderingAspect.FAILED_FIRST, OrderingAspect.NEVER_RUN_FIRST]
 
@@ -66,39 +64,23 @@ class ParallelismControl(IntEnum):
     DYNAMIC = 2  # automatically dynamically determine max number of processes to run in parallel, while trying to avoid high utilization thresholds (see utilization_high_threshold)
 
 
-_active_put_path: Path | None = None
-
-
-def init_preferences_for_put(put_path: Path) -> None:
-    """Bind preference storage to ``put_path`` for the current process.
-
-    Must be called once at startup before any :func:`get_pref` or
-    :func:`get_ordering_aspects_set` call — the PUT path drives the SQLite
-    location for both :class:`FlyPreferences` and the ordering-aspect
-    :class:`PrefOrderedSet`.  Calling again with a different path invalidates
-    the cached pref instance so the next access reopens against the new PUT.
-    """
-    global _active_put_path
-    resolved = put_path.resolve()
-    if _active_put_path != resolved:
-        _active_put_path = resolved
-        reset_pref_cache()
-
-
 def get_active_put_path() -> Path:
-    """Return the PUT path bound via :func:`init_preferences_for_put`."""
-    if _active_put_path is None:
-        raise RuntimeError("init_preferences_for_put() must be called before accessing preferences")
-    return _active_put_path
+    """Return the configured program-under-test path.
+
+    The PUT is stored in :attr:`FlyPreferences.put_path`; an empty value (the default)
+    means "use the workspace directory", so a freshly launched project tests itself.
+    """
+    put = get_pref().put_path
+    return Path(put).resolve() if put else get_workspace_dir()
 
 
-def get_preferences_db_path() -> Path:
-    """Return the path to the per-PUT preferences DB."""
-    return Path(get_active_put_path(), preferences_dir_name, preferences_file_name)
+def set_active_put_path(put_path: Path) -> None:
+    """Persist *put_path* as the configured program-under-test.
 
-
-def _ensure_preferences_dir() -> None:
-    get_preferences_db_path().parent.mkdir(parents=True, exist_ok=True)
+    Takes effect on the next test run — :meth:`ControlWindow.run` reads
+    :func:`get_active_put_path` afresh — so no application restart is required.
+    """
+    get_pref().put_path = str(put_path.resolve())
 
 
 @attrs
@@ -109,6 +91,10 @@ class FlyPreferences(Pref):
     # hex-encoded. Using Qt's own (de)serialization round-trips the exact frame and screen placement
     # across multi-monitor / maximized cases; empty = first run.
     window_geometry: str = attrib(default="")
+
+    # Program-under-test directory (the project whose tests are run). Empty = use the workspace
+    # dir (the launch directory). Editable in the Configuration tab; resolve via get_active_put_path().
+    put_path: str = attrib(default="")
 
     verbose: bool = attrib(default=False)
     refresh_rate: float = attrib(default=refresh_rate_default)  # display minimum refresh rate in seconds
@@ -151,7 +137,7 @@ class FlyPreferences(Pref):
     run_tab_splitter_state: str = attrib(default="")  # Run-tab top-vs-failed-tests splitter (QSplitter.saveState() hex-encoded)
     run_tab_bottom_splitter_state: str = attrib(default="")  # Run-tab bottom pane: failed-tests-vs-live-output splitter (QSplitter.saveState() hex-encoded)
 
-    test_results_db_dir: str = attrib(default="")  # override directory for the test-results SQLite DB; empty means use the platform default
+    test_results_db_dir: str = attrib(default="")  # override directory for the test-results SQLite DB; empty means use the workspace-local default
 
     perf_logging: bool = attrib(default=False)  # log per-tick phase timings (db query, build_tick_data, each tab update) to diagnose UI lag
 
@@ -160,14 +146,14 @@ class FlyPreferences(Pref):
     last_run_start: float = attrib(default=0.0)
 
     def get_sqlite_path(self) -> Path:
-        # Override pref's default appdirs-based resolution so storage lives under the active PUT.
+        # Override pref's default appdirs-based resolution so storage lives in the workspace.
         path = get_preferences_db_path()
         path.parent.mkdir(parents=True, exist_ok=True)
         return path
 
 
 class FlyOrderedSet(PrefOrderedSet):
-    """:class:`PrefOrderedSet` with per-PUT SQLite storage."""
+    """:class:`PrefOrderedSet` with workspace-local SQLite storage."""
 
     def get_sqlite_path(self) -> Path:
         path = get_preferences_db_path()
@@ -182,9 +168,9 @@ _cached_pref_path: Path | None = None
 def get_pref() -> FlyPreferences:
     """Return a :class:`FlyPreferences` instance (reads from / auto-saves to disk).
 
-    The instance is cached process-wide and keyed on the resolved per-PUT
-    storage path, so switching PUT via :func:`init_preferences_for_put` will
-    transparently reopen the right DB on the next access.  Constructing
+    The instance is cached process-wide and keyed on the resolved workspace
+    storage path, so rebinding the workspace via :func:`pytest_fly.paths.init_workspace`
+    transparently reopens the right DB on the next access.  Constructing
     ``FlyPreferences`` issues one SELECT per attribute, so caching matters for
     UI tick performance.
     """

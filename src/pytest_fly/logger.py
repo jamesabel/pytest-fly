@@ -14,9 +14,8 @@ from logging import Formatter, Logger
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
-from platformdirs import user_log_dir
-
-from pytest_fly.__version__ import application_name, author
+from pytest_fly.__version__ import application_name
+from pytest_fly.paths import get_log_dir
 
 _LOG_FORMAT = "%(asctime)s %(process)d %(name)s %(levelname)s %(message)s"
 _MAX_BYTES = 10 * 1024 * 1024
@@ -26,10 +25,13 @@ _log_directory: Path | None = None
 
 
 def _resolve_log_directory() -> Path:
-    """Deterministic log directory, shared by parent and spawn children."""
-    log_dir = Path(user_log_dir(application_name, author))
-    log_dir.mkdir(parents=True, exist_ok=True)
-    return log_dir
+    """Workspace-local log directory (``<workspace>/.pytest-fly/logs/``), shared by parent and spawn children.
+
+    Spawn children re-import this module without the parent's in-process workspace binding,
+    but :func:`pytest_fly.paths.get_log_dir` falls back to the inherited ``PYTEST_FLY_WORKSPACE``
+    environment variable, so they resolve the same directory.
+    """
+    return get_log_dir()
 
 
 def _purge_process_monitor_logs(log_dir: Path) -> None:

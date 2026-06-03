@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from PySide6.QtWidgets import QApplication
 
-from pytest_fly.preferences import init_preferences_for_put
+from pytest_fly.paths import init_workspace
 
 # Force the 'spawn' multiprocessing start method on all platforms. pytest-fly's controller is
 # multi-threaded (a worker pool plus the stall watchdog) and starts test subprocesses; on POSIX
@@ -27,13 +27,14 @@ pytest_plugins = "pytester"
 
 
 @pytest.fixture(scope="session", autouse=True)
-def _bind_test_prefs(tmp_path_factory):
-    """Bind pref storage to a session-scoped tmp PUT so tests never touch the user's real prefs.
+def _bind_test_workspace(tmp_path_factory):
+    """Bind the workspace to a session-scoped tmp dir so tests never touch the user's real storage.
 
-    Per-test fixtures (e.g. the ordering-aspects suite) can call
-    :func:`init_preferences_for_put` again to redirect into their own tmp dirs.
+    All pytest-fly storage (preferences, logs, results DB) resolves under this workspace.
+    Per-test fixtures (e.g. the ordering-aspects suite) can call :func:`init_workspace`
+    again to redirect into their own tmp dirs.
     """
-    init_preferences_for_put(tmp_path_factory.mktemp("pytest_fly_test_prefs"))
+    init_workspace(tmp_path_factory.mktemp("pytest_fly_test_workspace"))
 
 
 @pytest.fixture(scope="session")

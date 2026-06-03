@@ -1,9 +1,33 @@
 """Tests for the application bootstrap in :mod:`pytest_fly.main`."""
 
+import os
 from pathlib import Path
 
+import pytest
+
+import pytest_fly.paths as paths_module
 from pytest_fly import main as main_module
+from pytest_fly.const import PYTEST_FLY_WORKSPACE_STRING
 from pytest_fly.main import _parse_args, app_main
+from pytest_fly.preferences import reset_pref_cache
+
+
+@pytest.fixture(autouse=True)
+def _restore_workspace_binding():
+    """app_main rebinds the workspace to cwd; restore the session binding afterward.
+
+    Without this, these tests would leave paths._workspace_dir pointing at a deleted tmp dir
+    and break later tests that rely on the session-scoped workspace.
+    """
+    saved_dir = paths_module._workspace_dir
+    saved_env = os.environ.get(PYTEST_FLY_WORKSPACE_STRING)
+    yield
+    paths_module._workspace_dir = saved_dir
+    if saved_env is None:
+        os.environ.pop(PYTEST_FLY_WORKSPACE_STRING, None)
+    else:
+        os.environ[PYTEST_FLY_WORKSPACE_STRING] = saved_env
+    reset_pref_cache()
 
 
 def test_parse_args_defaults():
@@ -24,8 +48,8 @@ def test_parse_args_all_options():
     assert args.auto_quit_on_done is True
 
 
-def test_app_main_resolves_target_and_launches(tmp_path, monkeypatch):
-    """app_main wires the resolved PUT/data dirs into fly_main and creates the data dir."""
+def test_app_main_persists_target_and_launches(tmp_path, monkeypatch):
+    """--target persists as the configured PUT; the workspace roots at the launch dir."""
     captured = {}
 
     def fake_fly_main(data_dir, *, auto_start=False, auto_quit_on_done=False):
@@ -37,33 +61,37 @@ def test_app_main_resolves_target_and_launches(tmp_path, monkeypatch):
     monkeypatch.setattr(main_module, "fly_main", fake_fly_main)
     monkeypatch.setattr(main_module, "init_parent_logger", lambda verbose: None)
 
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    monkeypatch.chdir(workspace)
+
     target = tmp_path / "put"
     target.mkdir()
     data_dir = tmp_path / "results"
 
     app_main(["--target", str(target), "--data-dir", str(data_dir), "--auto-start"])
 
+    assert main_module.get_workspace_dir() == workspace.resolve()  # storage rooted at the launch dir
+    assert main_module.get_active_put_path() == target.resolve()  # --target persisted as the PUT
     assert captured["data_dir"] == data_dir.resolve()
     assert captured["auto_start"] is True
     assert captured["auto_quit_on_done"] is False
     assert data_dir.exists()  # app_main creates the data dir
 
 
-def test_app_main_uses_cwd_when_no_target_arg(tmp_path, monkeypatch):
-    """With no --target, app_main resolves the PUT to the current working directory."""
+def test_app_main_put_defaults_to_workspace_when_no_target(tmp_path, monkeypatch):
+    """With no --target and no stored PUT, the PUT resolves to the workspace (launch) dir."""
     captured = {}
 
     monkeypatch.setattr(main_module, "fly_main", lambda data_dir, **kw: captured.setdefault("data_dir", data_dir))
     monkeypatch.setattr(main_module, "init_parent_logger", lambda verbose: None)
-    monkeypatch.setattr(main_module, "init_preferences_for_put", lambda put_path: captured.setdefault("put_path", put_path))
 
-    cwd = tmp_path / "cwd_put"
-    cwd.mkdir()
-    monkeypatch.chdir(cwd)
+    workspace = tmp_path / "workspace2"
+    workspace.mkdir()
+    monkeypatch.chdir(workspace)
 
     data_dir = tmp_path / "results2"
     app_main(["--data-dir", str(data_dir)])
 
-    # The PUT is the cwd; nothing global was consulted.
-    assert captured["put_path"].resolve() == cwd.resolve()
+    assert main_module.get_active_put_path() == workspace.resolve()
     assert captured["data_dir"] == data_dir.resolve()

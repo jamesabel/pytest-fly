@@ -36,7 +36,7 @@ from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from demo.demo import generate_tests  # noqa: E402
 from pytest_fly.gui.gui_main import FlyAppMainWindow  # noqa: E402
-from pytest_fly.preferences import init_preferences_for_put  # noqa: E402
+from pytest_fly.paths import init_workspace  # noqa: E402
 
 WINDOW_SIZE = (1700, 900)
 GIF_SAMPLE_INTERVAL_MS = 600
@@ -172,9 +172,9 @@ def main():
     print(f"capture data dir: {data_dir}")
     print(f"target project: {fly_demo_dir}")
 
-    # Bind preference storage to the demo PUT — per-PUT prefs live alongside the demo dir,
-    # so there's nothing to restore on exit.
-    init_preferences_for_put(fly_demo_dir)
+    # Bind the workspace to the demo dir — prefs/logs live in its .pytest-fly/ and the PUT
+    # defaults to it, so there's nothing to restore on exit.
+    init_workspace(fly_demo_dir)
 
     app = QApplication.instance() or QApplication([])
     window = FlyAppMainWindow(data_dir)

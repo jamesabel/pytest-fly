@@ -392,7 +392,10 @@ class SystemMetricsWindow(QGroupBox):
         latest = samples_list[-1] if samples_list else None
         if latest is not None and commit_warning_active(latest.commit_percent, latest.commit_total_gb, get_pref().commit_warning_threshold):
             self._commit_warning_latched = True
-            self._commit_warning_label.setText(f"⚠ System commit charge near limit ({latest.commit_percent:.0f}%) — risk of paging-file failures / crashed workers.")
+            self._commit_warning_label.setText(
+                f"⚠ System commit charge near limit ({latest.commit_used_gb:.1f}/{latest.commit_total_gb:.1f} GB, {latest.commit_percent:.0f}%)"
+                " — risk of paging-file failures / crashed workers."
+            )
         commit_warn = self._commit_warning_latched
         self._commit_warning_widget.setVisible(commit_warn)
 

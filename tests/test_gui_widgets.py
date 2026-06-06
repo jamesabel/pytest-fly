@@ -1,5 +1,6 @@
 """Additional widget tests targeting paint paths and integration points."""
 
+import dataclasses
 import time
 
 from PySide6.QtCore import QRect, QSize
@@ -137,6 +138,43 @@ def test_activity_chart_y_labels_are_distinct_integers(qtbot):
         assert len(labels) == len(set(labels)), f"duplicate y labels for {y_max=}: {labels}"
         assert all("." not in label for label in labels), f"non-integer y label for {y_max=}: {labels}"
         assert ticks[-1] == float(y_max), f"top tick should equal y_max for {y_max=}: {ticks}"
+
+
+def test_commit_warning_latches_until_cleared(qtbot):
+    """The commit-charge warning persists after the charge drops back, until the user clears it."""
+    window = SystemMetricsWindow(None)
+    qtbot.addWidget(window)
+
+    def _commit_sample(time_stamp: float, commit_percent: float) -> SystemMonitorSample:
+        base = _make_samples(1, now=time_stamp + 0.5)[0]
+        return dataclasses.replace(base, time_stamp=time_stamp, commit_total_gb=32.0, commit_percent=commit_percent)
+
+    threshold = get_pref().commit_warning_threshold
+    now = time.time()
+    over = _commit_sample(now, (threshold + 0.05) * 100.0)
+    under = _commit_sample(now + 0.5, 10.0)
+
+    # Cross the threshold → warning raised.
+    window.ingest_samples([over])
+    window.update_tick()
+    assert window._commit_warning_latched is True
+    assert window._commit_warning_widget.isHidden() is False
+
+    # Charge drops back below the threshold → warning latches (stays visible).
+    window.ingest_samples([under])
+    window.update_tick()
+    assert window._commit_warning_latched is True
+    assert window._commit_warning_widget.isHidden() is False
+
+    # User clears → dismissed, and it stays dismissed while the charge remains low.
+    window._clear_commit_warning()
+    assert window._commit_warning_latched is False
+    assert window._commit_warning_widget.isHidden() is True
+
+    window.ingest_samples([_commit_sample(now + 1.0, 10.0)])
+    window.update_tick()
+    assert window._commit_warning_latched is False
+    assert window._commit_warning_widget.isHidden() is True
 
 
 def test_coverage_tab_paint_forced(qtbot):

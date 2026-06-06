@@ -26,8 +26,10 @@ pip install pytest-fly
     behaves as Check unless the Configuration tab's *Resume Without Program Check* is set), and
     several panels: a Status panel (completion percentage, pass rate, per-state counts, elapsed
     time, average parallelism, coverage, and estimated time remaining), a System Performance
-    panel (live CPU, memory, disk I/O, and network I/O charts, with memory shown as used/total GB
-    alongside percent), a
+    panel (live CPU, memory, commit-charge, disk I/O, and network I/O charts, with memory and
+    commit charge shown as used/total GB alongside percent; the commit-charge warning latches when
+    the charge crosses the configured threshold — showing both the absolute GB and percent — and
+    stays until dismissed with its **Clear** button), a
     Failed Tests panel with clipboard copy, a Live Output panel streaming pytest output from the
     running tests with elapsed time, last successful run duration, and a progress bar tracking
     progress against the last successful run, and program-under-test version/dirty-git indicators

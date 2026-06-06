@@ -18,7 +18,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 
 from PySide6.QtGui import QColor, QPainter, QPen
-from PySide6.QtWidgets import QGridLayout, QGroupBox, QLabel, QSizePolicy, QWidget
+from PySide6.QtWidgets import QGridLayout, QGroupBox, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QWidget
 
 from ...colors import COMMIT_LINE_COLOR, COMMIT_WARN_COLOR, CPU_LINE_COLOR, DISK_READ_COLOR, DISK_WRITE_COLOR, GRID_LINE_COLOR, MEMORY_LINE_COLOR, NET_RECV_COLOR, NET_SENT_COLOR
 from ...interfaces import PytestRunnerState
@@ -92,6 +92,11 @@ class _MetricChart(QWidget):
         self._min_ts = min_ts
         self._max_ts = max_ts
         self._warn = warn
+        self.update()
+
+    def clear_warn(self) -> None:
+        """Drop the warning color and repaint immediately (used when a latched warning is cleared)."""
+        self._warn = False
         self.update()
 
     def _current_y_max(self) -> float:
@@ -324,13 +329,26 @@ class SystemMetricsWindow(QGroupBox):
         layout.addWidget(self._network_chart, 1, 1)
         layout.addWidget(self._activity_chart, 2, 1)
 
-        # Warning banner — shown only when commit charge crosses the threshold. Spans the full width
-        # beneath the chart grid so it never steals a chart cell.
+        # Warning banner — latched: raised once commit charge crosses the threshold and held (banner +
+        # orange Commit chart) until the user clicks "Clear", so a transient spike that has already
+        # dropped back below the threshold is not missed. Spans the full width beneath the chart grid so
+        # it never steals a chart cell, with the "Clear" button pinned to the right.
+        self._commit_warning_latched = False
         self._commit_warning_label = QLabel("")
         self._commit_warning_label.setWordWrap(True)
         self._commit_warning_label.setStyleSheet("color: #b25400;")  # warning orange (matches the Configuration-tab restart notice)
-        self._commit_warning_label.setVisible(False)
-        layout.addWidget(self._commit_warning_label, 3, 0, 1, 2)
+
+        self._commit_warning_clear_button = QPushButton("Clear")
+        self._commit_warning_clear_button.setToolTip("Dismiss the commit-charge warning. It reappears if the commit charge crosses the threshold again.")
+        self._commit_warning_clear_button.clicked.connect(self._clear_commit_warning)
+
+        self._commit_warning_widget = QWidget()
+        warning_layout = QHBoxLayout(self._commit_warning_widget)
+        warning_layout.setContentsMargins(0, 0, 0, 0)
+        warning_layout.addWidget(self._commit_warning_label, 1)
+        warning_layout.addWidget(self._commit_warning_clear_button, 0)
+        self._commit_warning_widget.setVisible(False)
+        layout.addWidget(self._commit_warning_widget, 3, 0, 1, 2)
 
         layout.setRowStretch(0, 1)
         layout.setRowStretch(1, 1)
@@ -368,14 +386,18 @@ class SystemMetricsWindow(QGroupBox):
         max_ts = now
         samples_list = list(self._samples)
 
-        # Commit-charge warning: evaluate the latest sample against the configured threshold.
+        # Commit-charge warning: evaluate the latest sample against the configured threshold. The warning
+        # latches — once raised it stays (banner + orange Commit chart) until the user clicks "Clear", so
+        # a transient spike that has already dropped back below the threshold is not missed.
         latest = samples_list[-1] if samples_list else None
         if latest is not None and commit_warning_active(latest.commit_percent, latest.commit_total_gb, get_pref().commit_warning_threshold):
-            commit_warn = True
-            self._commit_warning_label.setText(f"⚠ System commit charge near limit ({latest.commit_percent:.0f}%) — risk of paging-file failures / crashed workers.")
-        else:
-            commit_warn = False
-        self._commit_warning_label.setVisible(commit_warn)
+            self._commit_warning_latched = True
+            self._commit_warning_label.setText(
+                f"⚠ System commit charge near limit ({latest.commit_used_gb:.1f}/{latest.commit_total_gb:.1f} GB, {latest.commit_percent:.0f}%)"
+                " — risk of paging-file failures / crashed workers."
+            )
+        commit_warn = self._commit_warning_latched
+        self._commit_warning_widget.setVisible(commit_warn)
 
         self._cpu_chart.update_data(samples_list, min_ts, max_ts)
         self._memory_chart.update_data(samples_list, min_ts, max_ts)
@@ -386,6 +408,17 @@ class SystemMetricsWindow(QGroupBox):
         activity_list = list(self._activity_samples)
         activity_stalled = bool(activity_list and activity_list[-1].stalled)
         self._activity_chart.update_data(activity_list, min_ts, max_ts, warn=activity_stalled)
+
+    def _clear_commit_warning(self) -> None:
+        """Dismiss the latched commit-charge warning (banner + orange Commit chart).
+
+        The latch re-arms on the next tick whose sample is still over the threshold, so clearing while
+        the commit charge remains high simply re-raises it — the button is meant for acknowledging a
+        spike that has already subsided.
+        """
+        self._commit_warning_latched = False
+        self._commit_warning_widget.setVisible(False)
+        self._commit_chart.clear_warn()
 
     @staticmethod
     def _build_activity_sample(tick: TickData, now: float) -> "_ActivitySample":

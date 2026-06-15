@@ -88,7 +88,8 @@ class PyTestFlyExitCode(IntEnum):
     INTERNAL_ERROR = ExitCode.INTERNAL_ERROR
     USAGE_ERROR = ExitCode.USAGE_ERROR
     NO_TESTS_COLLECTED = ExitCode.NO_TESTS_COLLECTED
-    assert len(ExitCode) == 6  # Number of entries above. Check in case PyTest adds more exit codes.
+    MAX_WARNINGS_ERROR = ExitCode.MAX_WARNINGS_ERROR
+    assert len(ExitCode) == 7  # Number of entries above. Check in case PyTest adds more exit codes.
     MAX_PYTEST_EXIT_CODE = max(item.value for item in ExitCode)
 
     # pytest-fly specific exit codes

@@ -33,6 +33,8 @@ class RunTab(QWidget):
         self.system_metrics_window = SystemMetricsWindow(self)
         self.failed_tests_window = FailedTestsWindow(self)
         self.live_output_window = LiveOutputWindow(self, data_dir)
+        # Clicking a failed test pins its captured output into the Live Output pane.
+        self.failed_tests_window.failed_test_selected.connect(self.live_output_window.set_pinned_failed_test)
 
         top_container = QWidget()
         top_layout = QHBoxLayout()

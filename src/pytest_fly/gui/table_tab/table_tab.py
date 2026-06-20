@@ -13,7 +13,7 @@ from PySide6.QtGui import QBrush, QColor, QGuiApplication
 from PySide6.QtWidgets import QGroupBox, QMenu, QScrollArea, QTableWidget, QTableWidgetItem, QVBoxLayout
 from typeguard import typechecked
 
-from ...gui.gui_util import format_runtime, tool_tip_limiter
+from ...gui.gui_util import format_runtime, resolve_test_output, tool_tip_limiter
 from ...interfaces import PyTestFlyExitCode, PytestRunnerState
 from ...platform.platform_info import get_performance_core_count
 from ...preferences import get_pref
@@ -162,22 +162,12 @@ class TableTab(QGroupBox):
         action = menu.exec_(self.table_widget.viewport().mapToGlobal(position))
 
         if action == copy_tooltip_action:
-            # Prefer the untruncated output from the latest PytestProcessInfo so
-            # users get the full pytest output (not the tooltip-limited view).
+            # Prefer the untruncated output from the latest PytestProcessInfo (falling
+            # back to the live-log tail) so users get the full pytest output, not the
+            # tooltip-limited view.
             output_text = ""
             if test_node_id is not None:
-                infos = self._current_infos_by_name.get(test_node_id, [])
-                for info in reversed(infos):
-                    if info.output:
-                        output_text = info.output
-                        break
-
-            # If no completed-output record exists yet but the test is currently
-            # running, pull the live log tail directly from disk.
-            if not output_text and is_running and test_node_id is not None:
-                live_text = read_live_output(self._data_dir, test_node_id, max_bytes=10_000_000)
-                if live_text:
-                    output_text = live_text
+                output_text = resolve_test_output(self._current_infos_by_name.get(test_node_id, []), self._data_dir, test_node_id)
 
             # Fallback to the tooltip text if no output is available yet.
             if not output_text:

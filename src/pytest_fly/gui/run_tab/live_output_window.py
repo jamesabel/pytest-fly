@@ -10,7 +10,7 @@ from typeguard import typechecked
 from ...interfaces import PytestRunnerState
 from ...pytest_runner.live_output import read_live_output
 from ...tick_data import TickData
-from ..gui_util import format_runtime
+from ..gui_util import format_runtime, resolve_test_output
 
 _NO_TESTS_RUNNING_PLACEHOLDER = "(no tests running)"
 _MAX_LINE_BLOCKS = 5000  # QPlainTextEdit max line count — bounds memory on very chatty tests
@@ -29,6 +29,13 @@ class LiveOutputWindow(QGroupBox):
         self._running_names: list[str] = []
         self._selected_name: str | None = None
         self._last_text: str = ""
+        # When set, the pane is "pinned" to a failed test's captured output, overriding the
+        # normal running-test stream until the selection is cleared.
+        self._pinned_failed_name: str | None = None
+        self._latest_tick: TickData | None = None
+        # Set on unpin to force the running-test selector to rebuild on the next tick, even
+        # if the running set is unchanged (it must be re-enabled and repopulated after pinning).
+        self._force_selector_rebuild: bool = False
 
         layout = QVBoxLayout()
         self.setLayout(layout)
@@ -73,11 +80,60 @@ class LiveOutputWindow(QGroupBox):
         self._text_view.verticalScrollBar().valueChanged.connect(self._on_scroll_changed)
         layout.addWidget(self._text_view)
 
+    def set_pinned_failed_test(self, name: str | None) -> None:
+        """Pin the pane to a failed test's captured output (or unpin and resume live streaming).
+
+        :param name: Failed test node id to display, or ``None`` to revert to the running-test stream.
+        """
+        self._pinned_failed_name = name
+        self._last_text = ""  # force a refresh on the next render
+
+        if name is not None:
+            self.setTitle(f"Failed Test Output — {name}")
+            self._test_selector.setEnabled(False)
+            self._follow_tail_checkbox.setEnabled(False)
+            self._elapsed_label.setText(f"Showing failed test: {name}")
+            self._last_pass_label.setText("")
+            self._status_separator.setVisible(False)
+            self._progress_bar.setEnabled(False)
+            self._progress_bar.setValue(0)
+            self._progress_bar.setFormat("")
+            self._render_pinned()
+        else:
+            self.setTitle("Live Output")
+            self._follow_tail_checkbox.setEnabled(True)
+            # Force the running-test selector to rebuild on the next tick so it is re-enabled
+            # and repopulated even when the running set has not changed since pinning.
+            self._force_selector_rebuild = True
+            self._text_view.clear()
+            if self._latest_tick is not None:
+                self.update_tick(self._latest_tick)
+
+    def _render_pinned(self) -> None:
+        """Render the pinned failed test's captured output into the text view (top-aligned)."""
+        name = self._pinned_failed_name
+        if name is None:
+            return
+        infos = self._latest_tick.infos_by_name.get(name, []) if self._latest_tick is not None else []
+        output = resolve_test_output(infos, self._data_dir, name)
+        if output != self._last_text:
+            self._text_view.setPlainText(output)
+            self._last_text = output
+            self._text_view.verticalScrollBar().setValue(0)  # failures sit at/near the top of pytest output
+
     def update_tick(self, tick: TickData) -> None:
         """Refresh combo-box membership and the live text for the selected test."""
+        self._latest_tick = tick
+
+        # When pinned to a failed test, show its captured output and skip the running-test flow.
+        if self._pinned_failed_name is not None:
+            self._render_pinned()
+            return
+
         running_names = [name for name, run_state in tick.run_states.items() if run_state.get_state() == PytestRunnerState.RUNNING]
 
-        if running_names != self._running_names:
+        if running_names != self._running_names or self._force_selector_rebuild:
+            self._force_selector_rebuild = False
             self._rebuild_selector(running_names)
 
         if self._selected_name is None:

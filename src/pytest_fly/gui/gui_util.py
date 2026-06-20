@@ -9,6 +9,7 @@ import time
 from collections import defaultdict
 from datetime import timedelta
 from functools import lru_cache
+from pathlib import Path
 
 import humanize
 from PySide6.QtCore import QSize
@@ -18,6 +19,7 @@ from typeguard import typechecked
 
 from ..interfaces import PytestProcessInfo
 from ..preferences import get_pref
+from ..pytest_runner.live_output import read_live_output
 
 
 @lru_cache(maxsize=None)
@@ -127,6 +129,24 @@ class PhaseTimer:
 
     def format(self) -> str:
         return " ".join(f"{name}={ms:.1f}" for name, ms in self.phases.items())
+
+
+def resolve_test_output(infos: list[PytestProcessInfo] | None, data_dir: Path, name: str) -> str:
+    """
+    Return the full captured pytest output for a test.
+
+    Prefers the latest completed ``PytestProcessInfo.output`` record; if none has
+    output yet (e.g. the test is still running), falls back to the live-log tail on disk.
+
+    :param infos: This test's process-info records, oldest-first (may be ``None``/empty).
+    :param data_dir: pytest-fly data directory holding the live-output logs.
+    :param name: Test node id.
+    :return: The output text, or an empty string if nothing is available yet.
+    """
+    for info in reversed(infos or []):
+        if info.output:
+            return info.output
+    return read_live_output(data_dir, name, max_bytes=10_000_000) or ""
 
 
 def group_process_infos_by_name(process_infos: list[PytestProcessInfo]) -> dict[str, list[PytestProcessInfo]]:

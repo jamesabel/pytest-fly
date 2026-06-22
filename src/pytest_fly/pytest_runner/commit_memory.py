@@ -15,6 +15,7 @@ bad memory reading never breaks the GUI or a test run.
 """
 
 import sys
+from dataclasses import dataclass
 
 import psutil
 
@@ -25,6 +26,25 @@ log = get_logger()
 # Log a failed/unsupported read only once — the system monitor calls this ~1 Hz and we
 # do not want to spam the log.
 _warned_once = False
+# Same one-shot guard for the pagefile-config read.
+_pagefile_warned_once = False
+
+
+@dataclass(frozen=True)
+class PageFileInfo:
+    """One configured Windows paging file (a component of the system commit limit).
+
+    Sizes are the *configured* values from the registry (what the Windows "Virtual Memory"
+    dialog shows).  ``system_managed`` entries have ``initial_mb == maximum_mb == 0`` — Windows
+    sizes them automatically, so the configured numbers are zero and the live size is only
+    knowable from the commit limit (RAM + actual pagefile).
+    """
+
+    path: str  # full path, e.g. r"C:\pagefile.sys"
+    drive: str  # drive the pagefile lives on, e.g. "C:"
+    initial_mb: int  # configured initial size in MB (0 when system-managed)
+    maximum_mb: int  # configured maximum size in MB (0 when system-managed)
+    system_managed: bool  # True when Windows manages the size automatically
 
 
 def commit_charge_and_limit() -> tuple[int, int] | None:
@@ -75,6 +95,57 @@ def commit_charge_and_limit() -> tuple[int, int] | None:
             log.warning(f"could not read system commit charge ({e}); commit indicator disabled")
             _warned_once = True
         return None
+
+
+def pagefile_breakdown() -> list[PageFileInfo]:
+    """Return the configured Windows paging files (the discs + sizes that, with physical RAM,
+    make up the system commit limit).
+
+    Read from ``HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Memory Management``'s
+    ``PagingFiles`` value — the same source the Windows "Virtual Memory" dialog uses, so it needs
+    no extra dependency and never blocks (a plain registry read).  Returns ``[]`` on non-Windows
+    platforms and on any error (fail-open) so a bad read never breaks the GUI.
+    """
+    global _pagefile_warned_once
+
+    if sys.platform != "win32":
+        return []
+
+    try:
+        import os
+        import winreg
+
+        system_drive = os.environ.get("SystemDrive", "C:")
+        key_path = r"SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management"
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, key_path) as key:
+            raw, _value_type = winreg.QueryValueEx(key, "PagingFiles")
+
+        # PagingFiles is a REG_MULTI_SZ (list of strings); each line is "<path> <initial> <max>".
+        lines = list(raw) if isinstance(raw, (list, tuple)) else str(raw).splitlines()
+        entries: list[PageFileInfo] = []
+        for line in lines:
+            line = (line or "").strip()
+            if not line:
+                continue
+            parts = line.split()
+            path = parts[0]
+            # System-managed pagefiles on the system drive are recorded as "?:\pagefile.sys".
+            drive = os.path.splitdrive(path)[0] or path[:2]
+            if drive.startswith("?"):
+                drive = system_drive
+            try:
+                initial_mb = int(parts[1]) if len(parts) > 1 else 0
+                maximum_mb = int(parts[2]) if len(parts) > 2 else 0
+            except ValueError:
+                initial_mb = maximum_mb = 0
+            system_managed = initial_mb == 0 and maximum_mb == 0
+            entries.append(PageFileInfo(path=path, drive=drive.upper(), initial_mb=initial_mb, maximum_mb=maximum_mb, system_managed=system_managed))
+        return entries
+    except Exception as e:
+        if not _pagefile_warned_once:
+            log.warning(f"could not read pagefile configuration ({e}); pagefile breakdown disabled")
+            _pagefile_warned_once = True
+        return []
 
 
 def subtree_commit(pid: int) -> int:

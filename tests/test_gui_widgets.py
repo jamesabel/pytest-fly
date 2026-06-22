@@ -140,8 +140,41 @@ def test_activity_chart_y_labels_are_distinct_integers(qtbot):
         assert ticks[-1] == float(y_max), f"top tick should equal y_max for {y_max=}: {ticks}"
 
 
-def test_commit_warning_latches_until_cleared(qtbot):
-    """The commit-charge warning persists after the charge drops back, until the user clears it."""
+def test_commit_status_line_always_visible(qtbot):
+    """The commit status line is always shown — even with no samples it displays peak + pagefile text."""
+    window = SystemMetricsWindow(None)
+    qtbot.addWidget(window)
+
+    assert window._commit_status_widget.isHidden() is False
+    text = window._commit_status_label.text()
+    assert "Peak commit" in text
+    assert "Pagefile" in text
+
+
+def test_commit_peak_tracks_and_resets(qtbot):
+    """The status line reports the all-time peak commit charge and holds it until reset."""
+    window = SystemMetricsWindow(None)
+    qtbot.addWidget(window)
+
+    def _commit_sample(time_stamp: float, commit_percent: float) -> SystemMonitorSample:
+        base = _make_samples(1, now=time_stamp + 0.5)[0]
+        return dataclasses.replace(base, time_stamp=time_stamp, commit_used_gb=commit_percent / 100.0 * 32.0, commit_total_gb=32.0, commit_percent=commit_percent)
+
+    now = time.time()
+    # A high reading sets the peak; a later low reading must not lower it.
+    window.ingest_samples([_commit_sample(now, 80.0)])
+    window.ingest_samples([_commit_sample(now + 0.5, 20.0)])
+    window.update_tick()
+    assert window._commit_peak_percent == 80.0
+    assert "80%" in window._commit_status_label.text()
+
+    # Reset re-seeds the peak from the current (low) sample.
+    window._reset_commit_stats()
+    assert window._commit_peak_percent == 20.0
+
+
+def test_commit_warning_latches_until_reset(qtbot):
+    """The commit-charge warning persists after the charge drops back, until the user resets it."""
     window = SystemMetricsWindow(None)
     qtbot.addWidget(window)
 
@@ -154,27 +187,27 @@ def test_commit_warning_latches_until_cleared(qtbot):
     over = _commit_sample(now, (threshold + 0.05) * 100.0)
     under = _commit_sample(now + 0.5, 10.0)
 
-    # Cross the threshold → warning raised.
+    # Cross the threshold → warning raised (status line carries the warning markup).
     window.ingest_samples([over])
     window.update_tick()
     assert window._commit_warning_latched is True
-    assert window._commit_warning_widget.isHidden() is False
+    assert "near limit" in window._commit_status_label.text()
 
-    # Charge drops back below the threshold → warning latches (stays visible).
+    # Charge drops back below the threshold → warning latches (stays raised).
     window.ingest_samples([under])
     window.update_tick()
     assert window._commit_warning_latched is True
-    assert window._commit_warning_widget.isHidden() is False
+    assert "near limit" in window._commit_status_label.text()
 
-    # User clears → dismissed, and it stays dismissed while the charge remains low.
-    window._clear_commit_warning()
+    # User resets → warning dismissed, and it stays dismissed while the charge remains low.
+    window._reset_commit_stats()
     assert window._commit_warning_latched is False
-    assert window._commit_warning_widget.isHidden() is True
+    assert "near limit" not in window._commit_status_label.text()
 
     window.ingest_samples([_commit_sample(now + 1.0, 10.0)])
     window.update_tick()
     assert window._commit_warning_latched is False
-    assert window._commit_warning_widget.isHidden() is True
+    assert "near limit" not in window._commit_status_label.text()
 
 
 def test_coverage_tab_paint_forced(qtbot):

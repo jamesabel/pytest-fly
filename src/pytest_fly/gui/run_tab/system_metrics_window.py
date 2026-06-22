@@ -17,13 +17,14 @@ from collections import deque
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import QGridLayout, QGroupBox, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QWidget
 
 from ...colors import COMMIT_LINE_COLOR, COMMIT_WARN_COLOR, CPU_LINE_COLOR, DISK_READ_COLOR, DISK_WRITE_COLOR, GRID_LINE_COLOR, MEMORY_LINE_COLOR, NET_RECV_COLOR, NET_SENT_COLOR
 from ...interfaces import PytestRunnerState
 from ...preferences import get_pref
-from ...pytest_runner.commit_memory import commit_warning_active
+from ...pytest_runner.commit_memory import PageFileInfo, commit_warning_active, pagefile_breakdown
 from ...pytest_runner.system_monitor import SystemMonitorSample
 from ...tick_data import TickData
 from ..graph_tab.time_axis import TimeAxisMapping, compute_grid_ticks, format_elapsed_label
@@ -329,26 +330,42 @@ class SystemMetricsWindow(QGroupBox):
         layout.addWidget(self._network_chart, 1, 1)
         layout.addWidget(self._activity_chart, 2, 1)
 
-        # Warning banner — latched: raised once commit charge crosses the threshold and held (banner +
-        # orange Commit chart) until the user clicks "Clear", so a transient spike that has already
-        # dropped back below the threshold is not missed. Spans the full width beneath the chart grid so
-        # it never steals a chart cell, with the "Clear" button pinned to the right.
+        # Commit status line — always visible beneath the chart grid (spans the full width so it never
+        # steals a chart cell). It shows the all-time peak commit charge and the pagefile breakdown
+        # (the discs + sizes that, with physical RAM, make up the commit limit). When the commit charge
+        # crosses the configured threshold the warning latches: it is prepended in orange and the Commit
+        # chart turns orange, and both hold (even after a transient spike subsides) until the user resets.
+        self._samples: deque[SystemMonitorSample] = deque()
+        self._activity_samples: deque[_ActivitySample] = deque()
+
         self._commit_warning_latched = False
-        self._commit_warning_label = QLabel("")
-        self._commit_warning_label.setWordWrap(True)
-        self._commit_warning_label.setStyleSheet("color: #b25400;")  # warning orange (matches the Configuration-tab restart notice)
+        # All-time peak commit charge, tracked across the whole run (not just the visible window) and
+        # held until reset. 0.0 total means "no commit signal yet / unavailable".
+        self._commit_peak_percent = 0.0
+        self._commit_peak_used_gb = 0.0
+        self._commit_peak_total_gb = 0.0
+        # Configured pagefiles — read once (a cheap registry read) and refreshed on reset.
+        self._pagefiles: list[PageFileInfo] = pagefile_breakdown()
 
-        self._commit_warning_clear_button = QPushButton("Clear")
-        self._commit_warning_clear_button.setToolTip("Dismiss the commit-charge warning. It reappears if the commit charge crosses the threshold again.")
-        self._commit_warning_clear_button.clicked.connect(self._clear_commit_warning)
+        self._commit_status_label = QLabel("")
+        self._commit_status_label.setWordWrap(False)  # keep the status to a single line
+        self._commit_status_label.setTextFormat(Qt.TextFormat.RichText)
 
-        self._commit_warning_widget = QWidget()
-        warning_layout = QHBoxLayout(self._commit_warning_widget)
-        warning_layout.setContentsMargins(0, 0, 0, 0)
-        warning_layout.addWidget(self._commit_warning_label, 1)
-        warning_layout.addWidget(self._commit_warning_clear_button, 0)
-        self._commit_warning_widget.setVisible(False)
-        layout.addWidget(self._commit_warning_widget, 3, 0, 1, 2)
+        self._commit_reset_button = QPushButton("Reset")
+        self._commit_reset_button.setToolTip("Reset the all-time peak commit charge, refresh the pagefile breakdown, and clear any commit-charge warning.")
+        self._commit_reset_button.clicked.connect(self._reset_commit_stats)
+
+        self._commit_status_widget = QWidget()
+        status_layout = QHBoxLayout(self._commit_status_widget)
+        status_layout.setContentsMargins(0, 0, 0, 0)
+        # Status text takes only its natural width and the "Reset" button sits directly after it (a
+        # trailing stretch absorbs the remaining space), so the button stays next to the text rather
+        # than drifting to the far right edge where it is easy to miss.
+        status_layout.addWidget(self._commit_status_label, 0)
+        status_layout.addWidget(self._commit_reset_button, 0)
+        status_layout.addStretch(1)
+        layout.addWidget(self._commit_status_widget, 3, 0, 1, 2)
+        self._commit_status_label.setText(self._build_commit_status_text())
 
         layout.setRowStretch(0, 1)
         layout.setRowStretch(1, 1)
@@ -357,13 +374,18 @@ class SystemMetricsWindow(QGroupBox):
         layout.setColumnStretch(0, 1)
         layout.setColumnStretch(1, 1)
 
-        self._samples: deque[SystemMonitorSample] = deque()
-        self._activity_samples: deque[_ActivitySample] = deque()
-
     def ingest_samples(self, samples: Iterable[SystemMonitorSample]) -> None:
-        """Append new samples to the ring buffer (called once per GUI tick)."""
+        """Append new samples to the ring buffer (called once per GUI tick).
+
+        The all-time peak commit charge is updated here (not from the pruned window) so it survives
+        samples scrolling out of the visible time window; it is only cleared by an explicit reset.
+        """
         for sample in samples:
             self._samples.append(sample)
+            if sample.commit_total_gb > 0 and sample.commit_percent > self._commit_peak_percent:
+                self._commit_peak_percent = sample.commit_percent
+                self._commit_peak_used_gb = sample.commit_used_gb
+                self._commit_peak_total_gb = sample.commit_total_gb
 
     def update_tick(self, tick: TickData | None = None) -> None:
         """Prune stale samples, repaint all sub-charts, and append/repaint the activity chart."""
@@ -387,17 +409,13 @@ class SystemMetricsWindow(QGroupBox):
         samples_list = list(self._samples)
 
         # Commit-charge warning: evaluate the latest sample against the configured threshold. The warning
-        # latches — once raised it stays (banner + orange Commit chart) until the user clicks "Clear", so
-        # a transient spike that has already dropped back below the threshold is not missed.
+        # latches — once raised it stays (orange status line + orange Commit chart) until the user clicks
+        # "Reset", so a transient spike that has already dropped back below the threshold is not missed.
         latest = samples_list[-1] if samples_list else None
         if latest is not None and commit_warning_active(latest.commit_percent, latest.commit_total_gb, get_pref().commit_warning_threshold):
             self._commit_warning_latched = True
-            self._commit_warning_label.setText(
-                f"⚠ System commit charge near limit ({latest.commit_used_gb:.1f}/{latest.commit_total_gb:.1f} GB, {latest.commit_percent:.0f}%)"
-                " — risk of paging-file failures / crashed workers."
-            )
         commit_warn = self._commit_warning_latched
-        self._commit_warning_widget.setVisible(commit_warn)
+        self._commit_status_label.setText(self._build_commit_status_text())
 
         self._cpu_chart.update_data(samples_list, min_ts, max_ts)
         self._memory_chart.update_data(samples_list, min_ts, max_ts)
@@ -409,16 +427,68 @@ class SystemMetricsWindow(QGroupBox):
         activity_stalled = bool(activity_list and activity_list[-1].stalled)
         self._activity_chart.update_data(activity_list, min_ts, max_ts, warn=activity_stalled)
 
-    def _clear_commit_warning(self) -> None:
-        """Dismiss the latched commit-charge warning (banner + orange Commit chart).
+    def _reset_commit_stats(self) -> None:
+        """Reset the all-time peak commit charge, refresh the pagefile breakdown, and clear the warning.
 
-        The latch re-arms on the next tick whose sample is still over the threshold, so clearing while
-        the commit charge remains high simply re-raises it — the button is meant for acknowledging a
-        spike that has already subsided.
+        The peak is re-seeded from the current sample (so it tracks fresh from "now" rather than
+        snapping back to the still-high reading a moment later). The warning latch re-arms on the next
+        tick whose sample is still over the threshold, so resetting while the commit charge remains high
+        simply re-raises it — the button is meant for acknowledging a spike that has already subsided.
         """
         self._commit_warning_latched = False
-        self._commit_warning_widget.setVisible(False)
+        latest = self._samples[-1] if self._samples else None
+        if latest is not None and latest.commit_total_gb > 0:
+            self._commit_peak_percent = latest.commit_percent
+            self._commit_peak_used_gb = latest.commit_used_gb
+            self._commit_peak_total_gb = latest.commit_total_gb
+        else:
+            self._commit_peak_percent = 0.0
+            self._commit_peak_used_gb = 0.0
+            self._commit_peak_total_gb = 0.0
+        self._pagefiles = pagefile_breakdown()
         self._commit_chart.clear_warn()
+        self._commit_status_label.setText(self._build_commit_status_text())
+
+    def _build_commit_status_text(self) -> str:
+        """Build the always-visible commit status line: peak commit charge + pagefile breakdown,
+        with the latched warning prepended in orange when active."""
+        if self._commit_peak_total_gb > 0:
+            peak = f"Peak commit: {self._commit_peak_used_gb:.1f}/{self._commit_peak_total_gb:.1f} GB ({self._commit_peak_percent:.0f}%)"
+        else:
+            peak = "Peak commit: --"
+        parts = [peak, self._pagefile_summary()]
+        status = "&nbsp;&nbsp;·&nbsp;&nbsp;".join(parts)
+
+        latest = self._samples[-1] if self._samples else None
+        if self._commit_warning_latched and latest is not None:
+            warning = (
+                f"⚠ System commit charge near limit ({latest.commit_used_gb:.1f}/{latest.commit_total_gb:.1f} GB, {latest.commit_percent:.0f}%)"
+                " — risk of paging-file failures / crashed workers."
+            )
+            # Warning orange (matches the Configuration-tab restart notice and the Commit chart accent).
+            # Kept on the same line as the status so the whole strip stays a single row.
+            return f'<span style="color: #b25400;">{warning}</span>&nbsp;&nbsp;·&nbsp;&nbsp;{status}'
+        return status
+
+    def _pagefile_summary(self) -> str:
+        """Summarize the pagefiles that make up the commit limit: which discs and their sizes, plus the
+        live total pagefile (commit limit minus physical RAM, both from the latest sample)."""
+        latest = self._samples[-1] if self._samples else None
+        total_suffix = ""
+        if latest is not None and latest.commit_total_gb > 0 and latest.memory_total_gb > 0:
+            total_gb = max(latest.commit_total_gb - latest.memory_total_gb, 0.0)
+            total_suffix = f" (total {total_gb:.1f} GB)"
+
+        if not self._pagefiles:
+            return "Pagefile: n/a" + total_suffix
+
+        entries = []
+        for pf in self._pagefiles:
+            if pf.system_managed:
+                entries.append(f"{pf.drive} auto")
+            else:
+                entries.append(f"{pf.drive} {pf.maximum_mb / 1024.0:.1f} GB")
+        return "Pagefile: " + ", ".join(entries) + total_suffix
 
     @staticmethod
     def _build_activity_sample(tick: TickData, now: float) -> "_ActivitySample":

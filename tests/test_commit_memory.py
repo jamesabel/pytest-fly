@@ -6,7 +6,7 @@ import sys
 import pytest
 
 from pytest_fly.pytest_runner import commit_memory
-from pytest_fly.pytest_runner.commit_memory import commit_charge_and_limit, commit_warning_active, subtree_commit
+from pytest_fly.pytest_runner.commit_memory import PageFileInfo, commit_charge_and_limit, commit_warning_active, pagefile_breakdown, subtree_commit
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="commit charge read is Windows-only in v1")
@@ -50,6 +50,40 @@ def test_subtree_commit_current_process():
 def test_subtree_commit_missing_pid_fails_open():
     # A PID that cannot exist degrades to 0 rather than raising.
     assert subtree_commit(-1) == 0
+
+
+def test_pagefile_breakdown_windows():
+    """On Windows the read returns a list of PageFileInfo (typically at least one pagefile)."""
+    result = pagefile_breakdown()
+    assert isinstance(result, list)
+    for pf in result:
+        assert isinstance(pf, PageFileInfo)
+        assert pf.drive  # a drive was parsed
+        assert pf.initial_mb >= 0 and pf.maximum_mb >= 0
+        # system_managed entries have both configured sizes at zero.
+        assert pf.system_managed == (pf.initial_mb == 0 and pf.maximum_mb == 0)
+
+
+def test_pagefile_breakdown_non_windows(monkeypatch):
+    """On non-Windows platforms the read returns [] rather than raising."""
+    monkeypatch.setattr(commit_memory.sys, "platform", "linux")
+    assert pagefile_breakdown() == []
+
+
+def test_pagefile_breakdown_fails_open(monkeypatch):
+    """Any error during the read degrades to [] (fail-open), never an exception."""
+    monkeypatch.setattr(commit_memory.sys, "platform", "win32")
+    monkeypatch.setattr(commit_memory, "_pagefile_warned_once", False)
+
+    real_import = __import__
+
+    def boom(name, *args, **kwargs):
+        if name == "winreg":
+            raise OSError("simulated failure")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr("builtins.__import__", boom)
+    assert pagefile_breakdown() == []  # no exception propagates
 
 
 def test_commit_warning_active():

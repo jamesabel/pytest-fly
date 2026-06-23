@@ -104,16 +104,17 @@ class About(QWidget):
         vertical_layout.addWidget(self.about_box)
 
         self.worker = AboutDataWorker(data_dir)
-        self.thread = QThread()
-        self.worker.moveToThread(self.thread)
+        # Named with a leading underscore so it does not shadow QObject.thread().
+        self._thread = QThread()
+        self.worker.moveToThread(self._thread)
         self.worker.data_ready.connect(self.update_about_box)
-        self.thread.started.connect(self.worker.run)
-        self.thread.start()
+        self._thread.started.connect(self.worker.run)
+        self._thread.start()
 
     def update_about_box(self, text):
         """
         Update the About box with the given text.
         """
         self.about_box.set_text(text)
-        self.thread.quit()
-        self.thread.wait()
+        self._thread.quit()
+        self._thread.wait()

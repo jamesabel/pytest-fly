@@ -17,6 +17,7 @@ from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QApplication,
     QMainWindow,
+    QMessageBox,
     QSizePolicy,
     QTabWidget,
 )
@@ -124,6 +125,10 @@ class FlyAppMainWindow(QMainWindow):
     def __init__(self, data_dir: Path):
         self.data_dir = data_dir
 
+        # When True, closeEvent skips the "tests are running" confirmation dialog. Set under
+        # automation (screenshot capture, auto-quit-on-done) where a modal prompt would block.
+        self._suppress_close_confirmation = False
+
         super().__init__()
 
         # set monospace font
@@ -207,6 +212,22 @@ class FlyAppMainWindow(QMainWindow):
 
         log.info(f"{__class__.__name__}.closeEvent() - entering")
 
+        # If a run is in progress, confirm with the user before tearing it down. Skipped under
+        # automation, where a modal prompt would block the programmatic close.
+        pytest_runner = self.run_tab.control_window.pytest_runner
+        if not self._suppress_close_confirmation and pytest_runner is not None and pytest_runner.is_running():
+            response = QMessageBox.question(
+                self,
+                "Tests are running",
+                "A test run is currently in progress. Exiting now will stop it.\n\nAre you sure you want to exit?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if response != QMessageBox.StandardButton.Yes:
+                log.info(f"{__class__.__name__}.closeEvent() - cancelled by user")
+                event.ignore()
+                return
+
         pref = get_pref()
 
         # Save window geometry via Qt's own serialization (frame, size, and maximized state), so
@@ -214,7 +235,7 @@ class FlyAppMainWindow(QMainWindow):
         # persistence used for the Run-tab splitters.
         pref.window_geometry = self.saveGeometry().toHex().data().decode("ascii")
 
-        if (pytest_runner := self.run_tab.control_window.pytest_runner) is not None and pytest_runner.is_running():
+        if pytest_runner is not None and pytest_runner.is_running():
             pytest_runner.stop()
             QCoreApplication.processEvents()
             pytest_runner.join(30.0)
@@ -333,6 +354,10 @@ def fly_main(data_dir: Path, *, auto_start: bool = False, auto_quit_on_done: boo
 
     app = QApplication([])
     fly_app = FlyAppMainWindow(data_dir)
+    # Under automation the window may be closed programmatically while a run is active; suppress
+    # the interactive "tests are running" confirmation so it doesn't block the close.
+    if auto_start or auto_quit_on_done:
+        fly_app._suppress_close_confirmation = True
     fly_app.show()
 
     # If the configured target project path is missing, guide the user to a valid one right away

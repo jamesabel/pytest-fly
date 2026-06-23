@@ -157,7 +157,7 @@ class TimeAxisWidget(QWidget):
             return
 
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
         h = self.height()
         tick_height = 5  # short tick mark at the bottom of the axis

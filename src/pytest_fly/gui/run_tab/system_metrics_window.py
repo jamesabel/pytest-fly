@@ -14,8 +14,9 @@ Chart style follows ``coverage_tab._CoverageChart`` — custom ``QPainter`` with
 import math
 import time
 from collections import deque
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
+from typing import Any
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QPainter, QPen
@@ -44,8 +45,10 @@ class _Series:
 
     label: str
     color: QColor
-    getter: Callable[[object], float]
-    legend_formatter: Callable[[object], str] | None = None
+    # The getter/formatter read attributes off a duck-typed sample — either a SystemMonitorSample
+    # or an _ActivitySample — so the parameter is typed Any rather than a single concrete class.
+    getter: Callable[[Any], float]
+    legend_formatter: Callable[[Any], str] | None = None
 
 
 @dataclass(frozen=True)
@@ -56,6 +59,11 @@ class _ActivitySample:
     running: int  # tests in the RUNNING state
     idle: int  # running tests whose subtree CPU is below the idle epsilon
     stalled: bool  # the watchdog has flagged the run as stalled
+
+
+# A chart renders either system-resource samples or activity samples; both expose ``time_stamp``
+# and the per-series attributes are read through the duck-typed ``_Series.getter``.
+_ChartSample = SystemMonitorSample | _ActivitySample
 
 
 class _MetricChart(QWidget):
@@ -81,14 +89,14 @@ class _MetricChart(QWidget):
         self._y_max_fixed = y_max_fixed
         self._integer_y = integer_y
 
-        self._samples: list[SystemMonitorSample] = []
+        self._samples: Sequence[_ChartSample] = []
         self._min_ts: float | None = None
         self._max_ts: float | None = None
         # When True, series are painted in the warning color (used by the Commit chart
         # when commit charge crosses the configured threshold).
         self._warn = False
 
-    def update_data(self, samples: list[SystemMonitorSample], min_ts: float | None, max_ts: float | None, warn: bool = False):
+    def update_data(self, samples: Sequence[_ChartSample], min_ts: float | None, max_ts: float | None, warn: bool = False):
         self._samples = samples
         self._min_ts = min_ts
         self._max_ts = max_ts
@@ -141,7 +149,7 @@ class _MetricChart(QWidget):
 
     def paintEvent(self, event):
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
         w = self.width()
         h = self.height()

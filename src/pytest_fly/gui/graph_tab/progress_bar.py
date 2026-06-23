@@ -128,7 +128,7 @@ class PytestProgressBar(QWidget):
             pytest_run_state = self._run_state
 
             painter = QPainter(self)
-            painter.setRenderHint(QPainter.Antialiasing)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
             # Draw vertical grid lines (behind the bar)
             grid_ticks = compute_grid_ticks(self.min_time_stamp, self.max_time_stamp, self.width())

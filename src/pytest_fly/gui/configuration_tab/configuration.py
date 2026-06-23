@@ -304,7 +304,7 @@ def _add_labeled_duration(
     """
     label = QLabel(label_text)
     row = QHBoxLayout()
-    row.setAlignment(Qt.AlignLeft)
+    row.setAlignment(Qt.AlignmentFlag.AlignLeft)
     lineedit = QLineEdit()
     lineedit.setText(_format_number(value))
     lineedit.setValidator(QDoubleValidator())
@@ -350,15 +350,15 @@ class Configuration(QWidget):
         # Two columns: general options on the left, the (tall) Liveness / Recovery group on the
         # right. Horizontal room is plentiful; vertical is not, so spread out sideways.
         columns_layout = QHBoxLayout()
-        columns_layout.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+        columns_layout.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
         content.setLayout(columns_layout)
 
         layout = QVBoxLayout()
-        layout.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+        layout.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
         columns_layout.addLayout(layout)
 
         right_column = QVBoxLayout()
-        right_column.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+        right_column.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
         columns_layout.addLayout(right_column)
 
         pref = get_pref()

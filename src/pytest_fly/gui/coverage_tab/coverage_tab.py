@@ -53,7 +53,7 @@ class _CoverageChart(QWidget):
 
     def paintEvent(self, event):
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
         w = self.width()
         h = self.height()
@@ -126,7 +126,7 @@ class _CoverageChart(QWidget):
             # close the polygon along the bottom
             fill_points.append(QPointF(points[-1][0], margin_top + chart_h))
             fill_points.append(QPointF(points[0][0], margin_top + chart_h))
-            painter.setPen(Qt.NoPen)
+            painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(QBrush(COVERAGE_FILL_COLOR))
             painter.drawPolygon(QPolygonF(fill_points))
 

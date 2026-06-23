@@ -210,7 +210,7 @@ class FlyAppMainWindow(QMainWindow):
 
     def closeEvent(self, event, /):
 
-        log.info(f"{__class__.__name__}.closeEvent() - entering")
+        log.info(f"{self.__class__.__name__}.closeEvent() - entering")
 
         # If a run is in progress, confirm with the user before tearing it down. Skipped under
         # automation, where a modal prompt would block the programmatic close.
@@ -224,7 +224,7 @@ class FlyAppMainWindow(QMainWindow):
                 QMessageBox.StandardButton.No,
             )
             if response != QMessageBox.StandardButton.Yes:
-                log.info(f"{__class__.__name__}.closeEvent() - cancelled by user")
+                log.info(f"{self.__class__.__name__}.closeEvent() - cancelled by user")
                 event.ignore()
                 return
 

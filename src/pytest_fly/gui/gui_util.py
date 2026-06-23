@@ -258,7 +258,7 @@ def compute_average_parallelism(infos_by_name: dict[str, list[PytestProcessInfo]
 
 def window_text_color(widget: QWidget) -> QColor:
     """Return the palette's foreground text color for *widget* (respects light/dark themes)."""
-    return widget.palette().color(QPalette.WindowText)
+    return widget.palette().color(QPalette.ColorRole.WindowText)
 
 
 # Per-line width cap. Pytest tracebacks and captured-output lines are often 200+ chars

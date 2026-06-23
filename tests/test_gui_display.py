@@ -522,7 +522,7 @@ def test_about(qtbot, tmp_path):
     """About tab should load project and platform info in background."""
     about = About(None, tmp_path)
     qtbot.addWidget(about)
-    qtbot.waitUntil(lambda: not about.thread.isRunning(), timeout=10000)
+    qtbot.waitUntil(lambda: not about._thread.isRunning(), timeout=10000)
     text = about.about_box.toPlainText()
     assert len(text) > 10
 

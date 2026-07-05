@@ -22,7 +22,9 @@ pip install pytest-fly
 ## Features
 
 - Real-time monitoring of test execution in a GUI with six tabs:
-  - **Run** — start/stop controls, parallelism and run-mode selectors (Restart or Resume; Resume
+  - **Run** — run/stop controls (**Stop** waits for the running tests to finish and, while
+    pending, becomes **Cancel Stop** so the stop can be called off and the queued tests keep
+    running; **Force Stop** terminates immediately), parallelism and run-mode selectors (Restart or Resume; Resume
     behaves as Check unless the Configuration tab's *Resume Without Program Check* is set), and
     several panels: a Status panel (completion percentage, pass rate, per-state counts, elapsed
     time, average parallelism, coverage, and estimated time remaining), a System Performance
@@ -45,7 +47,9 @@ pip install pytest-fly
 - Three run modes — **Restart** (rerun all tests), **Resume** (skip already-passed tests and
   only re-run failed or unrun tests), and **Check** (resume if the program under test has not
   changed, otherwise restart).
-- Graceful interruption — stop the test suite and resume where it left off.
+- Graceful interruption — stop the test suite and resume where it left off. A pending stop can
+be canceled (**Cancel Stop**) at any point until the last running test finishes, resuming the
+remaining queued tests without losing any progress.
 - Per-process resource monitoring — tracks peak CPU and memory usage for each test module.
 - Estimated time remaining based on prior run durations, accounting for parallelism.
 - Code coverage tracking — each test writes its own coverage data, combined automatically as tests

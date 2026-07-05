@@ -179,6 +179,12 @@ class PytestRunner(Thread):
         self._written_to_db = set()
         self._watchdog: _StallWatchdog | None = None
         self._force_stopped = False  # one-way latch: user (or auto-escalation) force-stopped & reset
+        self._stop_requested = False  # hard stop requested; suppresses pool healing and soft-stop cancel
+        # Runner-owned so a pending soft stop can be canceled: workers share this single
+        # event, and the queue is only drained to STOPPED at run finalization (see run()),
+        # not by the first idle worker — that's what keeps the queued tests recoverable.
+        self._soft_stop_event = Event()
+        self._queue_finalized = False  # one-way latch: the run wound down; a soft stop can no longer be canceled
 
         super().__init__()
 
@@ -227,6 +233,27 @@ class PytestRunner(Thread):
             )
             self._watchdog.start()
 
+        # Supervise the pool until the run winds down. This loop is what makes a soft
+        # stop cancelable: workers no longer drain the queue themselves — they simply
+        # exit — so queued tests stay schedulable until every worker has finished, and
+        # only then are they marked STOPPED (the point of no return). The loop also tops
+        # the pool back up if a worker exited on a soft stop that was later canceled
+        # (covers the window where cancel_soft_stop's respawn undercounts a worker that
+        # was still mid-exit) or died unexpectedly while tests remain queued.
+        while True:
+            with self._pool_lock:
+                self._test_runners = {tid: r for tid, r in self._test_runners.items() if r.is_alive()}
+                if not self._test_runners:
+                    if self._soft_stop_event.is_set() and not self._force_stopped:
+                        self._mark_queued_tests_stopped()
+                    self._queue_finalized = True
+                    break
+                if not (self._soft_stop_event.is_set() or self._stop_requested) and not self._test_queue.empty():
+                    active = [r for r in self._test_runners.values() if not r.is_retiring()]
+                    for _ in range(self.number_of_processes - len(active)):
+                        self._spawn_worker_locked()
+            time.sleep(min(self.update_rate, 1.0))
+
     def _spawn_worker_locked(self) -> None:
         """Start one worker thread pulling from the shared queue. Caller holds ``_pool_lock``."""
         test_runner = _TestRunner(
@@ -239,6 +266,7 @@ class PytestRunner(Thread):
             put_fingerprint=self.put_fingerprint,
             controller_pid=self._controller_pid,
             gate_config=self.gate_config,
+            soft_stop_event=self._soft_stop_event,
         )
         test_runner.start()
         self._test_runners[self._next_worker_id] = test_runner
@@ -383,9 +411,13 @@ class PytestRunner(Thread):
             test_runners = list(self._test_runners.values())
         for test_runner in test_runners:
             test_runner.join(timeout_seconds)
-        return all(not test_runner.is_alive() for test_runner in test_runners)
+        # Also join the runner thread itself so soft-stop finalization (marking the
+        # remaining queue STOPPED) is complete when join() returns.
+        Thread.join(self, timeout_seconds)
+        return all(not test_runner.is_alive() for test_runner in test_runners) and not self.is_alive()
 
     def stop(self):
+        self._stop_requested = True
         try:
             with self._pool_lock:
                 test_runners = list(self._test_runners.values())
@@ -395,14 +427,59 @@ class PytestRunner(Thread):
             log.error(f"error stopping pytest runner,{self.run_guid=},{e}", exc_info=True, stack_info=True)
 
     def soft_stop(self):
-        """Signal workers to finish their current test and stop picking up new ones."""
-        try:
-            with self._pool_lock:
-                test_runners = list(self._test_runners.values())
-            for test_runner in test_runners:
-                test_runner.soft_stop()
-        except (OSError, RuntimeError, PermissionError) as e:
-            log.error(f"error soft-stopping pytest runner,{self.run_guid=},{e}", exc_info=True, stack_info=True)
+        """Signal workers to finish their current test and stop picking up new ones.
+
+        Cancelable via :meth:`cancel_soft_stop` until the run winds down (every worker
+        has exited and the still-queued tests have been marked STOPPED).
+        """
+        self._soft_stop_event.set()
+
+    def cancel_soft_stop(self) -> bool:
+        """Cancel a pending soft stop so the still-queued tests keep running.
+
+        Possible until the run finalizes — all workers exited and the remaining queue was
+        drained to STOPPED. Workers that already exited on the soft stop are respawned so
+        the pool returns to its configured size (the supervision loop in :meth:`run` heals
+        any respawn shortfall from a worker caught mid-exit).
+
+        :return: ``True`` if the soft stop was canceled (or none was pending), ``False`` if it was too late.
+        """
+        with self._pool_lock:
+            if self._queue_finalized or self._force_stopped or self._stop_requested:
+                return False
+            if not self._soft_stop_event.is_set():
+                return True  # nothing pending
+            self._soft_stop_event.clear()
+            if self._started_event.is_set():
+                self._test_runners = {tid: r for tid, r in self._test_runners.items() if r.is_alive()}
+                active = [r for r in self._test_runners.values() if not r.is_retiring()]
+                for _ in range(self.number_of_processes - len(active)):
+                    self._spawn_worker_locked()
+            log.info(f"soft stop canceled ({self.run_guid=})")
+        return True
+
+    def _mark_queued_tests_stopped(self) -> None:
+        """Drain the remaining queue and mark those tests STOPPED in the DB (soft-stop finalization)."""
+        test_queue = self._test_queue
+        if test_queue is None:  # run() has not published the queue yet; nothing to drain
+            return
+        with PytestProcessInfoDB(self.data_dir) as db:
+            while True:
+                try:
+                    scheduled_test = test_queue.get(False)
+                except Empty:
+                    break
+                info = PytestProcessInfo(
+                    self.run_guid,
+                    scheduled_test.node_id,
+                    None,
+                    PyTestFlyExitCode.STOPPED,
+                    None,
+                    time_stamp=time.time(),
+                    put_version=self.put_version,
+                    put_fingerprint=self.put_fingerprint,
+                )
+                db.write(info)
 
     def force_stop_test(self, test_name: str) -> None:
         """Terminate a single running test identified by its node_id.
@@ -721,6 +798,7 @@ class _TestRunner(Thread):
         put_fingerprint: str = "",
         controller_pid: int | None = None,
         gate_config: "_AdmissionGateConfig | None" = None,
+        soft_stop_event: Event | None = None,
     ) -> None:
         """
         :param run_guid: GUID identifying the overall test run.
@@ -732,6 +810,8 @@ class _TestRunner(Thread):
         :param controller_pid: PID of the pytest-fly controller process, used by the
             process-count admission gate to measure the descendant tree.
         :param gate_config: Admission-gate configuration (Part C). ``None`` disables both gates.
+        :param soft_stop_event: Runner-owned soft-stop event shared by all workers, so a
+            pending soft stop can be canceled centrally. ``None`` creates a private one.
         """
         super().__init__()
 
@@ -746,7 +826,7 @@ class _TestRunner(Thread):
 
         self.process: Optional[PytestProcess] = None
         self._stop_event = Event()
-        self._soft_stop_event = Event()
+        self._soft_stop_event = soft_stop_event if soft_stop_event is not None else Event()
         self._retire_event = Event()
         self._force_stop_current_event = Event()
 
@@ -917,24 +997,21 @@ class _TestRunner(Thread):
                 else:
                     self._coordinator.release_normal()
 
-        if self._soft_stop_event.is_set() and not self._stop_event.is_set():
-            self._drain_queue()
+        # On soft stop the worker just exits — it does NOT drain the queue. The queued
+        # tests stay schedulable so the soft stop can be canceled; if it isn't, the
+        # runner marks them STOPPED once every worker has exited (soft-stop finalization).
 
     def _handle_not_acquired(self, scheduled_test: ScheduledTest, test: str) -> None:
         """Dispose of a dequeued test when a slot could not be acquired or admission was aborted.
 
         Shared by the admission-gate-abort path and the coordinator-acquire-failure path:
-        on stop, tree-kill the (not-yet-started) current process; on soft-stop, drain the
-        remaining queue to STOPPED; on retire, hand the dequeued test back to a surviving worker.
+        on stop, tree-kill the (not-yet-started) current process; on soft-stop or retire,
+        hand the dequeued test back — on retire a surviving worker runs it, on soft-stop
+        it is either resumed (stop canceled) or marked STOPPED at finalization.
         """
         if self._stop_event.is_set():
             self._handle_stop_request(test)
-        elif self._soft_stop_event.is_set():
-            self._drain_queue()
-        elif self._retire_event.is_set():
-            # Pool was shrunk while we waited. Hand the test we dequeued back so a
-            # surviving worker runs it, then exit without draining — the remaining
-            # queue belongs to the other workers.
+        elif self._soft_stop_event.is_set() or self._retire_event.is_set():
             self.pytest_test_queue.put(scheduled_test)
 
     def _await_admission(self, should_abort) -> bool:
@@ -983,10 +1060,6 @@ class _TestRunner(Thread):
         """Signal all work to stop as soon as possible."""
         self._stop_event.set()
 
-    def soft_stop(self):
-        """Signal the worker to finish its current test and stop picking up new ones."""
-        self._soft_stop_event.set()
-
     def retire(self):
         """Signal the worker to finish its current test, then exit without draining the queue.
 
@@ -1002,23 +1075,3 @@ class _TestRunner(Thread):
     def force_stop_current(self):
         """Signal this worker to terminate its currently running test."""
         self._force_stop_current_event.set()
-
-    def _drain_queue(self):
-        """Drain remaining tests from the queue and mark them as STOPPED in the DB."""
-        with PytestProcessInfoDB(self.data_dir) as db:
-            while True:
-                try:
-                    scheduled_test = self.pytest_test_queue.get(False)
-                except Empty:
-                    break
-                info = PytestProcessInfo(
-                    self.run_guid,
-                    scheduled_test.node_id,
-                    None,
-                    PyTestFlyExitCode.STOPPED,
-                    None,
-                    time_stamp=time.time(),
-                    put_version=self.put_version,
-                    put_fingerprint=self.put_fingerprint,
-                )
-                db.write(info)

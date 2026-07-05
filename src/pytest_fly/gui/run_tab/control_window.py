@@ -58,7 +58,7 @@ class ControlWindow(QGroupBox):
         self.stop_button = ControlButton(self, "Stop", False)
         self.stop_button.setToolTip("Wait for the running tests and then stop")
         layout.addWidget(self.stop_button)
-        self.stop_button.clicked.connect(self.soft_stop)
+        self.stop_button.clicked.connect(self._on_stop_clicked)
 
         self.force_stop_button = ControlButton(self, "Force Stop", False)
         self.force_stop_button.setToolTip("Immediately terminate all running tests")
@@ -89,7 +89,13 @@ class ControlWindow(QGroupBox):
 
     def set_fixed_width(self):
         """Calculate and set a fixed width based on the widest child widget."""
-        max_width = max(self.run_button.sizeHint().width(), self.stop_button.sizeHint().width(), self.force_stop_button.sizeHint().width(), self.parallelism_box.sizeHint().width())
+        # Measure the stop button at its widest label so relabeling it "Cancel Stop"
+        # while a soft stop is pending does not reflow the panel.
+        original_stop_text = self.stop_button.text()
+        self.stop_button.setText("Cancel Stop")
+        stop_width = self.stop_button.sizeHint().width()
+        self.stop_button.setText(original_stop_text)
+        max_width = max(self.run_button.sizeHint().width(), stop_width, self.force_stop_button.sizeHint().width(), self.parallelism_box.sizeHint().width())
         # Add some padding
         max_width += 30
         self.setFixedWidth(max_width)
@@ -138,13 +144,24 @@ class ControlWindow(QGroupBox):
             self.force_stop_button.setEnabled(False)
             self._soft_stop_requested = False
         elif self._soft_stop_requested:
+            # Soft stop pending: the stop button stays enabled, relabeled "Cancel Stop".
             self.run_button.setEnabled(False)
-            self.stop_button.setEnabled(False)
+            self.stop_button.setEnabled(True)
             self.force_stop_button.setEnabled(True)
         else:
             self.run_button.setEnabled(False)
             self.stop_button.setEnabled(True)
             self.force_stop_button.setEnabled(True)
+        self._update_stop_button_label()
+
+    def _update_stop_button_label(self):
+        """Relabel the Stop button as Cancel Stop while a soft stop is pending."""
+        if self._soft_stop_requested:
+            self.stop_button.setText("Cancel Stop")
+            self.stop_button.setToolTip("Cancel the pending stop and keep running the queued tests")
+        else:
+            self.stop_button.setText("Stop")
+            self.stop_button.setToolTip("Wait for the running tests and then stop")
 
     def run(self):
         """Discover tests and launch a new :class:`PytestRunner`."""
@@ -292,6 +309,7 @@ class ControlWindow(QGroupBox):
         self.stop_button.setEnabled(True)
         self.force_stop_button.setEnabled(True)
         self._soft_stop_requested = False
+        self._update_stop_button_label()
 
     def _filter_for_resume(self, tests, prior_results, effective_mode):
         """Filter out already-passed tests when running in RESUME mode.
@@ -337,11 +355,28 @@ class ControlWindow(QGroupBox):
         log.info(f"CHECK: PUT fingerprint unchanged ({current_fp!r}), resuming")
         return RunMode.RESUME
 
+    def _on_stop_clicked(self):
+        """Stop-button dispatcher — request a soft stop, or cancel the pending one."""
+        if self._soft_stop_requested:
+            self.cancel_soft_stop()
+        else:
+            self.soft_stop()
+
     def soft_stop(self):
-        """Stop scheduling new tests but let running tests finish."""
+        """Stop scheduling new tests but let running tests finish. Cancelable until the run winds down."""
         self.pytest_runner.soft_stop()
         self._soft_stop_requested = True
-        self.stop_button.setEnabled(False)
+        self._update_stop_button_label()
+
+    def cancel_soft_stop(self):
+        """Cancel a pending soft stop so the remaining queued tests keep running.
+
+        If the runner reports it is too late (the run already wound down), the pending
+        flag is left set and the next :meth:`refresh_button_state` tick settles the UI.
+        """
+        if self.pytest_runner is not None and self.pytest_runner.cancel_soft_stop():
+            self._soft_stop_requested = False
+        self._update_stop_button_label()
 
     def force_stop(self):
         """Force-stop & reset: terminate all running tests and mark the run complete (Part B/D).
@@ -355,4 +390,6 @@ class ControlWindow(QGroupBox):
         self.run_button.setEnabled(True)
         self.stop_button.setEnabled(False)
         self.force_stop_button.setEnabled(False)
+        self._soft_stop_requested = False
+        self._update_stop_button_label()
         self.run_guid = None

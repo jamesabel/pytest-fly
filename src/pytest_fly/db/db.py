@@ -195,8 +195,8 @@ class PytestProcessInfoDB(MSQLite):
         """Return the set of test node_ids that have ever been run, across all runs and PUT versions.
 
         Filters out queued-but-never-started placeholder rows (``pid IS NULL``) — these are
-        written by :class:`PytestRunner` before a test actually spawns and by ``_drain_queue``
-        when a run is stopped, so they do not count as "ever run."
+        written by :class:`PytestRunner` before a test actually spawns and at soft-stop
+        finalization when a run is stopped, so they do not count as "ever run."
 
         :return: Set of test node_ids.  Empty if the table does not yet exist.
         """

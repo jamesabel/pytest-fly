@@ -319,6 +319,47 @@ def test_fly_app_main_window_constructs(app):
         window.deleteLater()
 
 
+def test_force_stop_clears_stale_running_row(app):
+    """Force Stop on a stale "Running" row (no live process, no active runner) writes TERMINATED.
+
+    Regression for Force Stop being a silent no-op on tests whose process died without
+    writing a terminal record — the row showed Running forever and right-click → Force
+    Stop did nothing.
+    """
+    from pytest_fly.db import PytestProcessInfoDB
+
+    data_dir = get_temp_dir("test_force_stop_stale_row")
+    now = time.time()
+    guid = "stale-run"
+    with PytestProcessInfoDB(data_dir) as db:
+        db.write(PytestProcessInfo(run_guid=guid, name="tests/test_wedged.py", pid=None, exit_code=PyTestFlyExitCode.NONE, output=None, time_stamp=now - 10))
+        db.write(PytestProcessInfo(run_guid=guid, name="tests/test_wedged.py", pid=99999, exit_code=PyTestFlyExitCode.NONE, output=None, time_stamp=now - 9))
+        db.write(PytestProcessInfo(run_guid=guid, name="tests/test_done.py", pid=100, exit_code=PyTestFlyExitCode.OK, output="passed", time_stamp=now - 8))
+
+    window = FlyAppMainWindow(data_dir)
+    try:
+        window.timer.stop()
+        assert window.run_tab.control_window.pytest_runner is None  # no active run
+
+        window._force_stop_single_test("tests/test_wedged.py")  # stale row -> cleared
+        window._force_stop_single_test("tests/test_done.py")  # terminal row -> untouched
+
+        with PytestProcessInfoDB(data_dir) as db:
+            rows = db.query(guid)
+        latest_wedged = max((r for r in rows if r.name == "tests/test_wedged.py"), key=lambda r: r.time_stamp)
+        assert latest_wedged.exit_code == PyTestFlyExitCode.TERMINATED
+        latest_done = max((r for r in rows if r.name == "tests/test_done.py"), key=lambda r: r.time_stamp)
+        assert latest_done.exit_code == PyTestFlyExitCode.OK
+    finally:
+        window.timer.stop()
+        window._system_monitor.request_stop()
+        window._system_monitor.join(5.0)
+        if window._system_monitor.is_alive():
+            window._system_monitor.terminate()
+            window._system_monitor.join(5.0)
+        window.deleteLater()
+
+
 def test_window_geometry_round_trips_without_drift(app):
     """Reopening the app restores to a stable geometry — no per-launch drift.
 

@@ -246,10 +246,19 @@ class FlyAppMainWindow(QMainWindow):
         event.accept()
 
     def _force_stop_single_test(self, test_name: str):
-        """Handle request to terminate a single running test from the table tab."""
+        """Handle request to terminate a single running test from the table tab.
+
+        If no worker is currently running the test — a stale "Running" row whose process
+        died without writing a terminal record, or a run that is no longer active — write
+        a TERMINATED record directly so the row clears instead of showing Running forever.
+        """
         control = self.run_tab.control_window
-        if control.pytest_runner is not None and control.pytest_runner.is_running():
-            control.pytest_runner.force_stop_test(test_name)
+        runner = control.pytest_runner
+        if runner is not None and runner.is_running() and runner.force_stop_test(test_name):
+            return
+        with PytestProcessInfoDB(self.data_dir) as db:
+            if db.mark_test_terminated_if_stale(control.run_guid, test_name):
+                log.info(f'force stop: cleared stale running row for "{test_name}"')
 
     def _drain_system_monitor(self) -> None:
         """Drain queued system-resource samples into the Run tab's metrics widget."""

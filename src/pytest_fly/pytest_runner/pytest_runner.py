@@ -481,13 +481,16 @@ class PytestRunner(Thread):
                 )
                 db.write(info)
 
-    def force_stop_test(self, test_name: str) -> None:
+    def force_stop_test(self, test_name: str) -> bool:
         """Terminate a single running test identified by its node_id.
 
         Iterates worker threads and signals the one currently running the
         given test to terminate its process.  Other workers are unaffected.
 
         :param test_name: The test node_id to terminate.
+        :return: ``True`` if a worker was signaled, ``False`` if no worker is currently
+            running the test (e.g. a stale "Running" row whose process is already gone —
+            the caller is expected to clear it in the DB).
         """
         with self._pool_lock:
             test_runners = list(self._test_runners.values())
@@ -496,8 +499,9 @@ class PytestRunner(Thread):
             if proc is not None and proc.name == test_name:
                 test_runner.force_stop_current()
                 log.info(f'force stop requested for test "{test_name}" ({self.run_guid=})')
-                return
+                return True
         log.warning(f'force stop: no running process found for test "{test_name}" ({self.run_guid=})')
+        return False
 
 
 class _StallWatchdog(Thread):

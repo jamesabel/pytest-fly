@@ -114,6 +114,9 @@ class TableTab(QGroupBox):
         self.table_widget.setHorizontalHeaderLabels(["Name", "State", "CPU", "Memory", "Commit", "Runtime", "Coverage", "Last Pass Start", "Last Pass Duration", ""])
         self.table_widget.horizontalHeader().setStretchLastSection(True)
         self.table_widget.horizontalHeader().setSortIndicatorShown(True)
+        # Non-clickable sections still emit sectionDoubleClicked but no longer select the
+        # whole column on (double-)click — the header is a sort control, not a selector.
+        self.table_widget.horizontalHeader().setSectionsClickable(False)
         self.table_widget.horizontalHeader().sectionDoubleClicked.connect(self._on_header_double_clicked)
         self.table_widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table_widget.customContextMenuRequested.connect(self.show_context_menu)

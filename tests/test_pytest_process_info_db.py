@@ -85,6 +85,69 @@ def test_pytest_process_info_db_query_most_recent():
         assert rows[0].run_guid == guid_new
 
 
+def test_mark_test_terminated_if_stale():
+    """A stale running row (latest record non-terminal) gets a TERMINATED record appended."""
+
+    db_dir = get_temp_dir("test_mark_test_terminated_if_stale")
+    now = time.time()
+    guid = generate_uuid()
+
+    with PytestProcessInfoDB(db_dir) as db:
+        db.write(PytestProcessInfo(run_guid=guid, name="test_stale", pid=None, exit_code=PyTestFlyExitCode.NONE, output=None, time_stamp=now - 10))
+        db.write(PytestProcessInfo(run_guid=guid, name="test_stale", pid=100, exit_code=PyTestFlyExitCode.NONE, output=None, time_stamp=now - 9, put_version="v1", put_fingerprint="fp1"))
+
+        assert db.mark_test_terminated_if_stale(guid, "test_stale")
+
+        rows = [r for r in db.query(guid) if r.name == "test_stale"]
+        assert len(rows) == 3
+        latest = max(rows, key=lambda r: r.time_stamp)
+        assert latest.exit_code == PyTestFlyExitCode.TERMINATED
+        assert latest.pid is None
+        # PUT metadata carries over from the stale record
+        assert latest.put_version == "v1"
+        assert latest.put_fingerprint == "fp1"
+
+
+def test_mark_test_terminated_if_stale_does_not_clobber_terminal():
+    """A test whose latest record is terminal (e.g. passed) is left untouched."""
+
+    db_dir = get_temp_dir("test_mark_stale_no_clobber")
+    now = time.time()
+    guid = generate_uuid()
+
+    with PytestProcessInfoDB(db_dir) as db:
+        db.write(PytestProcessInfo(run_guid=guid, name="test_done", pid=100, exit_code=PyTestFlyExitCode.NONE, output=None, time_stamp=now - 5))
+        db.write(PytestProcessInfo(run_guid=guid, name="test_done", pid=100, exit_code=PyTestFlyExitCode.OK, output="passed", time_stamp=now - 1))
+
+        assert not db.mark_test_terminated_if_stale(guid, "test_done")
+        assert not db.mark_test_terminated_if_stale(guid, "test_never_existed")
+
+        rows = [r for r in db.query(guid) if r.name == "test_done"]
+        assert len(rows) == 2  # nothing was written
+        assert max(rows, key=lambda r: r.time_stamp).exit_code == PyTestFlyExitCode.OK
+
+
+def test_mark_test_terminated_if_stale_run_guid_none():
+    """run_guid None resolves to the most recent run, matching what the GUI displays."""
+
+    db_dir = get_temp_dir("test_mark_stale_guid_none")
+    now = time.time()
+
+    with PytestProcessInfoDB(db_dir) as db:
+        # older run: same test name, stale — must NOT be touched
+        db.write(PytestProcessInfo(run_guid="aaa-old", name="test_x", pid=100, exit_code=PyTestFlyExitCode.NONE, output=None, time_stamp=now - 100))
+        # most recent run: stale running row
+        db.write(PytestProcessInfo(run_guid="zzz-new", name="test_x", pid=200, exit_code=PyTestFlyExitCode.NONE, output=None, time_stamp=now - 5))
+
+        assert db.mark_test_terminated_if_stale(None, "test_x")
+
+        new_rows = db.query("zzz-new")
+        assert max(new_rows, key=lambda r: r.time_stamp).exit_code == PyTestFlyExitCode.TERMINATED
+        old_rows = db.query("aaa-old")
+        assert len(old_rows) == 1  # untouched
+        assert old_rows[0].exit_code == PyTestFlyExitCode.NONE
+
+
 def test_query_last_pass():
     """query_last_pass returns data from the most recent passing run, even if a later run failed."""
 

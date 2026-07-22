@@ -6,6 +6,7 @@ and derives the table schema automatically from the dataclass fields.
 """
 
 import sqlite3
+import time
 from dataclasses import asdict
 from enum import IntEnum, StrEnum
 from pathlib import Path
@@ -148,6 +149,39 @@ class PytestProcessInfoDB(MSQLite):
             rows = [row for row in rows if row.run_guid == run_guid]
 
         return rows
+
+    @typechecked()
+    def mark_test_terminated_if_stale(self, run_guid: str | None, test_name: str) -> bool:
+        """Write a TERMINATED record for *test_name* if its latest record is non-terminal.
+
+        Used to clear a stale "Running" row — a test whose process died (or was lost, e.g.
+        across an app restart) without ever writing a terminal record.  Guarded so a test
+        that actually finished is never clobbered: if the latest record already carries a
+        terminal exit code, nothing is written.
+
+        :param run_guid: The run to search, or ``None`` for the most recent run (matching
+            what the GUI displays when no run is active).
+        :param test_name: The test node_id to mark.
+        :return: ``True`` if a TERMINATED record was written, ``False`` otherwise.
+        """
+        infos = [info for info in self.query(run_guid) if info.name == test_name]
+        if not infos:
+            return False
+        latest = max(infos, key=lambda info: info.time_stamp)
+        if latest.exit_code != PyTestFlyExitCode.NONE:
+            return False  # already terminal — a real result must not be overwritten
+        info = PytestProcessInfo(
+            latest.run_guid,
+            test_name,
+            None,
+            PyTestFlyExitCode.TERMINATED,
+            None,
+            time_stamp=time.time(),
+            put_version=latest.put_version,
+            put_fingerprint=latest.put_fingerprint,
+        )
+        self.write(info)
+        return True
 
     def query_last_pass(self) -> dict[str, tuple[float, float]]:
         """

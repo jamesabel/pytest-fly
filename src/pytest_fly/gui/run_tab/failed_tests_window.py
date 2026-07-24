@@ -1,4 +1,4 @@
-"""Failed tests pane — lists test names that have failed in the current run, with clipboard copy and click-to-inspect support."""
+"""Failed tests pane — lists test names that have failed (or been terminated) in the current run, with clipboard copy and click-to-inspect support."""
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QGroupBox, QHBoxLayout, QListWidget, QListWidgetItem, QPushButton, QSizePolicy, QVBoxLayout
@@ -6,9 +6,12 @@ from PySide6.QtWidgets import QGroupBox, QHBoxLayout, QListWidget, QListWidgetIt
 from ...interfaces import PytestRunnerState
 from ...tick_data import TickData
 
+# States listed in the pane: a terminated test never completed, so it is treated as a failure.
+_FAILED_STATES = frozenset({PytestRunnerState.FAIL, PytestRunnerState.TERMINATED})
+
 
 class FailedTestsWindow(QGroupBox):
-    """Displays a clickable list of failed test names, with a button to copy them to the clipboard.
+    """Displays a clickable list of failed (or terminated) test names, with a button to copy them to the clipboard.
 
     Selecting a test emits :attr:`failed_test_selected` so a sibling pane can show that test's
     captured output; clearing the selection (clicking the selected row again) emits ``None``.
@@ -45,7 +48,7 @@ class FailedTestsWindow(QGroupBox):
 
     def update_tick(self, tick: TickData):
         """Rebuild the failed test list from pre-computed tick data, preserving selection by name."""
-        failed_names = [test_name for test_name, run_state in tick.run_states.items() if run_state.get_state() == PytestRunnerState.FAIL]
+        failed_names = [test_name for test_name, run_state in tick.run_states.items() if run_state.get_state() in _FAILED_STATES]
 
         if failed_names == self._failed_names:
             return

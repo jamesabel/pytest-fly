@@ -57,6 +57,25 @@ def test_failed_tests_window_lists_failures(app):
     assert window._copy_button.isEnabled()
 
 
+def test_failed_tests_window_lists_terminated(app):
+    """A terminated test is listed alongside failed tests; a stopped (never-ran) test is not."""
+    now = time.time()
+    infos = [
+        _info("tests/test_a.py", 1, PyTestFlyExitCode.NONE, now - 5),
+        _info("tests/test_a.py", 1, PyTestFlyExitCode.TERMINATED, now - 1),
+        _info("tests/test_b.py", 2, PyTestFlyExitCode.NONE, now - 5),
+        _info("tests/test_b.py", 2, PyTestFlyExitCode.TESTS_FAILED, now - 1),
+        _info("tests/test_c.py", None, PyTestFlyExitCode.STOPPED, now - 1),
+    ]
+    window = FailedTestsWindow(None)
+    window.update_tick(build_tick_data(infos))
+    names = _failed_item_names(window)
+    assert "tests/test_a.py" in names  # terminated counts as failed
+    assert "tests/test_b.py" in names
+    assert "tests/test_c.py" not in names  # stopped (never ran) is not a failure
+    assert window._copy_button.isEnabled()
+
+
 def test_failed_tests_window_click_toggles_selection(app):
     """Clicking a failed test emits its name; clicking it again toggles off (emits None)."""
     window = FailedTestsWindow(None)

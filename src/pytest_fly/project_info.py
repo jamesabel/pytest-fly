@@ -14,6 +14,8 @@ _UNKNOWN = "Unknown"
 
 @dataclass(frozen=True)
 class ProjectInfo:
+    """pytest-fly's own project metadata, shown in the About tab and startup log."""
+
     application_name: str
     author: str
     version: str
@@ -27,6 +29,7 @@ class ProjectInfo:
 
 
 def _license_from_classifiers(classifiers) -> str | None:
+    """Extract the license name from PyPI trove classifiers (``License :: ... :: <name>``)."""
     for classifier in classifiers or []:
         if isinstance(classifier, str) and classifier.startswith("License ::"):
             tail = classifier.split("::")[-1].strip()
@@ -36,6 +39,7 @@ def _license_from_classifiers(classifiers) -> str | None:
 
 
 def _from_installed_metadata() -> ProjectInfo | None:
+    """Build a :class:`ProjectInfo` from installed package metadata; ``None`` if not installed."""
     try:
         meta = metadata.metadata(_PACKAGE_NAME)
     except metadata.PackageNotFoundError:
@@ -85,6 +89,7 @@ def _from_installed_metadata() -> ProjectInfo | None:
 
 
 def _from_pyproject() -> ProjectInfo | None:
+    """Build a :class:`ProjectInfo` from the nearest ``pyproject.toml``; ``None`` if unreadable."""
     pyproject_dir = Path(__file__).resolve().parent
     pyproject_data = None
     while True:
@@ -135,6 +140,12 @@ def _from_pyproject() -> ProjectInfo | None:
 
 @cache
 def get_project_info() -> ProjectInfo:
+    """Return pytest-fly's own project metadata (cached).
+
+    Prefers ``pyproject.toml`` when running from a source checkout so the version
+    matches the code actually executing; falls back to installed metadata for wheel
+    installs where ``pyproject.toml`` isn't shipped.
+    """
     # Prefer pyproject.toml when running from a source checkout so the version
     # matches the code actually executing; fall back to installed metadata for
     # wheel installs where pyproject.toml isn't shipped.

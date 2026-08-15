@@ -148,6 +148,20 @@ def pagefile_breakdown() -> list[PageFileInfo]:
         return []
 
 
+# Exception types every psutil tree read can raise; treated as "tree unreadable" and
+# failed open by the helpers below.  ValueError: psutil rejects non-positive PIDs.
+PSUTIL_READ_ERRORS = (psutil.NoSuchProcess, psutil.AccessDenied, ValueError)
+
+
+def subtree_processes(pid: int) -> list[psutil.Process]:
+    """Return *pid*'s process plus all its descendants; empty when the tree can't be read (fail-open)."""
+    try:
+        proc = psutil.Process(pid)
+        return [proc, *proc.children(recursive=True)]
+    except PSUTIL_READ_ERRORS:
+        return []
+
+
 def subtree_commit(pid: int) -> int:
     """Return the commit charge of *pid* plus all its descendants, in **bytes**.
 
@@ -157,14 +171,8 @@ def subtree_commit(pid: int) -> int:
     it falls back to ``vms`` as an approximation.  Fails open — returns ``0`` if the tree
     can't be read (the process already exited, access denied, etc.).
     """
-    try:
-        proc = psutil.Process(pid)
-        procs = [proc, *proc.children(recursive=True)]
-    except (psutil.NoSuchProcess, psutil.AccessDenied, ValueError):
-        # ValueError: psutil rejects non-positive PIDs.
-        return 0
     total = 0
-    for p in procs:
+    for p in subtree_processes(pid):
         try:
             mem = p.memory_info()
             total += getattr(mem, "pagefile", None) or mem.vms
@@ -180,12 +188,7 @@ def subtree_process_count(pid: int) -> int:
     the commit-charge gate misses.  Fails open — returns ``0`` (i.e. "below any ceiling", so
     admit) if the tree can't be read.
     """
-    try:
-        proc = psutil.Process(pid)
-        return 1 + len(proc.children(recursive=True))
-    except (psutil.NoSuchProcess, psutil.AccessDenied, ValueError):
-        # ValueError: psutil rejects non-positive PIDs.
-        return 0
+    return len(subtree_processes(pid))
 
 
 def commit_warning_active(commit_percent: float, commit_total_gb: float, threshold_fraction: float) -> bool:

@@ -6,10 +6,10 @@ from pathlib import Path
 
 from .__version__ import application_name
 from .gui import fly_main
-from .gui.about_tab.project_info import get_project_info
 from .logger import get_logger, init_parent_logger
 from .paths import get_default_data_dir, get_workspace_dir, init_workspace
 from .preferences import get_active_put_path, get_pref, set_active_put_path
+from .project_info import get_project_info
 from .put_version import detect_put_version
 
 log = get_logger(application_name)

@@ -3,8 +3,14 @@ Test-run orchestration — coordinates a pool of worker threads that execute
 tests in parallel via :class:`PytestProcess` subprocesses.
 
 :class:`PytestRunner` is the top-level thread; each worker is a
-:class:`_TestRunner` thread that pulls from a shared queue.
-:class:`PytestRunState` converts raw DB records into a display-friendly state.
+:class:`_TestRunner` thread that pulls from a shared queue.  Sibling modules hold the
+supporting pieces: :mod:`.run_state` (DB record → display-state classification),
+:mod:`.singleton_coordinator` (exclusive-test scheduling), and :mod:`.monitor_thread` /
+:mod:`.resource_guard` (run-scoped monitor daemons).
+
+"Part A/B/C/D" comments throughout refer to ``docs/pytest-fly-liveness-recovery-spec.md``:
+Part A = orphaned-descendant reaping, Part B = the stall watchdog, Part C = the
+admission gates, Part D = the DB-backed run-completion view.
 """
 
 import os
@@ -12,84 +18,37 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from queue import Empty, Queue
-from threading import Condition, Event, Lock, Thread
+from threading import Event, Lock, Thread
 from typing import Optional
 
 import psutil
-from PySide6.QtGui import QColor
 from typeguard import typechecked
 
-from ..colors import BAR_COLORS, TABLE_COLORS
 from ..db import PytestProcessInfoDB
-from ..interfaces import PyTestFlyExitCode, PytestRunnerState, ScheduledTest
+from ..interfaces import PyTestFlyExitCode, PytestRunnerState, ScheduledTest, status_record
 from ..logger import get_logger
 from ..platform import get_performance_core_count
-from .commit_memory import commit_charge_and_limit, subtree_process_count
+from .commit_memory import PSUTIL_READ_ERRORS, commit_charge_and_limit, subtree_process_count, subtree_processes
 from .const import TIMEOUT
-from .process_monitor import normalize_cpu_percent
-from .pytest_process import PytestProcess, PytestProcessInfo, reap_pids, terminate_process_tree
+from .monitor_thread import MonitorThread
+from .process_monitor import SubtreeCpuSampler, normalize_cpu_percent
+from .pytest_process import PytestProcess, reap_pids, terminate_process_tree
 from .resource_guard import ResourceGuard, ResourceGuardConfig, ResourceGuardInfo
+from .run_state import TERMINAL_STATES, latest_info_per_name, latest_states, state_of
+from .run_state import PytestRunState as PytestRunState  # re-export: lived here before the run_state extraction
+from .singleton_coordinator import SingletonCoordinator
 
 log = get_logger()
 
-
-class PytestRunState:
-    """
-    Convert a list of PytestProcessInfo objects to a PytestRunnerState object.
-    """
-
-    @typechecked()
-    def __init__(self, run_infos: list[PytestProcessInfo]):
-        if len(run_infos) > 0:
-            last_run_info = run_infos[-1]
-            self._name = last_run_info.name
-
-            exit_code = last_run_info.exit_code
-            if exit_code == PyTestFlyExitCode.OK:
-                self._state = PytestRunnerState.PASS
-            elif PyTestFlyExitCode.OK < exit_code <= PyTestFlyExitCode.MAX_PYTEST_EXIT_CODE:
-                # any pytest exit code other than OK is a failure
-                self._state = PytestRunnerState.FAIL
-            elif exit_code == PyTestFlyExitCode.TERMINATED:
-                self._state = PytestRunnerState.TERMINATED
-            elif exit_code == PyTestFlyExitCode.STOPPED:
-                self._state = PytestRunnerState.STOPPED
-            elif exit_code == PyTestFlyExitCode.NONE:
-                if last_run_info.pid is None:
-                    self._state = PytestRunnerState.QUEUED
-                else:
-                    self._state = PytestRunnerState.RUNNING
-            else:
-                log.error(f"unknown exit code {exit_code} for test {self._name}, defaulting to QUEUED")
-                self._state = PytestRunnerState.QUEUED
-        else:
-            self._name = None
-            self._state = PytestRunnerState.QUEUED
-
-    @typechecked()
-    def get_state(self) -> PytestRunnerState:
-        return self._state
-
-    @typechecked()
-    def get_string(self) -> str:
-        return self._state.value
-
-    def get_name(self) -> str | None:
-        return self._name
-
-    @typechecked()
-    def get_qt_bar_color(self) -> QColor:
-        """Return the color used for progress-bar visualization of this state."""
-        return BAR_COLORS[self._state]
-
-    @typechecked()
-    def get_qt_table_color(self) -> QColor:
-        """Return the foreground text color used in the table view for this state."""
-        return TABLE_COLORS[self._state]
+# Backward-compatible aliases for names that predate the run_state / singleton_coordinator
+# extractions (still imported from this module by older call sites and tests).
+_TERMINAL_STATES = TERMINAL_STATES
+_latest_info_per_name = latest_info_per_name
+_SingletonCoordinator = SingletonCoordinator
 
 
 @dataclass(frozen=True)
-class _AdmissionGateConfig:
+class AdmissionGateConfig:
     """Configuration for the dispatch-time admission gates (Part C).
 
     All gates default to disabled, so dispatch behavior is unchanged until a gate is
@@ -138,7 +97,7 @@ def system_cpu_fraction() -> float | None:
 
 
 @dataclass(frozen=True)
-class _StallConfig:
+class StallConfig:
     """Configuration for the stall watchdog (Part B)."""
 
     enabled: bool = True
@@ -146,6 +105,12 @@ class _StallConfig:
     cpu_active_epsilon: float = 1.0
     auto_force_stop: bool = False
     kill_seconds: float = 1800.0
+
+
+# Backward-compatible aliases: these configs were underscore-private before being adopted
+# by the GUI (control_window constructs both), which made them de-facto public API.
+_AdmissionGateConfig = AdmissionGateConfig
+_StallConfig = StallConfig
 
 
 @dataclass(frozen=True)
@@ -157,19 +122,6 @@ class StallInfo:
     idle_pids: list[int] = field(default_factory=list)  # in-flight test PIDs sampled below cpu_active_epsilon
     descendant_count: int = 0  # processes in the controller's tree
     seconds_since_progress: float = 0.0  # wall time since the last DB state transition
-
-
-_TERMINAL_STATES = frozenset({PytestRunnerState.PASS, PytestRunnerState.FAIL, PytestRunnerState.TERMINATED, PytestRunnerState.STOPPED})
-
-
-def _latest_info_per_name(infos: list[PytestProcessInfo]) -> dict[str, PytestProcessInfo]:
-    """Return the most recent :class:`PytestProcessInfo` per test name (by ``time_stamp``)."""
-    latest: dict[str, PytestProcessInfo] = {}
-    for info in infos:
-        prior = latest.get(info.name)
-        if prior is None or info.time_stamp >= prior.time_stamp:
-            latest[info.name] = info
-    return latest
 
 
 class PytestRunner(Thread):
@@ -188,8 +140,8 @@ class PytestRunner(Thread):
         update_rate: float,
         put_version: str = "",
         put_fingerprint: str = "",
-        gate_config: _AdmissionGateConfig | None = None,
-        stall_config: _StallConfig | None = None,
+        gate_config: AdmissionGateConfig | None = None,
+        stall_config: StallConfig | None = None,
         resource_guard_config: ResourceGuardConfig | None = None,
     ):
         self.run_guid = run_guid
@@ -199,8 +151,8 @@ class PytestRunner(Thread):
         self.update_rate = update_rate
         self.put_version = put_version
         self.put_fingerprint = put_fingerprint
-        self.gate_config = gate_config or _AdmissionGateConfig()
-        self.stall_config = stall_config or _StallConfig()
+        self.gate_config = gate_config or AdmissionGateConfig()
+        self.stall_config = stall_config or StallConfig()
         self.resource_guard_config = resource_guard_config or ResourceGuardConfig()
         self._controller_pid = os.getpid()
 
@@ -211,9 +163,8 @@ class PytestRunner(Thread):
         self._test_runners = {}
         self._next_worker_id = 0
         self._test_queue: Queue | None = None
-        self._coordinator: _SingletonCoordinator | None = None
+        self._coordinator: SingletonCoordinator | None = None
         self._started_event = Event()
-        self._written_to_db = set()
         self._watchdog: _StallWatchdog | None = None
         self._resource_guard: ResourceGuard | None = None
         self._force_stopped = False  # one-way latch: user (or auto-escalation) force-stopped & reset
@@ -227,25 +178,22 @@ class PytestRunner(Thread):
         super().__init__()
 
     def run(self):
-        """Enqueue all tests, spin up worker threads, and signal readiness."""
+        """Run the whole test-run lifecycle on this thread.
+
+        Enqueues every test (writing its QUEUED record), spins up the worker pool and the
+        optional monitor daemons (stall watchdog, resource guard), then supervises the pool
+        until the run winds down — topping workers back up after a canceled soft stop or an
+        unexpected worker death, and finalizing a soft stop by marking the still-queued
+        tests STOPPED once every worker has exited.
+        """
 
         test_queue = Queue()
         with PytestProcessInfoDB(self.data_dir) as db:
             for test in self.tests:
                 test_queue.put(test)
-                pytest_process_info = PytestProcessInfo(
-                    self.run_guid,
-                    test.node_id,
-                    None,
-                    PyTestFlyExitCode.NONE,
-                    None,
-                    time_stamp=time.time(),
-                    put_version=self.put_version,
-                    put_fingerprint=self.put_fingerprint,
-                )  # queued
-                db.write(pytest_process_info)
+                db.write(status_record(self.run_guid, test.node_id, PyTestFlyExitCode.NONE, self.put_version, self.put_fingerprint))  # queued
 
-        coordinator = _SingletonCoordinator()
+        coordinator = SingletonCoordinator()
 
         # Publish the queue/coordinator and spawn the initial pool atomically so a
         # concurrent set_number_of_processes() either sees "not yet started" (and
@@ -382,11 +330,11 @@ class PytestRunner(Thread):
         except Exception as e:
             log.warning(f"get_run_completion DB read failed, falling back to is_running: {e}")
             return None
-        latest = _latest_info_per_name(infos)
-        if not latest:
+        states = latest_states(infos)
+        if not states:
             return 0, 0, []
-        stuck = sorted(name for name, info in latest.items() if PytestRunState([info]).get_state() not in _TERMINAL_STATES)
-        n_total = len(latest)
+        stuck = sorted(name for name, state in states.items() if state not in TERMINAL_STATES)
+        n_total = len(states)
         n_terminal = n_total - len(stuck)
         return n_terminal, n_total, stuck
 
@@ -445,27 +393,24 @@ class PytestRunner(Thread):
         try:
             with PytestProcessInfoDB(self.data_dir) as db:
                 infos = db.query(self.run_guid)
-                latest = _latest_info_per_name(infos)
-                for name, info in latest.items():
-                    if PytestRunState([info]).get_state() in _TERMINAL_STATES:
+                for name, state in latest_states(infos).items():
+                    if state in TERMINAL_STATES:
                         continue
-                    db.write(
-                        PytestProcessInfo(
-                            self.run_guid,
-                            name,
-                            None,
-                            PyTestFlyExitCode.STOPPED,
-                            None,
-                            time_stamp=time.time(),
-                            put_version=self.put_version,
-                            put_fingerprint=self.put_fingerprint,
-                        )
-                    )
+                    db.write(status_record(self.run_guid, name, PyTestFlyExitCode.STOPPED, self.put_version, self.put_fingerprint))
         except Exception as e:
             log.warning(f"force_stop_and_reset: error marking remaining tests STOPPED: {e}", exc_info=True)
 
     @typechecked()
     def join(self, timeout_seconds: float | None = None) -> bool:
+        """Wait for the run to finish: every worker thread, then the runner thread itself.
+
+        Unlike :meth:`Thread.join` this returns a bool — ``True`` when everything exited
+        within the timeout. Waits for the pool to be spun up first, so calling right after
+        :meth:`start` is safe.
+
+        :param timeout_seconds: Per-thread join timeout, or ``None`` to wait indefinitely.
+        :return: ``True`` if all workers and the runner thread have exited.
+        """
 
         # in case join is called right after .start(), wait until .run() has started all workers
         if timeout_seconds is not None:
@@ -485,7 +430,16 @@ class PytestRunner(Thread):
         return all(not test_runner.is_alive() for test_runner in test_runners) and not self.is_alive()
 
     def stop(self):
+        """Hard stop: signal every worker to terminate its current test as soon as possible.
+
+        Not cancelable (unlike :meth:`soft_stop`) — it suppresses pool healing and the
+        soft-stop cancel path, and tree-kills in-flight test processes. Also shuts down
+        the monitor daemons promptly instead of waiting for their next sample interval.
+        """
         self._stop_requested = True
+        for monitor in (self._watchdog, self._resource_guard):
+            if monitor is not None:
+                monitor.stop()
         try:
             with self._pool_lock:
                 test_runners = list(self._test_runners.values())
@@ -537,17 +491,7 @@ class PytestRunner(Thread):
                     scheduled_test = test_queue.get(False)
                 except Empty:
                     break
-                info = PytestProcessInfo(
-                    self.run_guid,
-                    scheduled_test.node_id,
-                    None,
-                    PyTestFlyExitCode.STOPPED,
-                    None,
-                    time_stamp=time.time(),
-                    put_version=self.put_version,
-                    put_fingerprint=self.put_fingerprint,
-                )
-                db.write(info)
+                db.write(status_record(self.run_guid, scheduled_test.node_id, PyTestFlyExitCode.STOPPED, self.put_version, self.put_fingerprint))
 
     def force_stop_test(self, test_name: str) -> bool:
         """Terminate a single running test identified by its node_id.
@@ -572,7 +516,7 @@ class PytestRunner(Thread):
         return False
 
 
-class _StallWatchdog(Thread):
+class _StallWatchdog(MonitorThread):
     """Read-only watchdog that flags a run as *stalled* (Part B).
 
     A run is stalled when, for at least ``warn_seconds``: a worker is alive and at least one
@@ -584,6 +528,7 @@ class _StallWatchdog(Thread):
     The watchdog never terminates anything itself except the opt-in escalation
     (``auto_force_stop`` → ``escalate_fn`` after ``kill_seconds``); otherwise it only reads DB +
     psutil and publishes a :class:`StallInfo`, so it can never become a source of deadlock.
+    The tick loop, stop signal, and fail-open error policy come from :class:`MonitorThread`.
 
     The CPU sampler and progress source are injectable so tests can drive the watchdog with a
     fake clock and synthetic samples without depending on the host.
@@ -594,7 +539,7 @@ class _StallWatchdog(Thread):
         run_guid: str,
         data_dir: Path,
         controller_pid: int | None,
-        config: _StallConfig,
+        config: StallConfig,
         is_running_fn,
         escalate_fn,
         sample_interval: float,
@@ -602,51 +547,35 @@ class _StallWatchdog(Thread):
         cpu_sampler=None,
         progress_source=None,
     ) -> None:
-        super().__init__(daemon=True)
+        super().__init__(is_running_fn, sample_interval)
         self.run_guid = run_guid
         self.data_dir = data_dir
         self.controller_pid = controller_pid
         self.config = config
-        self._is_running_fn = is_running_fn
         self._escalate_fn = escalate_fn
-        self._sample_interval = max(sample_interval, 0.1)
         self._clock = clock
         self._cpu_sampler = cpu_sampler or self._default_cpu_sampler
         self._progress_source = progress_source or self._default_progress_source
 
-        self._stop_event = Event()
-        self._state_lock = Lock()
         self._stall_info = StallInfo(stalled=False)
-
-        self._cpu_procs: dict[int, psutil.Process] = {}  # persistent per-pid handle cache (roots + descendants) for interval=None subtree sampling
+        self._subtree_cpu = SubtreeCpuSampler()  # persistent-handle cache for interval=None subtree sampling
         self._last_fingerprint = None
         self._last_progress_monotonic = clock()
         self._escalated = False
 
-    def stop(self) -> None:
-        self._stop_event.set()
-
     def is_stalled(self) -> bool:
+        """Return ``True`` if the most recent tick classified the run as stalled."""
         with self._state_lock:
             return self._stall_info.stalled
 
     def get_stall_info(self) -> StallInfo | None:
+        """Return the most recently published :class:`StallInfo`."""
         with self._state_lock:
             return self._stall_info
 
-    def run(self) -> None:
-        # Wait for at least one worker to exist so is_running() is meaningful, then tick until
-        # the run finishes (all workers exited) or we are stopped.
-        while not self._stop_event.is_set():
-            try:
-                self.tick()
-            except Exception as e:  # fail-open: never let a watchdog error stall or crash the run
-                log.warning(f"stall watchdog tick error (logged once per tick): {e}")
-                with self._state_lock:
-                    self._stall_info = StallInfo(stalled=False)
-            if not self._is_running_fn():
-                break  # run finished — workers all drained
-            self._stop_event.wait(self._sample_interval)
+    def on_tick_error(self, error: BaseException) -> None:
+        """After a failed tick, publish "not stalled" so a read error can't leave a stale banner."""
+        self._publish(StallInfo(stalled=False))
 
     def tick(self) -> None:
         """Evaluate the stall signal once and publish a fresh :class:`StallInfo`."""
@@ -723,15 +652,15 @@ class _StallWatchdog(Thread):
         """Read latest-per-name DB records → (fingerprint, stuck_tests, running_pids, n_total)."""
         with PytestProcessInfoDB(self.data_dir) as db:
             infos = db.query(self.run_guid)
-        latest = _latest_info_per_name(infos)
+        latest = latest_info_per_name(infos)
         stuck: list[str] = []
         running_pids: list[int] = []
         n_terminal = 0
         n_running = 0
         max_started_ts = 0.0
         for name, info in latest.items():
-            state = PytestRunState([info]).get_state()
-            if state in _TERMINAL_STATES:
+            state = state_of(info)
+            if state in TERMINAL_STATES:
                 n_terminal += 1
             else:
                 stuck.append(name)
@@ -747,108 +676,16 @@ class _StallWatchdog(Thread):
     def _default_cpu_sampler(self, pid: int) -> float | None:
         """Sample a pid's whole-subtree CPU percent (single-core-equiv), priming on first sight.
 
-        psutil's ``cpu_percent(interval=None)`` returns usage as a delta against the *same* Process
-        object's previous call, so every sampled process — the root **and each descendant** — needs
-        a handle that persists across ticks (all cached in ``self._cpu_procs``). Re-creating child
-        handles each tick would make them perpetually report the meaningless first-call ``0.0``,
-        silently dropping the CPU of any subprocess/.exe a test spawns (so a test that offloads its
-        work to a child would always read idle). Newly-seen descendants are primed here (they
-        contribute ``0.0`` this tick, real readings thereafter); handles whose process has exited
-        are dropped.
+        Delegates the persistent-handle subtree walk to the shared
+        :class:`~pytest_fly.pytest_runner.process_monitor.SubtreeCpuSampler` (see its docstring
+        for why handles must persist across ticks) and normalizes the raw psutil total to a
+        single-core-equivalent 0-100 scale. ``None`` means "unknown" (priming/unreadable) and
+        must never be treated as idle.
         """
-        try:
-            root = self._cpu_procs.get(pid)
-            first_sight = root is None
-            if root is None:
-                root = psutil.Process(pid)
-                self._cpu_procs[pid] = root
-                root.cpu_percent(interval=None)  # prime; first reading is meaningless
-            total = 0.0 if first_sight else root.cpu_percent(interval=None)
-            for child in root.children(recursive=True):
-                cached = self._cpu_procs.get(child.pid)
-                try:
-                    if cached is None:
-                        # New descendant: cache + prime now so the next tick reads real usage.
-                        self._cpu_procs[child.pid] = child
-                        child.cpu_percent(interval=None)
-                    else:
-                        total += cached.cpu_percent(interval=None)
-                except (psutil.NoSuchProcess, psutil.AccessDenied):
-                    self._cpu_procs.pop(child.pid, None)
-            return None if first_sight else normalize_cpu_percent(total, get_performance_core_count())
-        except (psutil.NoSuchProcess, psutil.AccessDenied, ValueError):
-            self._cpu_procs.pop(pid, None)
+        total = self._subtree_cpu.sample(pid)
+        if total is None:
             return None
-
-
-class _SingletonCoordinator:
-    """
-    Serializes singleton tests against all other worker threads.
-
-    A *singleton* must run exclusively — no other workers executing.  A
-    *normal* test may run in parallel with any number of other normal tests.
-
-    The slot counter and exclusion flag live under a single
-    :class:`threading.Condition` so check-and-claim is atomic.  Waiting
-    singletons block new normal acquisitions, preventing starvation.
-
-    Acquires are poll-interruptible via *stop_predicate* so a worker can
-    abandon its wait when a stop has been requested.
-    """
-
-    def __init__(self) -> None:
-        self._cond = Condition()
-        self._active = 0
-        self._singleton_running = False
-        self._singleton_waiters = 0
-
-    def acquire_normal(self, stop_predicate, poll_interval: float) -> bool:
-        """Claim a non-exclusive slot.  Returns ``False`` if *stop_predicate* went true while waiting."""
-        with self._cond:
-            while self._singleton_running or self._singleton_waiters > 0:
-                if stop_predicate():
-                    return False
-                self._cond.wait(timeout=poll_interval)
-            self._active += 1
-            return True
-
-    def release_normal(self) -> None:
-        with self._cond:
-            self._active -= 1
-            self._cond.notify_all()
-
-    def acquire_singleton(self, stop_predicate, poll_interval: float) -> bool:
-        """Claim exclusive access.  Returns ``False`` if *stop_predicate* went true while waiting."""
-        with self._cond:
-            self._singleton_waiters += 1
-            try:
-                while self._singleton_running or self._active > 0:
-                    if stop_predicate():
-                        return False
-                    self._cond.wait(timeout=poll_interval)
-                self._singleton_running = True
-                self._active += 1
-                return True
-            finally:
-                self._singleton_waiters -= 1
-                if self._singleton_waiters == 0:
-                    self._cond.notify_all()
-
-    def release_singleton(self) -> None:
-        with self._cond:
-            self._singleton_running = False
-            self._active -= 1
-            self._cond.notify_all()
-
-    def active_slot_count(self) -> int:
-        """Return the number of in-flight slots (normal + singleton).
-
-        ``0`` means nothing is currently running, which the admission gate uses for
-        its min-1 forward-progress guarantee: a heavy test is always admitted when no
-        other test is in flight, so the suite can never deadlock behind the gate.
-        """
-        with self._cond:
-            return self._active
+        return normalize_cpu_percent(total, get_performance_core_count())
 
 
 class _TestRunner(Thread):
@@ -865,11 +702,11 @@ class _TestRunner(Thread):
         pytest_test_queue: Queue,
         data_dir: Path,
         update_rate: float,
-        coordinator: _SingletonCoordinator,
+        coordinator: SingletonCoordinator,
         put_version: str = "",
         put_fingerprint: str = "",
         controller_pid: int | None = None,
-        gate_config: "_AdmissionGateConfig | None" = None,
+        gate_config: "AdmissionGateConfig | None" = None,
         soft_stop_event: Event | None = None,
     ) -> None:
         """
@@ -877,7 +714,7 @@ class _TestRunner(Thread):
         :param pytest_test_queue: Shared queue of :class:`ScheduledTest` to execute.
         :param data_dir: Directory used for the results database.
         :param update_rate: Polling / process-monitor sample interval in seconds.
-        :param coordinator: Shared :class:`_SingletonCoordinator` that gates
+        :param coordinator: Shared :class:`SingletonCoordinator` that gates
             singleton vs. parallel execution across all workers.
         :param controller_pid: PID of the pytest-fly controller process, used by the
             process-count admission gate to measure the descendant tree.
@@ -894,7 +731,7 @@ class _TestRunner(Thread):
         self.put_version = put_version
         self.put_fingerprint = put_fingerprint
         self.controller_pid = controller_pid
-        self.gate_config = gate_config or _AdmissionGateConfig()
+        self.gate_config = gate_config or AdmissionGateConfig()
 
         self.process: Optional[PytestProcess] = None
         self._stop_event = Event()
@@ -931,17 +768,7 @@ class _TestRunner(Thread):
             log.info(f'process tree for test "{proc_name}" terminated ({self.run_guid=})')
 
         with PytestProcessInfoDB(self.data_dir) as db:
-            info = PytestProcessInfo(
-                self.run_guid,
-                test,
-                None,
-                PyTestFlyExitCode.TERMINATED,
-                None,
-                time_stamp=time.time(),
-                put_version=self.put_version,
-                put_fingerprint=self.put_fingerprint,
-            )
-            db.write(info)
+            db.write(status_record(self.run_guid, test, PyTestFlyExitCode.TERMINATED, self.put_version, self.put_fingerprint))
 
     def _handle_stop_request(self, test: str) -> None:
         """
@@ -1015,14 +842,11 @@ class _TestRunner(Thread):
         proc = self.process
         if proc is None or proc.pid is None:
             return
-        try:
-            for child in psutil.Process(proc.pid).children(recursive=True):
-                try:
-                    snapshot.add((child.pid, child.create_time()))
-                except (psutil.NoSuchProcess, psutil.AccessDenied, ValueError):
-                    continue
-        except (psutil.NoSuchProcess, psutil.AccessDenied, ValueError):
-            pass
+        for child in subtree_processes(proc.pid)[1:]:  # [0] is the test process itself
+            try:
+                snapshot.add((child.pid, child.create_time()))
+            except PSUTIL_READ_ERRORS:
+                continue
 
     # ------------------------------------------------------------------
     # Main loop

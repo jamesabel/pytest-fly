@@ -9,11 +9,12 @@ from enum import Enum
 from pathlib import Path
 
 from PySide6.QtCore import QPoint, Qt, Signal
-from PySide6.QtGui import QBrush, QColor, QGuiApplication
+from PySide6.QtGui import QBrush, QGuiApplication
 from PySide6.QtWidgets import QGroupBox, QMenu, QScrollArea, QTableWidget, QTableWidgetItem, QVBoxLayout
 from typeguard import typechecked
 
-from ...gui.gui_util import format_runtime, resolve_test_output, tool_tip_limiter
+from ...colors import TABLE_COLORS
+from ...gui.gui_util import first_start_timestamp, format_commit, format_runtime, resolve_test_output, set_utilization_color, tool_tip_limiter
 from ...interfaces import PyTestFlyExitCode, PytestRunnerState
 from ...platform.platform_info import get_performance_core_count
 from ...preferences import get_pref
@@ -33,40 +34,6 @@ class Columns(Enum):
     LAST_PASS_START = 7
     LAST_PASS_DURATION = 8
     SPACER = 9  # empty trailing column that absorbs the stretch so real columns size to content
-
-
-_BYTES_PER_MB = 1024.0 * 1024.0
-_BYTES_PER_GB = 1024.0 * 1024.0 * 1024.0
-
-
-def format_commit(commit_bytes: int | None) -> str:
-    """Format a per-test commit charge for the table — GB at/above 1 GiB, else MB."""
-    if commit_bytes is None:
-        return ""
-    if commit_bytes >= _BYTES_PER_GB:
-        return f"{commit_bytes / _BYTES_PER_GB:.2f} GB"
-    return f"{commit_bytes / _BYTES_PER_MB:.0f} MB"
-
-
-def set_utilization_color(item: QTableWidgetItem, value: float, high_threshold: float, low_threshold: float):
-    """
-    Colorize a table cell based on utilization thresholds.
-
-    Red if above the high threshold, yellow if above the low threshold,
-    otherwise the default foreground is restored (important for in-place
-    updates where a previously-colored item may drop back below threshold).
-
-    :param item: The table-widget item to colorize.
-    :param value: Utilization value in the range ``[0.0, 1.0]``.
-    :param high_threshold: Utilization threshold above which the cell is red.
-    :param low_threshold: Utilization threshold above which the cell is yellow.
-    """
-    if value > high_threshold:
-        item.setForeground(QColor("red"))
-    elif value > low_threshold:
-        item.setForeground(QColor("yellow"))
-    else:
-        item.setForeground(QBrush())
 
 
 _SORT_KEY_ROLE = Qt.ItemDataRole.UserRole + 1
@@ -118,6 +85,8 @@ class TableTab(QGroupBox):
         # whole column on (double-)click — the header is a sort control, not a selector.
         self.table_widget.horizontalHeader().setSectionsClickable(False)
         self.table_widget.horizontalHeader().sectionDoubleClicked.connect(self._on_header_double_clicked)
+        # Double-click sorting is non-standard for Qt tables; say so where the user will hover.
+        self.table_widget.horizontalHeader().setToolTip("Double-click a column header to sort; double-click again to reverse the order.")
         self.table_widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table_widget.customContextMenuRequested.connect(self.show_context_menu)
 
@@ -188,6 +157,7 @@ class TableTab(QGroupBox):
             self.force_stop_test_requested.emit(test_node_id)
 
     def copy_selected_text(self):
+        """Copy the selected cell range to the clipboard as comma-separated rows."""
         selected_ranges = self.table_widget.selectedRanges()
         if selected_ranges:
             clipboard = QGuiApplication.clipboard()
@@ -208,13 +178,25 @@ class TableTab(QGroupBox):
         self._row_by_name.clear()
 
     def _get_or_create_item(self, row: int, col: int) -> QTableWidgetItem:
+        """Return the item at (row, col), creating a :class:`_SortableItem` on first use."""
         item = self.table_widget.item(row, col)
         if item is None:
             item = _SortableItem()
             self.table_widget.setItem(row, col, item)
         return item
 
+    def _update_cell(self, row: int, column: Columns, text: str, sort_key=None, *, sort_column: int | None) -> bool:
+        """Write *text* and a numeric sort key into a cell; return ``True`` if the active sort went stale.
+
+        ``None`` *sort_key* uses ``-inf`` so value-less cells sort last in ascending order.
+        """
+        item = self._get_or_create_item(row, column.value)
+        self._set_text_if_changed(item, text)
+        key = sort_key if sort_key is not None else float("-inf")
+        return self._set_sort_key_if_changed(item, key) and sort_column == column.value
+
     def _on_header_double_clicked(self, col: int) -> None:
+        """Sort by the double-clicked column, toggling direction on a repeat."""
         if self._sort_column == col:
             self._sort_order = Qt.SortOrder.DescendingOrder if self._sort_order == Qt.SortOrder.AscendingOrder else Qt.SortOrder.AscendingOrder
         else:
@@ -223,6 +205,7 @@ class TableTab(QGroupBox):
         self._apply_sort()
 
     def _apply_sort(self) -> None:
+        """Re-sort the table by the active column/direction and refresh the row index."""
         if self._sort_column is None:
             return
         self.table_widget.sortItems(self._sort_column, self._sort_order)
@@ -230,6 +213,7 @@ class TableTab(QGroupBox):
         self._rebuild_row_by_name()
 
     def _rebuild_row_by_name(self) -> None:
+        """Rebuild the test-name → row-index map after a sort reorders the rows."""
         self._row_by_name.clear()
         for row in range(self.table_widget.rowCount()):
             item = self.table_widget.item(row, Columns.NAME.value)
@@ -240,6 +224,7 @@ class TableTab(QGroupBox):
 
     @staticmethod
     def _set_text_if_changed(item: QTableWidgetItem, text: str) -> bool:
+        """Set the item's text only when it changed; return ``True`` on change (avoids repaint churn)."""
         if item.text() != text:
             item.setText(text)
             return True
@@ -247,6 +232,7 @@ class TableTab(QGroupBox):
 
     @staticmethod
     def _set_sort_key_if_changed(item: QTableWidgetItem, value) -> bool:
+        """Set the item's numeric sort key only when it changed; return ``True`` on change."""
         if item.data(_SORT_KEY_ROLE) != value:
             item.setData(_SORT_KEY_ROLE, value)
             return True
@@ -254,6 +240,7 @@ class TableTab(QGroupBox):
 
     @staticmethod
     def _set_tooltip_if_changed(item: QTableWidgetItem, tooltip: str) -> None:
+        """Set the item's tooltip only when it changed (avoids repaint churn on each tick)."""
         if item.toolTip() != tooltip:
             item.setToolTip(tooltip)
             item.setData(Qt.ItemDataRole.ToolTipRole, tooltip)
@@ -314,7 +301,7 @@ class TableTab(QGroupBox):
                 state_item = self._get_or_create_item(row_number, Columns.STATE.value)
                 if self._set_text_if_changed(state_item, pytest_run_state.get_string()) and sort_column == Columns.STATE.value:
                     sort_dirty = True
-                state_item.setForeground(pytest_run_state.get_qt_table_color())
+                state_item.setForeground(TABLE_COLORS[pytest_run_state.get_state()])
                 if pytest_run_state.get_state() == PytestRunnerState.RUNNING:
                     live_text = read_live_output(self._data_dir, test_name)
                     tooltip_text = tool_tip_limiter(live_text, line_limit=tooltip_line_limit) if live_text else ""
@@ -325,11 +312,9 @@ class TableTab(QGroupBox):
                 self._set_tooltip_if_changed(state_item, tooltip_text)
 
                 # Find the timestamp when the test started running and the final completed entry
-                start_time = None
+                start_time = first_start_timestamp(process_infos)
                 final_info = None
                 for info in process_infos:
-                    if info.pid is not None and start_time is None:
-                        start_time = info.time_stamp
                     if info.exit_code != PyTestFlyExitCode.NONE:
                         final_info = info
 
@@ -351,45 +336,26 @@ class TableTab(QGroupBox):
                     cpu_text = ""
                 memory_text = f"{final_info.memory_percent:.2f}%" if (final_info is not None and final_info.memory_percent is not None) else ""
 
+                sort_dirty |= self._update_cell(row_number, Columns.CPU, cpu_text, cpu_normalized, sort_column=sort_column)
                 cpu_item = self._get_or_create_item(row_number, Columns.CPU.value)
-                self._set_text_if_changed(cpu_item, cpu_text)
-                cpu_key = cpu_normalized if cpu_normalized is not None else float("-inf")
-                if self._set_sort_key_if_changed(cpu_item, cpu_key) and sort_column == Columns.CPU.value:
-                    sort_dirty = True
                 if cpu_normalized is not None:
                     set_utilization_color(cpu_item, cpu_normalized / 100.0, utilization_high_threshold, utilization_low_threshold)
                 else:
                     cpu_item.setForeground(QBrush())
 
-                memory_item = self._get_or_create_item(row_number, Columns.MEMORY.value)
-                self._set_text_if_changed(memory_item, memory_text)
                 memory_value = final_info.memory_percent if (final_info is not None and final_info.memory_percent is not None) else None
-                memory_key = memory_value if memory_value is not None else float("-inf")
-                if self._set_sort_key_if_changed(memory_item, memory_key) and sort_column == Columns.MEMORY.value:
-                    sort_dirty = True
+                sort_dirty |= self._update_cell(row_number, Columns.MEMORY, memory_text, memory_value, sort_column=sort_column)
 
                 # Commit charge (peak commit size of the test's process subtree)
                 commit_value = final_info.commit_bytes if (final_info is not None and final_info.commit_bytes is not None) else None
-                commit_item = self._get_or_create_item(row_number, Columns.COMMIT.value)
-                self._set_text_if_changed(commit_item, format_commit(commit_value))
-                commit_key = commit_value if commit_value is not None else float("-inf")
-                if self._set_sort_key_if_changed(commit_item, commit_key) and sort_column == Columns.COMMIT.value:
-                    sort_dirty = True
+                sort_dirty |= self._update_cell(row_number, Columns.COMMIT, format_commit(commit_value), commit_value, sort_column=sort_column)
 
-                runtime_item = self._get_or_create_item(row_number, Columns.RUNTIME.value)
-                self._set_text_if_changed(runtime_item, runtime_text)
-                runtime_key = elapsed_seconds if elapsed_seconds is not None else float("-inf")
-                if self._set_sort_key_if_changed(runtime_item, runtime_key) and sort_column == Columns.RUNTIME.value:
-                    sort_dirty = True
+                sort_dirty |= self._update_cell(row_number, Columns.RUNTIME, runtime_text, elapsed_seconds, sort_column=sort_column)
 
                 # Per-test coverage
                 coverage_pct = tick.per_test_coverage.get(test_name)
                 coverage_text = f"{coverage_pct:.1%}" if coverage_pct is not None else ""
-                coverage_item = self._get_or_create_item(row_number, Columns.COVERAGE.value)
-                self._set_text_if_changed(coverage_item, coverage_text)
-                coverage_key = coverage_pct if coverage_pct is not None else float("-inf")
-                if self._set_sort_key_if_changed(coverage_item, coverage_key) and sort_column == Columns.COVERAGE.value:
-                    sort_dirty = True
+                sort_dirty |= self._update_cell(row_number, Columns.COVERAGE, coverage_text, coverage_pct, sort_column=sort_column)
 
                 # Last pass data (persists across runs)
                 last_pass = tick.last_pass_data.get(test_name)
@@ -402,16 +368,8 @@ class TableTab(QGroupBox):
                     last_pass_duration = None
                     last_pass_start_text = ""
                     last_pass_duration_text = ""
-                last_pass_start_item = self._get_or_create_item(row_number, Columns.LAST_PASS_START.value)
-                self._set_text_if_changed(last_pass_start_item, last_pass_start_text)
-                last_pass_start_key = last_pass_start_ts if last_pass_start_ts is not None else float("-inf")
-                if self._set_sort_key_if_changed(last_pass_start_item, last_pass_start_key) and sort_column == Columns.LAST_PASS_START.value:
-                    sort_dirty = True
-                last_pass_duration_item = self._get_or_create_item(row_number, Columns.LAST_PASS_DURATION.value)
-                self._set_text_if_changed(last_pass_duration_item, last_pass_duration_text)
-                last_pass_duration_key = last_pass_duration if last_pass_duration is not None else float("-inf")
-                if self._set_sort_key_if_changed(last_pass_duration_item, last_pass_duration_key) and sort_column == Columns.LAST_PASS_DURATION.value:
-                    sort_dirty = True
+                sort_dirty |= self._update_cell(row_number, Columns.LAST_PASS_START, last_pass_start_text, last_pass_start_ts, sort_column=sort_column)
+                sort_dirty |= self._update_cell(row_number, Columns.LAST_PASS_DURATION, last_pass_duration_text, last_pass_duration, sort_column=sort_column)
 
             if new_rows_added:
                 self.table_widget.resizeColumnsToContents()

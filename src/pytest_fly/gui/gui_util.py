@@ -6,20 +6,33 @@ reusable widgets used across multiple tabs.
 """
 
 import time
-from collections import defaultdict
 from datetime import timedelta
 from functools import lru_cache
 from pathlib import Path
 
 import humanize
-from PySide6.QtCore import QSize
-from PySide6.QtGui import QColor, QFont, QFontMetrics, QPalette
-from PySide6.QtWidgets import QPlainTextEdit, QSizePolicy, QWidget
+from PySide6.QtCore import QByteArray, QSize
+from PySide6.QtGui import QBrush, QColor, QFont, QFontMetrics, QPalette
+from PySide6.QtWidgets import QLabel, QPlainTextEdit, QSizePolicy, QSplitter, QTableWidgetItem, QWidget
 from typeguard import typechecked
 
+from ..colors import WARNING_ACCENT
 from ..interfaces import PytestProcessInfo
+from ..logger import get_logger
 from ..preferences import get_pref
+from ..pytest_runner.const import BYTES_PER_GB, BYTES_PER_MB
 from ..pytest_runner.live_output import read_live_output
+
+# Re-exports: these pure record-transformation helpers moved to tick_data (Qt-free, next to
+# the TickData they feed); GUI modules historically import them from here.
+from ..tick_data import compute_average_parallelism as compute_average_parallelism
+from ..tick_data import compute_time_window as compute_time_window
+from ..tick_data import count_test_states as count_test_states
+from ..tick_data import extract_test_duration as extract_test_duration
+from ..tick_data import first_start_timestamp as first_start_timestamp
+from ..tick_data import group_process_infos_by_name as group_process_infos_by_name
+
+log = get_logger()
 
 
 @lru_cache(maxsize=None)
@@ -114,20 +127,24 @@ class PhaseTimer:
         self._current_start: float | None = None
 
     def time(self, name: str) -> "PhaseTimer":
+        """Name the next timed phase; use as ``with timer.time("phase"):``."""
         self._current_name = name
         return self
 
     def __enter__(self) -> "PhaseTimer":
+        """Start timing the phase named via :meth:`time`."""
         self._current_start = time.perf_counter()
         return self
 
     def __exit__(self, *_exc) -> None:
+        """Record the elapsed milliseconds for the current phase."""
         assert self._current_name is not None and self._current_start is not None
         self.phases[self._current_name] = (time.perf_counter() - self._current_start) * 1000.0
         self._current_name = None
         self._current_start = None
 
     def format(self) -> str:
+        """Render all recorded phases as ``"name=ms"`` pairs in insertion order."""
         return " ".join(f"{name}={ms:.1f}" for name, ms in self.phases.items())
 
 
@@ -149,40 +166,6 @@ def resolve_test_output(infos: list[PytestProcessInfo] | None, data_dir: Path, n
     return read_live_output(data_dir, name, max_bytes=10_000_000) or ""
 
 
-def group_process_infos_by_name(process_infos: list[PytestProcessInfo]) -> dict[str, list[PytestProcessInfo]]:
-    """
-    Group a flat list of process info records by test name.
-
-    :param process_infos: Flat list of ``PytestProcessInfo`` objects.
-    :return: Dictionary mapping each test name to its list of info records, in encounter order.
-    """
-    grouped: dict[str, list[PytestProcessInfo]] = defaultdict(list)
-    for info in process_infos:
-        grouped[info.name].append(info)
-    return grouped
-
-
-def compute_time_window(process_infos: list[PytestProcessInfo], require_pid: bool = False) -> tuple[float | None, float | None]:
-    """
-    Compute the minimum and maximum timestamps from a list of process info records.
-
-    :param process_infos: List of ``PytestProcessInfo`` objects.
-    :param require_pid: If ``True``, only consider records where ``pid`` is not ``None``
-                        (i.e. the process has actually started).
-    :return: ``(min_timestamp, max_timestamp)`` tuple, or ``(None, None)`` if no records qualify.
-    """
-    min_ts: float | None = None
-    max_ts: float | None = None
-    for info in process_infos:
-        if require_pid and info.pid is None:
-            continue
-        if min_ts is None or info.time_stamp < min_ts:
-            min_ts = info.time_stamp
-        if max_ts is None or info.time_stamp > max_ts:
-            max_ts = info.time_stamp
-    return min_ts, max_ts
-
-
 def format_runtime(seconds: float) -> str:
     """
     Format a duration in seconds into a human-readable string using ``humanize.precisedelta``.
@@ -193,72 +176,82 @@ def format_runtime(seconds: float) -> str:
     return humanize.precisedelta(timedelta(seconds=seconds))
 
 
-def count_test_states(run_states: dict) -> dict:
-    """Count tests by their current PytestRunnerState."""
-    counts = defaultdict(int)
-    for run_state in run_states.values():
-        counts[run_state.get_state()] += 1
-    return counts
-
-
-def extract_test_duration(infos: list) -> tuple[float | None, float | None]:
-    """
-    Extract start and end timestamps from a test's process info records.
-
-    :param infos: List of PytestProcessInfo for a single test.
-    :return: (start_timestamp, end_timestamp) or (None, None).
-    """
-    from ..interfaces import PyTestFlyExitCode
-
-    start = None
-    end = None
-    for info in infos:
-        if info.pid is not None and start is None:
-            start = info.time_stamp
-        if info.exit_code != PyTestFlyExitCode.NONE:
-            end = info.time_stamp
-    return start, end
-
-
-def compute_average_parallelism(infos_by_name: dict[str, list[PytestProcessInfo]]) -> float | None:
-    """
-    Compute the average number of simultaneously running test processes.
-
-    Average parallelism = total_test_time / wall_clock_time.
-
-    For in-progress tests (started but not finished), the current time is used
-    as the end time so the metric updates live during a run.
-
-    :param infos_by_name: Process info records grouped by test name.
-    :return: Average parallelism, or ``None`` if insufficient data.
-    """
-    total_test_time = 0.0
-    all_starts: list[float] = []
-    all_ends: list[float] = []
-    now = time.time()
-
-    for infos in infos_by_name.values():
-        start, end = extract_test_duration(infos)
-        if start is not None:
-            if end is None:
-                end = now  # test still running
-            total_test_time += end - start
-            all_starts.append(start)
-            all_ends.append(end)
-
-    if not all_starts:
-        return None
-
-    wall_clock = max(all_ends) - min(all_starts)
-    if wall_clock <= 0:
-        return None
-
-    return total_test_time / wall_clock
-
-
 def window_text_color(widget: QWidget) -> QColor:
     """Return the palette's foreground text color for *widget* (respects light/dark themes)."""
     return widget.palette().color(QPalette.ColorRole.WindowText)
+
+
+def qt_state_to_hex(state: QByteArray) -> str:
+    """Serialize a Qt ``saveState()``/``saveGeometry()`` blob to a hex string for preference storage."""
+    return state.toHex().data().decode("ascii")
+
+
+def qt_state_from_hex(hex_text: str) -> QByteArray | None:
+    """Deserialize a hex string produced by :func:`qt_state_to_hex`; ``None`` when empty/malformed."""
+    if not hex_text:
+        return None
+    try:
+        return QByteArray.fromHex(hex_text.encode("ascii"))
+    except (ValueError, UnicodeEncodeError) as e:
+        log.debug(f"could not decode stored Qt state: {e}")
+        return None
+
+
+def bind_splitter_to_pref(splitter: QSplitter, pref_name: str) -> None:
+    """Restore a splitter's saved divider position and persist it on every user drag.
+
+    The position is stored hex-encoded in the :class:`FlyPreferences` attribute named
+    *pref_name*, mirroring the window-geometry persistence.
+    """
+    saved = qt_state_from_hex(getattr(get_pref(), pref_name))
+    if saved is not None:
+        splitter.restoreState(saved)
+    splitter.splitterMoved.connect(lambda *_unused_args: setattr(get_pref(), pref_name, qt_state_to_hex(splitter.saveState())))
+
+
+def set_banner(label: QLabel, text: str, color: QColor | None = None, bold: bool = True) -> None:
+    """Show *label* as a colored banner with *text* (warning-accent colored by default)."""
+    accent = color if color is not None else WARNING_ACCENT
+    label.setText(text)
+    label.setStyleSheet(f"color: {accent.name()};" + (" font-weight: bold;" if bold else ""))
+    label.setVisible(True)
+
+
+def apply_graph_font(widget: QWidget) -> int:
+    """Apply the user's graph-font-size preference to *widget* and return the size in points."""
+    size = get_pref().graph_font_size
+    widget.setFont(get_font(size=size))
+    return size
+
+
+def format_commit(commit_bytes: int | None) -> str:
+    """Format a commit-charge byte count for display — GB at/above 1 GiB, else MB."""
+    if commit_bytes is None:
+        return ""
+    if commit_bytes >= BYTES_PER_GB:
+        return f"{commit_bytes / BYTES_PER_GB:.2f} GB"
+    return f"{commit_bytes / BYTES_PER_MB:.0f} MB"
+
+
+def set_utilization_color(item: QTableWidgetItem, value: float, high_threshold: float, low_threshold: float):
+    """
+    Colorize a table cell based on utilization thresholds.
+
+    Red if above the high threshold, yellow if above the low threshold,
+    otherwise the default foreground is restored (important for in-place
+    updates where a previously-colored item may drop back below threshold).
+
+    :param item: The table-widget item to colorize.
+    :param value: Utilization value in the range ``[0.0, 1.0]``.
+    :param high_threshold: Utilization threshold above which the cell is red.
+    :param low_threshold: Utilization threshold above which the cell is yellow.
+    """
+    if value > high_threshold:
+        item.setForeground(QColor("red"))
+    elif value > low_threshold:
+        item.setForeground(QColor("yellow"))
+    else:
+        item.setForeground(QBrush())
 
 
 # Per-line width cap. Pytest tracebacks and captured-output lines are often 200+ chars

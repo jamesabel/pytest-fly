@@ -16,8 +16,11 @@ from PySide6.QtGui import QPainter, QPen
 from PySide6.QtWidgets import QWidget
 
 from ...colors import GRID_LINE_COLOR
-from ...preferences import get_pref
-from ..gui_util import get_font, get_text_dimensions, window_text_color
+from ..gui_util import apply_graph_font, get_text_dimensions, window_text_color
+
+# Fractions of the y-axis maximum at which horizontal grid lines (and their labels) are
+# drawn. Shared by the coverage chart and the system-metrics charts so all charts agree.
+Y_GRID_PCTS = [0.25, 0.50, 0.75, 1.00]
 
 # Candidate intervals in seconds — chosen so labels stay readable.
 # Extends up to 24h so multi-hour runs don't collapse to minute-granularity grid lines.
@@ -119,17 +122,11 @@ class TimeAxisWidget(QWidget):
 
     def __init__(self):
         super().__init__()
-        self._font_size = self._apply_graph_font()
+        self._font_size = apply_graph_font(self)
         self._apply_axis_height()
 
         self._min_ts: float | None = None
         self._max_ts: float | None = None
-
-    def _apply_graph_font(self) -> int:
-        """Read the user's graph-font-size preference, apply it to this widget, and return the size."""
-        size = get_pref().graph_font_size
-        self.setFont(get_font(size=size))
-        return size
 
     def _apply_axis_height(self) -> None:
         """Resize the axis to fit the current font's text height plus a small padding."""
@@ -139,7 +136,7 @@ class TimeAxisWidget(QWidget):
 
     def update_time_window(self, min_ts: float | None, max_ts: float | None):
         """Store the current time window and schedule a repaint."""
-        new_size = self._apply_graph_font()
+        new_size = apply_graph_font(self)
         font_changed = new_size != self._font_size
         self._font_size = new_size
         if font_changed:

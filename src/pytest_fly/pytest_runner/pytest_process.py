@@ -18,7 +18,6 @@ import pytest
 from coverage import Coverage
 from typeguard import typechecked
 
-from ..__version__ import application_name
 from ..db import PytestProcessInfoDB
 from ..file_util import sanitize_test_name
 from ..interfaces import PyTestFlyExitCode, PytestProcessInfo, int_exit_code_to_pytest_fly_exit_code
@@ -26,7 +25,37 @@ from ..logger import configure_child_logger, get_logger
 from .live_output import live_output_path
 from .process_monitor import ProcessMonitor
 
-log = get_logger(application_name)
+log = get_logger()
+
+
+def _terminate_procs(procs: list[psutil.Process], what: str) -> None:
+    """Best-effort SIGTERM for each process; a vanished/protected process is debug-logged, not an error."""
+    for proc in procs:
+        try:
+            proc.terminate()
+            log.debug(f"terminated {what} pid={proc.pid}")
+        except (psutil.NoSuchProcess, psutil.AccessDenied) as e:
+            log.debug(f"could not terminate {what} pid={proc.pid}: {e}")
+
+
+def _kill_survivors(procs: list[psutil.Process], kill_timeout: float, what: str) -> None:
+    """SIGKILL *procs*, wait up to *kill_timeout* for the OS to reap them, and warn about survivors.
+
+    The shared tail of the terminate → wait → kill → wait → warn escalation used by both
+    :func:`terminate_process_tree` and :func:`reap_pids`.
+    """
+    for proc in procs:
+        try:
+            proc.kill()
+            log.debug(f"killed {what} pid={proc.pid}")
+        except (psutil.NoSuchProcess, psutil.AccessDenied) as e:
+            log.debug(f"could not kill {what} pid={proc.pid}: {e}")
+    _unused_gone, still_alive = psutil.wait_procs(procs, timeout=kill_timeout)
+    for proc in still_alive:
+        try:
+            log.warning(f"{what} did not die after kill: pid={proc.pid} name={proc.name()}")
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            log.warning(f"{what} did not die after kill: pid={proc.pid}")
 
 
 @typechecked()
@@ -73,15 +102,10 @@ def terminate_process_tree(pid: int | None, terminate_timeout: float = 3.0, kill
         descendants = []
 
     # SIGTERM children first, then parent
-    for proc in descendants + [parent]:
-        try:
-            proc.terminate()
-            log.debug(f"terminated pid={proc.pid} name={proc.name()}")
-        except (psutil.NoSuchProcess, psutil.AccessDenied) as e:
-            log.debug(f"could not terminate pid={proc.pid}: {e}")
+    _terminate_procs(descendants + [parent], "process")
 
     wait_targets = descendants + [parent] if reap_parent else descendants
-    _, alive = psutil.wait_procs(wait_targets, timeout=terminate_timeout)
+    _unused_gone, alive = psutil.wait_procs(wait_targets, timeout=terminate_timeout)
 
     # Re-scan for grandchildren that appeared between snapshot and SIGTERM
     try:
@@ -115,19 +139,7 @@ def terminate_process_tree(pid: int | None, terminate_timeout: float = 3.0, kill
         survivors_children_first = [p for p in alive if p.pid != pid] + [p for p in alive if p.pid == pid]
     else:
         survivors_children_first = list(alive)
-    for proc in survivors_children_first:
-        try:
-            proc.kill()
-            log.debug(f"killed pid={proc.pid}")
-        except (psutil.NoSuchProcess, psutil.AccessDenied) as e:
-            log.debug(f"could not kill pid={proc.pid}: {e}")
-
-    _, still_alive = psutil.wait_procs(survivors_children_first, timeout=kill_timeout)
-    for proc in still_alive:
-        try:
-            log.warning(f"process did not die after kill: pid={proc.pid} name={proc.name()}")
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            log.warning(f"process did not die after kill: pid={proc.pid}")
+    _kill_survivors(survivors_children_first, kill_timeout, "process")
 
 
 # One-shot guard so a persistently failing reap path logs at WARNING once rather than per call.
@@ -170,28 +182,11 @@ def reap_pids(snapshot: set[tuple[int, float]], terminate_timeout: float = 3.0, 
 
         log.info(f"reaping {len(targets)} orphaned process(es) left behind by a completed test")
 
-        for proc in targets:
-            try:
-                proc.terminate()
-            except (psutil.NoSuchProcess, psutil.AccessDenied) as e:
-                log.debug(f"could not terminate orphan pid={proc.pid}: {e}")
-
-        _, alive = psutil.wait_procs(targets, timeout=terminate_timeout)
+        _terminate_procs(targets, "orphan")
+        _unused_gone, alive = psutil.wait_procs(targets, timeout=terminate_timeout)
         if not alive:
             return
-
-        for proc in alive:
-            try:
-                proc.kill()
-            except (psutil.NoSuchProcess, psutil.AccessDenied) as e:
-                log.debug(f"could not kill orphan pid={proc.pid}: {e}")
-
-        _, still_alive = psutil.wait_procs(alive, timeout=kill_timeout)
-        for proc in still_alive:
-            try:
-                log.warning(f"orphan did not die after kill: pid={proc.pid} name={proc.name()}")
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
-                log.warning(f"orphan did not die after kill: pid={proc.pid}")
+        _kill_survivors(alive, kill_timeout, "orphan")
     except Exception as e:  # fail-open: reaping must never raise into the worker loop
         if not _reap_warned_once:
             _reap_warned_once = True

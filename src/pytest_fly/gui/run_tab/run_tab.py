@@ -1,14 +1,15 @@
-"""Run tab — combines the control panel (Run/Stop buttons) with the status summary."""
+"""Run tab — the control panel (Run/Stop), status summary, system metrics,
+failed-tests list, and live-output pane, arranged in two persisted splitters."""
 
 from pathlib import Path
 
-from PySide6.QtCore import QByteArray, Qt
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QHBoxLayout, QSplitter, QVBoxLayout, QWidget
 from typeguard import typechecked
 
 from ...logger import get_logger
-from ...preferences import get_pref
 from ...tick_data import TickData
+from ..gui_util import bind_splitter_to_pref
 from .control_window import ControlWindow
 from .failed_tests_window import FailedTestsWindow
 from .live_output_window import LiveOutputWindow
@@ -55,19 +56,18 @@ class RunTab(QWidget):
         self.bottom_splitter.addWidget(self.live_output_window)
         self.bottom_splitter.setStretchFactor(0, 0)
         self.bottom_splitter.setStretchFactor(1, 1)
-        self._restore_bottom_splitter_state()
-        self.bottom_splitter.splitterMoved.connect(self._on_bottom_splitter_moved)
 
         # Vertical splitter: user drags the divider between the top row and the bottom pane.
-        # State is persisted via FlyPreferences.run_tab_splitter_state (QSplitter.saveState() hex).
         self.splitter = QSplitter(Qt.Orientation.Vertical)
         self.splitter.setChildrenCollapsible(False)
         self.splitter.addWidget(top_container)
         self.splitter.addWidget(self.bottom_splitter)
         self.splitter.setStretchFactor(0, 0)
         self.splitter.setStretchFactor(1, 1)
-        self._restore_splitter_state()
-        self.splitter.splitterMoved.connect(self._on_splitter_moved)
+
+        # Both divider positions persist across launches (hex-encoded QSplitter.saveState()).
+        bind_splitter_to_pref(self.bottom_splitter, "run_tab_bottom_splitter_state")
+        bind_splitter_to_pref(self.splitter, "run_tab_splitter_state")
 
         outer_layout.addWidget(self.splitter)
 
@@ -79,31 +79,3 @@ class RunTab(QWidget):
         self.system_metrics_window.update_tick(tick)
         self.control_window.reconcile_process_count()
         self.control_window.refresh_button_state()
-
-    def _restore_splitter_state(self) -> None:
-        """Restore the saved splitter divider position, if any."""
-        saved = get_pref().run_tab_splitter_state
-        if not saved:
-            return
-        try:
-            self.splitter.restoreState(QByteArray.fromHex(saved.encode("ascii")))
-        except (ValueError, UnicodeEncodeError) as exc:
-            log.debug(f"could not restore run-tab splitter state: {exc}")
-
-    def _on_splitter_moved(self, pos: int, index: int) -> None:
-        """Persist the splitter divider position so the layout restores on next launch."""
-        get_pref().run_tab_splitter_state = self.splitter.saveState().toHex().data().decode("ascii")
-
-    def _restore_bottom_splitter_state(self) -> None:
-        """Restore the saved bottom-splitter (failed-tests vs live-output) divider position, if any."""
-        saved = get_pref().run_tab_bottom_splitter_state
-        if not saved:
-            return
-        try:
-            self.bottom_splitter.restoreState(QByteArray.fromHex(saved.encode("ascii")))
-        except (ValueError, UnicodeEncodeError) as exc:
-            log.debug(f"could not restore run-tab bottom splitter state: {exc}")
-
-    def _on_bottom_splitter_moved(self, pos: int, index: int) -> None:
-        """Persist the bottom-splitter divider position so the layout restores on next launch."""
-        get_pref().run_tab_bottom_splitter_state = self.bottom_splitter.saveState().toHex().data().decode("ascii")

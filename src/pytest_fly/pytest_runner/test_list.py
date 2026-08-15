@@ -20,10 +20,15 @@ log = get_logger()
 
 
 class GetTests(Process):
+    """Test-discovery subprocess: collects every pytest test under a directory (recursively).
+
+    Runs ``pytest --collect-only`` in a separate process (twice — non-singleton tests, then
+    ``@pytest.mark.singleton`` tests) and returns the node IDs as :class:`ScheduledTest`
+    objects via :meth:`get_tests` after :meth:`join`.
+    """
+
     def __init__(self, test_dir: Path = Path("").resolve()):
         """
-        Collects all pytest tests within the given directory (recursively) in a separate process and returns their node IDs as a list of strings.
-
         :param test_dir: Directory in which to discover pytest tests.
         """
         self.test_dir = test_dir
@@ -33,6 +38,14 @@ class GetTests(Process):
 
     @typechecked()
     def run(self):
+        """Collect test node IDs and push them onto the result queue.
+
+        Two ``--collect-only`` passes (plain tests, then ``-m singleton``) with stdout
+        temporarily redirected so pytest's quiet collection output can be parsed.
+        Third-party plugin autoloading is disabled — auto-loaded plugins (pytest-xdist,
+        pytest-qt, pytest-randomly, ...) can deadlock or distort collection output in
+        this spawned child process.
+        """
         configure_child_logger("get_tests.log")
         log.info(f"{self.test_dir=}")
 

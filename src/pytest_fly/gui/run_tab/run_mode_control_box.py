@@ -2,7 +2,7 @@
 
 from PySide6.QtWidgets import QButtonGroup, QGroupBox, QRadioButton, QVBoxLayout
 
-from pytest_fly.preferences import RunMode, get_pref
+from ...preferences import RunMode, get_pref
 
 
 class RunModeControlBox(QGroupBox):

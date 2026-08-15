@@ -12,24 +12,20 @@ Chart style follows ``coverage_tab._CoverageChart`` — custom ``QPainter`` with
 ``TimeAxisMapping`` + ``compute_grid_ticks`` from the graph-tab time-axis module.
 """
 
-import math
 import time
 from collections import deque
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QPainter, QPen
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QGridLayout, QGroupBox, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QWidget
 
 from ...colors import (
     COMMIT_LINE_COLOR,
-    COMMIT_WARN_COLOR,
     CPU_LINE_COLOR,
     DISK_READ_COLOR,
     DISK_WRITE_COLOR,
-    GRID_LINE_COLOR,
     MEMORY_LINE_COLOR,
     NET_RECV_COLOR,
     NET_SENT_COLOR,
@@ -40,26 +36,11 @@ from ...preferences import get_pref
 from ...pytest_runner.commit_memory import PageFileInfo, commit_warning_active, pagefile_breakdown
 from ...pytest_runner.system_monitor import SystemMonitorSample
 from ...tick_data import TickData
-from ..graph_tab.time_axis import Y_GRID_PCTS, TimeAxisMapping, compute_grid_ticks, format_elapsed_label
-from ..gui_util import get_text_dimensions, window_text_color
+from ..charts import MetricChart, Series
 
 # Activity-chart line colors: tests that are running vs. those sampled idle (near-zero CPU).
 ACTIVITY_RUNNING_COLOR = QColor("#2e7d32")  # green
 ACTIVITY_IDLE_COLOR = WARNING_ACCENT  # amber (the shared warning accent)
-
-_MIN_CHART_HEIGHT = 70  # pixels — each sub-chart minimum
-
-
-@dataclass(frozen=True)
-class _Series:
-    """One line series on a :class:`_MetricChart`."""
-
-    label: str
-    color: QColor
-    # The getter/formatter read attributes off a duck-typed sample — either a SystemMonitorSample
-    # or an _ActivitySample — so the parameter is typed Any rather than a single concrete class.
-    getter: Callable[[Any], float]
-    legend_formatter: Callable[[Any], str] | None = None
 
 
 @dataclass(frozen=True)
@@ -70,192 +51,6 @@ class _ActivitySample:
     running: int  # tests in the RUNNING state
     idle: int  # running tests whose subtree CPU is below the idle epsilon
     stalled: bool  # the watchdog has flagged the run as stalled
-
-
-# A chart renders either system-resource samples or activity samples; both expose ``time_stamp``
-# and the per-series attributes are read through the duck-typed ``_Series.getter``.
-_ChartSample = SystemMonitorSample | _ActivitySample
-
-
-class _MetricChart(QWidget):
-    """Single time-series chart for one metric family (e.g. CPU or Network)."""
-
-    def __init__(self, title: str, series: list[_Series], unit: str, y_max_fixed: float | None, integer_y: bool = False):
-        """
-        :param title: Panel title shown in the top-left of the chart.
-        :param series: Line series painted over the same axes.
-        :param unit: Unit suffix for y-axis tick labels (``"%"`` or ``"MB/s"``).
-        :param y_max_fixed: Fixed y-axis maximum (e.g. ``100.0`` for percent).  ``None`` → auto-scale
-            to the largest sample in the current window, with a small minimum so the axis never flattens.
-        :param integer_y: When ``True`` the y-axis is treated as whole-number counts (e.g. number of
-            tests) — labels are rendered as integers and the auto-scaled maximum is rounded up.
-        """
-        super().__init__()
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.setMinimumHeight(_MIN_CHART_HEIGHT)
-
-        self._title = title
-        self._series = series
-        self._unit = unit
-        self._y_max_fixed = y_max_fixed
-        self._integer_y = integer_y
-
-        self._samples: Sequence[_ChartSample] = []
-        self._min_ts: float | None = None
-        self._max_ts: float | None = None
-        # When True, series are painted in the warning color (used by the Commit chart
-        # when commit charge crosses the configured threshold).
-        self._warn = False
-
-    def update_data(self, samples: Sequence[_ChartSample], min_ts: float | None, max_ts: float | None, warn: bool = False):
-        self._samples = samples
-        self._min_ts = min_ts
-        self._max_ts = max_ts
-        self._warn = warn
-        self.update()
-
-    def clear_warn(self) -> None:
-        """Drop the warning color and repaint immediately (used when a latched warning is cleared)."""
-        self._warn = False
-        self.update()
-
-    def _current_y_max(self) -> float:
-        if self._y_max_fixed is not None:
-            return self._y_max_fixed
-        peak = 0.0
-        for sample in self._samples:
-            for series in self._series:
-                value = series.getter(sample)
-                if value > peak:
-                    peak = value
-        if self._integer_y:
-            return float(max(math.ceil(peak * 1.15), 1))  # whole-number axis, never collapse to zero
-        return max(peak * 1.15, 1.0)  # 15% headroom, but never collapse to zero
-
-    def _y_grid_ticks(self, y_max: float) -> list[float]:
-        """Y-axis tick values (in data units) for horizontal gridlines and labels.
-
-        Continuous charts (CPU, Memory, MB/s) use evenly spaced fractions of ``y_max``.
-        Integer-count charts (e.g. Activity) instead use a whole-number step so the labels
-        are always distinct and the top tick lands exactly on ``y_max`` — fixed fractions of
-        a small max otherwise round to duplicates (e.g. ``y_max == 1`` → 0, 0, 1, 1).
-        """
-        if not self._integer_y:
-            return [y_max * pct for pct in Y_GRID_PCTS]
-        top = max(int(round(y_max)), 1)
-        step = max(1, math.ceil(top / len(Y_GRID_PCTS)))
-        # Build from the top down so the highest tick is always y_max, then present ascending.
-        return [float(value) for value in range(top, 0, -step)][::-1]
-
-    def _format_y_label(self, value: float) -> str:
-        if self._integer_y:
-            return str(int(round(value)))
-        if self._unit == "%":
-            return f"{int(round(value))}%"
-        if value >= 100:
-            return f"{value:.0f}{self._unit}"
-        if value >= 10:
-            return f"{value:.1f}{self._unit}"
-        return f"{value:.2f}{self._unit}"
-
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-
-        w = self.width()
-        h = self.height()
-        char_h = get_text_dimensions("X").height()
-
-        y_max = self._current_y_max()
-        max_label = self._format_y_label(y_max)
-        margin_left = get_text_dimensions(max_label + " ").width()
-        margin_top = char_h + 4  # room for title + legend
-        margin_bottom = char_h + 4  # room for x-axis tick labels
-        chart_w = w - margin_left - 4
-        chart_h = h - margin_top - margin_bottom
-
-        if chart_w <= 0 or chart_h <= 0:
-            painter.end()
-            return
-
-        text_color = window_text_color(self)
-
-        # Horizontal grid lines + y labels (tick values are in data units so integer-count
-        # charts get distinct whole-number labels rather than rounded fractions).
-        y_ticks = self._y_grid_ticks(y_max)
-        painter.setPen(QPen(GRID_LINE_COLOR, 1))
-        for value in y_ticks:
-            pct = value / y_max if y_max > 0 else 0.0
-            y = margin_top + int(chart_h * (1.0 - pct))
-            painter.drawLine(margin_left, y, w - 4, y)
-
-        painter.setPen(QPen(text_color, 1))
-        for value in y_ticks:
-            pct = value / y_max if y_max > 0 else 0.0
-            y = margin_top + int(chart_h * (1.0 - pct))
-            label = self._format_y_label(value)
-            label_w = get_text_dimensions(label).width()
-            painter.drawText(margin_left - label_w - 4, y + 4, label)
-
-        # Vertical grid lines + x tick labels (bottom chart only would be ideal, but painting
-        # on every sub-chart keeps each chart standalone and is cheap).
-        grid_ticks = compute_grid_ticks(self._min_ts, self._max_ts, chart_w)
-        painter.setPen(QPen(GRID_LINE_COLOR, 1))
-        for x, _label in grid_ticks:
-            painter.drawLine(int(margin_left + x), margin_top, int(margin_left + x), margin_top + chart_h)
-
-        # Time-offset tick labels along the bottom — right edge is 0, earlier ticks read as negative
-        # (e.g. ``-30s``, ``-2m``).  Skip the first and last ticks to avoid edge overlap.
-        if self._min_ts is not None and self._max_ts is not None and len(grid_ticks) > 2:
-            time_span = max(self._max_ts - self._min_ts, 1.0)
-            painter.setPen(QPen(text_color, 1))
-            label_y = margin_top + chart_h + char_h
-            for x, _elapsed_label in grid_ticks[1:-1]:
-                offset_seconds = time_span - (x / chart_w) * time_span
-                label = "0" if offset_seconds <= 0 else f"-{format_elapsed_label(offset_seconds)}"
-                label_w = get_text_dimensions(label).width()
-                label_x = int(margin_left + x) - label_w // 2
-                painter.drawText(label_x, label_y, label)
-
-        # Title and legend (with current values) across the top
-        painter.setPen(QPen(text_color, 1))
-        painter.drawText(margin_left, char_h, self._title)
-
-        legend_parts: list[tuple[str, QColor]] = []
-        latest = self._samples[-1] if self._samples else None
-        for series in self._series:
-            if latest is None:
-                value_text = "--"
-            elif series.legend_formatter is not None:
-                value_text = series.legend_formatter(latest)
-            else:
-                value_text = self._format_y_label(series.getter(latest))
-            legend_parts.append((f"{series.label}: {value_text}", series.color))
-
-        legend_x = margin_left + get_text_dimensions(self._title + "    ").width()
-        for text, color in legend_parts:
-            painter.setPen(QPen(COMMIT_WARN_COLOR if self._warn else color, 1))
-            painter.drawText(legend_x, char_h, text)
-            legend_x += get_text_dimensions(text + "   ").width()
-
-        # Data lines
-        if self._samples and self._min_ts is not None and self._max_ts is not None and self._max_ts > self._min_ts:
-            mapping = TimeAxisMapping(min_ts=self._min_ts, max_ts=self._max_ts, width_pixels=chart_w)
-            for series in self._series:
-                painter.setPen(QPen(COMMIT_WARN_COLOR if self._warn else series.color, 2))
-                prev_x: int | None = None
-                prev_y: int | None = None
-                for sample in self._samples:
-                    x = margin_left + int(mapping.ts_to_x(sample.time_stamp))
-                    value = series.getter(sample)
-                    clamped = max(0.0, min(value, y_max))
-                    y = margin_top + int(chart_h * (1.0 - (clamped / y_max if y_max > 0 else 0.0)))
-                    if prev_x is not None and prev_y is not None:
-                        painter.drawLine(prev_x, prev_y, x, y)
-                    prev_x = x
-                    prev_y = y
-
-        painter.end()
 
 
 class SystemMetricsWindow(QGroupBox):
@@ -269,16 +64,16 @@ class SystemMetricsWindow(QGroupBox):
         layout = QGridLayout()
         self.setLayout(layout)
 
-        self._cpu_chart = _MetricChart(
+        self._cpu_chart = MetricChart(
             title="CPU",
-            series=[_Series(label="usage", color=CPU_LINE_COLOR, getter=lambda s: s.cpu_percent)],
+            series=[Series(label="usage", color=CPU_LINE_COLOR, getter=lambda s: s.cpu_percent)],
             unit="%",
             y_max_fixed=100.0,
         )
-        self._memory_chart = _MetricChart(
+        self._memory_chart = MetricChart(
             title="Memory",
             series=[
-                _Series(
+                Series(
                     label="usage",
                     color=MEMORY_LINE_COLOR,
                     getter=lambda s: s.memory_percent,
@@ -288,10 +83,10 @@ class SystemMetricsWindow(QGroupBox):
             unit="%",
             y_max_fixed=100.0,
         )
-        self._commit_chart = _MetricChart(
+        self._commit_chart = MetricChart(
             title="Commit",
             series=[
-                _Series(
+                Series(
                     label="charge",
                     color=COMMIT_LINE_COLOR,
                     getter=lambda s: s.commit_percent,
@@ -301,20 +96,20 @@ class SystemMetricsWindow(QGroupBox):
             unit="%",
             y_max_fixed=100.0,
         )
-        self._disk_chart = _MetricChart(
+        self._disk_chart = MetricChart(
             title="Disk",
             series=[
-                _Series(label="read", color=DISK_READ_COLOR, getter=lambda s: s.disk_read_mbps),
-                _Series(label="write", color=DISK_WRITE_COLOR, getter=lambda s: s.disk_write_mbps),
+                Series(label="read", color=DISK_READ_COLOR, getter=lambda s: s.disk_read_mbps),
+                Series(label="write", color=DISK_WRITE_COLOR, getter=lambda s: s.disk_write_mbps),
             ],
             unit="MB/s",
             y_max_fixed=None,
         )
-        self._network_chart = _MetricChart(
+        self._network_chart = MetricChart(
             title="Network",
             series=[
-                _Series(label="sent", color=NET_SENT_COLOR, getter=lambda s: s.net_sent_mbps),
-                _Series(label="recv", color=NET_RECV_COLOR, getter=lambda s: s.net_recv_mbps),
+                Series(label="sent", color=NET_SENT_COLOR, getter=lambda s: s.net_sent_mbps),
+                Series(label="recv", color=NET_RECV_COLOR, getter=lambda s: s.net_recv_mbps),
             ],
             unit="MB/s",
             y_max_fixed=None,
@@ -323,11 +118,11 @@ class SystemMetricsWindow(QGroupBox):
         # Test-activity chart — running vs. idle in-flight test counts over time. Plotted like the
         # other charts so a wedge is visible at a glance (idle climbs to meet running). Lines turn
         # warning-colored while the stall watchdog has the run flagged as stalled.
-        self._activity_chart = _MetricChart(
+        self._activity_chart = MetricChart(
             title="Activity",
             series=[
-                _Series(label="running", color=ACTIVITY_RUNNING_COLOR, getter=lambda s: float(s.running), legend_formatter=lambda s: str(s.running)),
-                _Series(label="idle", color=ACTIVITY_IDLE_COLOR, getter=lambda s: float(s.idle), legend_formatter=lambda s: str(s.idle)),
+                Series(label="running", color=ACTIVITY_RUNNING_COLOR, getter=lambda s: float(s.running), legend_formatter=lambda s: str(s.running)),
+                Series(label="idle", color=ACTIVITY_IDLE_COLOR, getter=lambda s: float(s.idle), legend_formatter=lambda s: str(s.idle)),
             ],
             unit="",
             y_max_fixed=None,

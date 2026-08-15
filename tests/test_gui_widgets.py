@@ -49,7 +49,7 @@ def _force_paint(widget, width: int = 600, height: int = 400) -> None:
 
 
 def test_system_metrics_window_ingest_and_paint(qtbot):
-    """SystemMetricsWindow should accept samples and paint all four sub-charts."""
+    """SystemMetricsWindow should accept samples and paint all of its sub-charts."""
     window = SystemMetricsWindow(None)
     qtbot.addWidget(window)
 

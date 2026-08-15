@@ -23,7 +23,7 @@ python -m pytest_fly
 pytest tests/                          # full suite
 pytest tests/test_foo.py               # single file
 pytest tests/test_foo.py::test_bar     # single test
-tox                                    # full matrix: py312, py315, pypy3, ruff
+tox                                    # full matrix: py312, py314, py315, pypy3, ruff (min / latest stable / pre-release)
 tox -e py312                           # single tox environment
 ```
 

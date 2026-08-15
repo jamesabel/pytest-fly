@@ -76,6 +76,19 @@ def test_update_commit_warning_threshold(app):
     assert get_pref().commit_warning_threshold == 0.9
 
 
+def test_update_cpu_gate_prefs(app):
+    cfg = Configuration()
+
+    cfg.cpu_gate_enabled_checkbox.setChecked(True)
+    cfg.update_cpu_gate_enabled()
+    assert get_pref().cpu_gate_enabled is True
+
+    cfg.update_cpu_gate_threshold("0.75")
+    assert get_pref().cpu_gate_threshold == 0.75
+    cfg.update_cpu_gate_threshold("bad")  # ValueError swallowed
+    assert get_pref().cpu_gate_threshold == 0.75
+
+
 def test_update_resource_guard_prefs(app):
     cfg = Configuration()
 

@@ -1,10 +1,11 @@
-"""Part C — process-count + commit-charge admission gates.
+"""Part C — process-count + commit-charge + CPU admission gates.
 
 Covers subtree_process_count, the gate composition (AND), the min-1 forward-progress
 override, abort-while-deferring, and fail-open behavior.
 """
 
 import os
+import time
 from pathlib import Path
 from queue import Queue
 
@@ -111,3 +112,86 @@ def test_process_gate_fails_open_on_read_error(monkeypatch):
     monkeypatch.setattr(pytest_runner, "subtree_process_count", lambda pid: 0)  # 0 == read failure
     runner = _make_runner(_AdmissionGateConfig(process_count_gate_enabled=True, max_descendant_processes=2))
     assert runner._await_admission(lambda: False) is True
+
+
+def test_cpu_gate_admits_below_threshold(monkeypatch):
+    monkeypatch.setattr(pytest_runner, "system_cpu_fraction", lambda: 0.50)
+    runner = _make_runner(_AdmissionGateConfig(cpu_gate_enabled=True, cpu_gate_threshold=0.90))
+    assert runner._await_admission(lambda: False) is True
+
+
+def test_cpu_gate_blocks_when_over_threshold(monkeypatch):
+    monkeypatch.setattr(pytest_runner, "system_cpu_fraction", lambda: 0.95)
+    coordinator = _SingletonCoordinator()
+    coordinator.acquire_normal(lambda: False, 0.01)  # _active == 1, so min-1 does not short-circuit
+    runner = _make_runner(_AdmissionGateConfig(cpu_gate_enabled=True, cpu_gate_threshold=0.90), coordinator)
+
+    calls = {"n": 0}
+
+    def should_abort():
+        calls["n"] += 1
+        return calls["n"] > 1  # abort on the second check
+
+    assert runner._await_admission(should_abort) is False  # CPU gate kept it blocked
+
+
+def test_cpu_gate_blocks_then_admits(monkeypatch):
+    readings = [0.99, 0.99, 0.10]  # over threshold twice, then drops below
+
+    def fake_cpu():
+        return readings.pop(0) if len(readings) > 1 else readings[0]
+
+    monkeypatch.setattr(pytest_runner, "system_cpu_fraction", fake_cpu)
+    coordinator = _SingletonCoordinator()
+    coordinator.acquire_normal(lambda: False, 0.01)
+    runner = _make_runner(_AdmissionGateConfig(cpu_gate_enabled=True, cpu_gate_threshold=0.90), coordinator)
+    assert runner._await_admission(lambda: False) is True
+    assert readings == [0.10], "expected the gate to poll until CPU utilization dropped below the threshold"
+
+
+def test_cpu_gate_min1_admits_when_nothing_in_flight(monkeypatch):
+    monkeypatch.setattr(pytest_runner, "system_cpu_fraction", lambda: 1.0)
+    runner = _make_runner(_AdmissionGateConfig(cpu_gate_enabled=True, cpu_gate_threshold=0.90))  # coordinator _active == 0
+    assert runner._await_admission(lambda: False) is True
+
+
+def test_cpu_gate_fails_open_when_unprimed(monkeypatch):
+    monkeypatch.setattr(pytest_runner, "system_cpu_fraction", lambda: None)  # signal unavailable
+    coordinator = _SingletonCoordinator()
+    coordinator.acquire_normal(lambda: False, 0.01)
+    runner = _make_runner(_AdmissionGateConfig(cpu_gate_enabled=True, cpu_gate_threshold=0.90), coordinator)
+    assert runner._await_admission(lambda: False) is True
+
+
+def test_cpu_gate_composes_as_and(monkeypatch):
+    # Commit gate passes, CPU gate blocks -> overall block (until abort).
+    monkeypatch.setattr(pytest_runner, "commit_charge_and_limit", lambda: (10, 100))  # 10% < 90% threshold
+    monkeypatch.setattr(pytest_runner, "system_cpu_fraction", lambda: 0.99)
+    coordinator = _SingletonCoordinator()
+    coordinator.acquire_normal(lambda: False, 0.01)
+    runner = _make_runner(
+        _AdmissionGateConfig(commit_gate_enabled=True, commit_gate_threshold=0.90, cpu_gate_enabled=True, cpu_gate_threshold=0.90),
+        coordinator,
+    )
+
+    calls = {"n": 0}
+
+    def should_abort():
+        calls["n"] += 1
+        return calls["n"] > 1
+
+    assert runner._await_admission(should_abort) is False
+
+
+def test_system_cpu_fraction_primes_then_reads(monkeypatch):
+    """The real sampler returns None on the priming call, then an in-range fraction."""
+    monkeypatch.setattr(pytest_runner, "_cpu_sample_primed", False)
+    monkeypatch.setattr(pytest_runner, "_cpu_sample_fraction", None)
+    monkeypatch.setattr(pytest_runner, "_cpu_sample_monotonic", 0.0)
+    monkeypatch.setattr(pytest_runner, "_cpu_sample_min_interval_seconds", 0.01)
+
+    assert pytest_runner.system_cpu_fraction() is None  # priming call — no usable reading yet
+    time.sleep(0.05)  # exceed the (shrunken) min re-sample interval
+    cpu = pytest_runner.system_cpu_fraction()
+    assert cpu is not None
+    assert 0.0 <= cpu <= 1.05  # fraction of total system CPU (small tolerance for psutil rounding)

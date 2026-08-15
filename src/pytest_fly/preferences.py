@@ -54,6 +54,8 @@ process_count_gate_enabled_default = False  # opt-in: throttle dispatch on desce
 max_descendant_processes_default = 8 * get_performance_core_count()  # process-count admission ceiling
 commit_gate_enabled_default = False  # opt-in: throttle dispatch on system commit charge
 commit_gate_threshold_default = 0.90  # defer dispatch while system commit charge exceeds this fraction of the limit
+cpu_gate_enabled_default = False  # opt-in: throttle dispatch on system-wide CPU utilization
+cpu_gate_threshold_default = 0.90  # defer dispatch while system CPU utilization exceeds this fraction (0.0-1.0)
 resource_guard_enabled_default = False  # opt-in: automatically soft-stop the run when the system is low on resources
 resource_guard_min_free_disk_gb_default = 10.0  # soft-stop when free disk space on the data-dir drive drops below this many GB (0 disables the disk check)
 resource_guard_commit_threshold_default = 0.95  # soft-stop when system commit charge exceeds this fraction of the commit limit
@@ -122,6 +124,8 @@ class FlyPreferences(Pref):
     max_descendant_processes: int = attrib(default=max_descendant_processes_default)  # process-count admission ceiling
     commit_gate_enabled: bool = attrib(default=commit_gate_enabled_default)  # opt-in commit-charge admission gate
     commit_gate_threshold: float = attrib(default=commit_gate_threshold_default)  # defer dispatch above this fraction of the commit limit
+    cpu_gate_enabled: bool = attrib(default=cpu_gate_enabled_default)  # opt-in CPU-utilization admission gate
+    cpu_gate_threshold: float = attrib(default=cpu_gate_threshold_default)  # defer dispatch above this fraction of system CPU utilization
     resource_guard_enabled: bool = attrib(default=resource_guard_enabled_default)  # opt-in automatic soft stop when the system is low on resources
     resource_guard_min_free_disk_gb: float = attrib(default=resource_guard_min_free_disk_gb_default)  # soft-stop below this many GB free on the data-dir drive (0 disables)
     resource_guard_commit_threshold: float = attrib(default=resource_guard_commit_threshold_default)  # soft-stop above this fraction of the system commit limit

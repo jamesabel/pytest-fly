@@ -39,6 +39,7 @@ from pytest_fly.preferences import (
     commit_gate_threshold_default,
     commit_warning_threshold_default,
     cpu_active_epsilon_default,
+    cpu_gate_threshold_default,
     duration_to_seconds,
     get_active_put_path,
     get_ordering_aspects_ordered,
@@ -605,6 +606,33 @@ class Configuration(QWidget):
             ),
         )
 
+        self.cpu_gate_enabled_checkbox = QCheckBox("CPU Admission Gate (default: off)")
+        self.cpu_gate_enabled_checkbox.setToolTip(
+            "Throttles dispatch by system-wide CPU utilization. Before starting another test,\n"
+            "pytest-fly waits while total CPU usage (from all processes on the machine, not just\n"
+            "tests) is above the threshold below — keeping the machine responsive and avoiding\n"
+            "timing-sensitive test failures caused by CPU starvation.\n\n"
+            "Composes with the other admission gates (all enabled gates must allow a test before it\n"
+            "starts). Only defers new tests — it never pauses or caps a running test — and at least\n"
+            "one test always runs so the suite can't deadlock behind the gate. Off by default."
+        )
+        self.cpu_gate_enabled_checkbox.setChecked(to_bool_strict(pref.cpu_gate_enabled))
+        self.cpu_gate_enabled_checkbox.stateChanged.connect(self.update_cpu_gate_enabled)
+        liveness_layout.addWidget(self.cpu_gate_enabled_checkbox)
+
+        self.cpu_gate_threshold_lineedit = _add_labeled_lineedit(
+            liveness_layout,
+            f"CPU Gate Threshold (0.0-1.0, {cpu_gate_threshold_default} default)",
+            str(pref.cpu_gate_threshold),
+            QDoubleValidator(),
+            self.update_cpu_gate_threshold,
+            tooltip=(
+                "The fraction of total system CPU (0.0–1.0) at or above which the CPU gate defers\n"
+                "starting new tests. For example, 0.90 means 'hold off while the whole machine is over\n"
+                "90% busy.' Only used when the CPU Admission Gate is enabled."
+            ),
+        )
+
         right_column.addWidget(liveness_group)
 
         # Resource guard group — background low-resource monitor that automatically soft-stops
@@ -805,6 +833,18 @@ class Configuration(QWidget):
         pref = get_pref()
         try:
             pref.commit_gate_threshold = float(value)
+        except ValueError:
+            pass
+
+    def update_cpu_gate_enabled(self):
+        """Persist the CPU-utilization admission gate enable checkbox."""
+        get_pref().cpu_gate_enabled = self.cpu_gate_enabled_checkbox.isChecked()
+
+    def update_cpu_gate_threshold(self, value: str):
+        """Persist the CPU-utilization admission threshold (fraction of total system CPU)."""
+        pref = get_pref()
+        try:
+            pref.cpu_gate_threshold = float(value)
         except ValueError:
             pass
 

@@ -92,7 +92,7 @@ class PytestRunState:
 class _AdmissionGateConfig:
     """Configuration for the dispatch-time admission gates (Part C).
 
-    Both gates default to disabled, so dispatch behavior is unchanged until a gate is
+    All gates default to disabled, so dispatch behavior is unchanged until a gate is
     explicitly enabled. The gates only *defer* starting new tests; they never cap how
     long a running test may take.
     """
@@ -101,6 +101,40 @@ class _AdmissionGateConfig:
     max_descendant_processes: int = 0  # ignored when the process-count gate is disabled
     commit_gate_enabled: bool = False
     commit_gate_threshold: float = 0.90  # fraction of the system commit limit
+    cpu_gate_enabled: bool = False
+    cpu_gate_threshold: float = 0.90  # fraction of total system CPU utilization (0.0-1.0)
+
+
+# System-wide CPU sampling for the CPU admission gate. ``psutil.cpu_percent(interval=None)``
+# measures utilization since the *previous* call from this process, so the first reading is
+# meaningless and rapid calls from several deferring worker threads would shrink the
+# measurement window to noise. This process-wide cache primes once and re-samples at most
+# once per ``_cpu_sample_min_interval_seconds``, returning the cached fraction in between.
+_cpu_sample_lock = Lock()
+_cpu_sample_min_interval_seconds = 1.0
+_cpu_sample_primed = False
+_cpu_sample_monotonic = 0.0
+_cpu_sample_fraction: float | None = None
+
+
+def system_cpu_fraction() -> float | None:
+    """Return system-wide CPU utilization as a fraction (0.0-1.0), or ``None`` until primed.
+
+    Callers must treat ``None`` as "signal unavailable" and fail open (admit), matching the
+    other admission-gate readers.
+    """
+    global _cpu_sample_primed, _cpu_sample_monotonic, _cpu_sample_fraction
+    with _cpu_sample_lock:
+        now = time.monotonic()
+        if not _cpu_sample_primed:
+            psutil.cpu_percent(interval=None)  # prime; the first reading is meaningless
+            _cpu_sample_primed = True
+            _cpu_sample_monotonic = now
+            return None
+        if now - _cpu_sample_monotonic >= _cpu_sample_min_interval_seconds:
+            _cpu_sample_fraction = psutil.cpu_percent(interval=None) / 100.0
+            _cpu_sample_monotonic = now
+        return _cpu_sample_fraction
 
 
 @dataclass(frozen=True)
@@ -1055,20 +1089,21 @@ class _TestRunner(Thread):
     def _await_admission(self, should_abort) -> bool:
         """Defer dispatching the next test while an enabled admission gate is over budget (Part C).
 
-        Composes the process-count and commit-charge gates as a logical AND. The min-1
-        forward-progress guarantee (admit whenever nothing is in flight) overrides both, so a
+        Composes the process-count, commit-charge, and CPU gates as a logical AND. The min-1
+        forward-progress guarantee (admit whenever nothing is in flight) overrides them all, so a
         single heavy test can never deadlock the suite. Fail-open: a read error or a disabled
         gate admits. Poll-interruptible via *should_abort*.
 
         :return: ``True`` if admitted, ``False`` if *should_abort* went true while deferring.
         """
         cfg = self.gate_config
-        if not (cfg.process_count_gate_enabled or cfg.commit_gate_enabled):
+        if not (cfg.process_count_gate_enabled or cfg.commit_gate_enabled or cfg.cpu_gate_enabled):
             return True
         while not should_abort():
             process_ok = not cfg.process_count_gate_enabled or self._process_count_ok()
             commit_ok = not cfg.commit_gate_enabled or self._commit_ok()
-            if process_ok and commit_ok:
+            cpu_ok = not cfg.cpu_gate_enabled or self._cpu_ok()
+            if process_ok and commit_ok and cpu_ok:
                 return True
             if self._coordinator.active_slot_count() == 0:
                 return True  # min-1: nothing in flight, always make forward progress
@@ -1093,6 +1128,13 @@ class _TestRunner(Thread):
         if commit_limit <= 0:
             return True
         return (commit_total / commit_limit) < self.gate_config.commit_gate_threshold
+
+    def _cpu_ok(self) -> bool:
+        """Return ``True`` if system-wide CPU utilization is below the gate threshold (fail-open)."""
+        cpu = system_cpu_fraction()
+        if cpu is None:
+            return True  # unprimed / unavailable -> admit
+        return cpu < self.gate_config.cpu_gate_threshold
 
     def stop(self):
         """Signal all work to stop as soon as possible."""

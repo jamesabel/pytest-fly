@@ -298,6 +298,8 @@ class ControlWindow(QGroupBox):
             max_descendant_processes=pref.max_descendant_processes,
             commit_gate_enabled=pref.commit_gate_enabled,
             commit_gate_threshold=pref.commit_gate_threshold,
+            cpu_gate_enabled=pref.cpu_gate_enabled,
+            cpu_gate_threshold=pref.cpu_gate_threshold,
         )
         stall_config = _StallConfig(
             enabled=pref.stall_detection_enabled,

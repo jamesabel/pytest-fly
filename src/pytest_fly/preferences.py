@@ -224,3 +224,8 @@ def set_ordering_aspects_ordered(aspects: list[OrderingAspect]) -> None:
     """Persist the enabled-and-ordered aspect list."""
     get_pref().ordering_aspects_seeded = True  # any explicit write counts as seeded
     get_ordering_aspects_set().set([a.value for a in aspects])
+
+
+def reset_ordering_aspects_to_default() -> None:
+    """Reset the enabled-and-ordered aspect list to the built-in default seed."""
+    set_ordering_aspects_ordered(list(_default_ordering_aspect_seed))

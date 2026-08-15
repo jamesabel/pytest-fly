@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPushButton,
     QScrollArea,
     QVBoxLayout,
@@ -32,21 +33,29 @@ from pytest_fly.paths import get_default_data_dir
 from pytest_fly.platform.platform_info import get_performance_core_count
 from pytest_fly.preferences import (
     TIME_UNITS,
+    auto_force_stop_on_stall_default,
     chart_window_minutes_default,
+    commit_gate_enabled_default,
     commit_gate_threshold_default,
     commit_warning_threshold_default,
     cpu_active_epsilon_default,
+    cpu_gate_enabled_default,
     cpu_gate_threshold_default,
     duration_to_seconds,
     get_active_put_path,
     get_pref,
     graph_font_size_default,
     max_descendant_processes_default,
+    process_count_gate_enabled_default,
     refresh_rate_default,
     resource_guard_commit_threshold_default,
+    resource_guard_enabled_default,
     resource_guard_min_free_disk_gb_default,
     set_active_put_path,
+    stall_detection_enabled_default,
+    stall_kill_unit_default,
     stall_kill_value_default,
+    stall_warn_unit_default,
     stall_warn_value_default,
     tooltip_line_limit_default,
     utilization_high_threshold_default,
@@ -218,6 +227,19 @@ class Configuration(QWidget):
         # reflects their persisted behavior.
         if pref.run_mode == RunMode.RESUME and not pref.resume_skip_put_check:
             pref.resume_skip_put_check = True
+
+        # Restore-defaults control, kept visible at the top of the tab.
+        defaults_row = QHBoxLayout()
+        defaults_row.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.restore_defaults_button = QPushButton("Restore Defaults")
+        self.restore_defaults_button.setToolTip(
+            "Reset every setting on this tab to its default value — including the target project\npath and the test-results DB directory. Asks for confirmation first."
+        )
+        self.restore_defaults_button.clicked.connect(self.restore_defaults)
+        defaults_row.addWidget(self.restore_defaults_button)
+        layout.addLayout(defaults_row)
+
+        layout.addWidget(QLabel(""))  # space
 
         # Resume-mode behavior option
         self.resume_skip_put_check_checkbox = _add_pref_checkbox(
@@ -819,6 +841,89 @@ class Configuration(QWidget):
     def update_graph_font_size(self, value: str):
         """Persist the Progress Graph font size (clamped to *minimum_graph_font_size*)."""
         self._set_int_pref("graph_font_size", value, minimum=minimum_graph_font_size)
+
+    def restore_defaults(self):
+        """Ask for confirmation, then reset every Configuration-tab setting to its default."""
+        response = QMessageBox.question(
+            self,
+            "Restore defaults",
+            "Restore every setting on this tab to its default value?\n\nThis includes the target project path and the test-results DB directory.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if response == QMessageBox.StandardButton.Yes:
+            self._apply_defaults()
+
+    def _apply_defaults(self) -> None:
+        """Reset every Configuration-tab preference to its default and refresh the widgets.
+
+        Preferences are written directly (not via the widget signals): a widget whose
+        displayed text already equals the default emits no ``textChanged``, so a
+        signal-driven reset would silently skip any preference that drifted from its
+        widget (e.g. through clamping). The widgets are then updated to match.
+        """
+        pref = get_pref()
+
+        checkbox_defaults: list[tuple[str, QCheckBox, bool]] = [
+            ("resume_skip_put_check", self.resume_skip_put_check_checkbox, False),
+            ("stall_detection_enabled", self.stall_detection_enabled_checkbox, stall_detection_enabled_default),
+            ("auto_force_stop_on_stall", self.auto_force_stop_on_stall_checkbox, auto_force_stop_on_stall_default),
+            ("process_count_gate_enabled", self.process_count_gate_enabled_checkbox, process_count_gate_enabled_default),
+            ("commit_gate_enabled", self.commit_gate_enabled_checkbox, commit_gate_enabled_default),
+            ("cpu_gate_enabled", self.cpu_gate_enabled_checkbox, cpu_gate_enabled_default),
+            ("resource_guard_enabled", self.resource_guard_enabled_checkbox, resource_guard_enabled_default),
+            ("verbose", self.verbose_checkbox, False),
+            ("perf_logging", self.perf_logging_checkbox, False),
+        ]
+        for pref_name, checkbox, default in checkbox_defaults:
+            setattr(pref, pref_name, default)
+            checkbox.setChecked(default)
+        # Mirror the resume-checkbox slot's run_mode coupling for the default (unchecked) state.
+        if pref.run_mode != RunMode.RESTART:
+            pref.run_mode = RunMode.CHECK
+
+        field_defaults: list[tuple[str, QLineEdit, float | int]] = [
+            ("processes", self.processes_lineedit, get_performance_core_count()),
+            ("refresh_rate", self.refresh_rate_lineedit, refresh_rate_default),
+            ("utilization_high_threshold", self.utilization_high_threshold_lineedit, utilization_high_threshold_default),
+            ("utilization_low_threshold", self.utilization_low_threshold_lineedit, utilization_low_threshold_default),
+            ("commit_warning_threshold", self.commit_warning_threshold_lineedit, commit_warning_threshold_default),
+            ("tooltip_line_limit", self.tooltip_line_limit_lineedit, tooltip_line_limit_default),
+            ("chart_window_minutes", self.chart_window_minutes_lineedit, chart_window_minutes_default),
+            ("graph_font_size", self.graph_font_size_lineedit, graph_font_size_default),
+            ("cpu_active_epsilon", self.cpu_active_epsilon_lineedit, cpu_active_epsilon_default),
+            ("max_descendant_processes", self.max_descendant_processes_lineedit, max_descendant_processes_default),
+            ("commit_gate_threshold", self.commit_gate_threshold_lineedit, commit_gate_threshold_default),
+            ("cpu_gate_threshold", self.cpu_gate_threshold_lineedit, cpu_gate_threshold_default),
+            ("resource_guard_min_free_disk_gb", self.resource_guard_min_free_disk_gb_lineedit, resource_guard_min_free_disk_gb_default),
+            ("resource_guard_commit_threshold", self.resource_guard_commit_threshold_lineedit, resource_guard_commit_threshold_default),
+        ]
+        for pref_name, lineedit, default in field_defaults:
+            setattr(pref, pref_name, default)
+            lineedit.setText(_format_number(default))
+
+        # Stall windows: value + unit pairs.
+        pref.stall_warn_value = stall_warn_value_default
+        pref.stall_warn_unit = stall_warn_unit_default
+        self.stall_warn_value_lineedit.setText(_format_number(stall_warn_value_default))
+        self.stall_warn_unit_combo.setCurrentText(stall_warn_unit_default)
+        pref.stall_kill_value = stall_kill_value_default
+        pref.stall_kill_unit = stall_kill_unit_default
+        self.stall_kill_value_lineedit.setText(_format_number(stall_kill_value_default))
+        self.stall_kill_unit_combo.setCurrentText(stall_kill_unit_default)
+
+        # Test-ordering aspects back to the built-in seed.
+        self.ordering_aspects_widget.reset_to_defaults()
+
+        # Paths: empty means "use the launch directory" / the workspace-local default.
+        pref.put_path = ""
+        self.refresh_target_project_path()
+        pref.test_results_db_dir = ""
+        self.test_results_db_dir_lineedit.setText("")
+
+        # The defaults satisfy both cross-field invariants; clear any shown warnings.
+        self._validate_utilization_thresholds()
+        self._validate_stall_windows()
 
     def _commit_target_project_path(self):
         """Persist the edited target-project (PUT) path; empty input falls back to the workspace dir."""

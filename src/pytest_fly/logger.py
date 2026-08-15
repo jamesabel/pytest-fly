@@ -11,6 +11,7 @@ directory.
 
 import logging
 from collections import deque
+from dataclasses import dataclass
 from logging import Formatter, Logger
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -114,35 +115,51 @@ def get_logger(name: str = application_name) -> Logger:
     return logging.getLogger(name)
 
 
+# Pass as ``extra=`` on a log call to mark the record as a notable run *event* — something
+# the Log tab shows even in its default (non-verbose) view, e.g. an admission gate deferring
+# dispatch or the resource guard requesting a stop.  Warnings and errors always show.
+EVENT_EXTRA = {"fly_event": True}
+
+
+@dataclass(frozen=True)
+class GuiLogRecord:
+    """One captured log record, pre-formatted for the GUI Log tab."""
+
+    line: str  # formatted line, including the date/time prefix
+    levelno: int  # stdlib logging level number (logging.INFO, logging.WARNING, ...)
+    event: bool  # True when logged with extra=EVENT_EXTRA — a notable run event
+
+
 class GuiLogHandler(logging.Handler):
     """Buffers formatted log records for display in the GUI Log tab.
 
     Records may be emitted from any thread (worker threads, monitor threads); the GUI
-    thread calls :meth:`drain` on its refresh tick to collect the new lines.  The buffer
-    is bounded so a chatty logger can never grow memory without bound if the GUI stops
-    draining.
+    thread calls :meth:`drain` on its refresh tick to collect the new records.  The
+    buffer is bounded so a chatty logger can never grow memory without bound if the GUI
+    stops draining.
     """
 
     def __init__(self, level: int = logging.INFO) -> None:
         super().__init__(level)
         self.setFormatter(Formatter(_GUI_LOG_FORMAT))
         self._buffer_lock = Lock()
-        self._buffer: deque[str] = deque(maxlen=_GUI_LOG_MAX_RECORDS)
+        self._buffer: deque[GuiLogRecord] = deque(maxlen=_GUI_LOG_MAX_RECORDS)
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
             line = self.format(record)
         except (ValueError, TypeError):
             return  # malformed record — never let the log view take down logging
+        gui_record = GuiLogRecord(line=line, levelno=record.levelno, event=bool(getattr(record, "fly_event", False)))
         with self._buffer_lock:
-            self._buffer.append(line)
+            self._buffer.append(gui_record)
 
-    def drain(self) -> list[str]:
-        """Return all buffered lines (oldest first) and clear the buffer."""
+    def drain(self) -> list[GuiLogRecord]:
+        """Return all buffered records (oldest first) and clear the buffer."""
         with self._buffer_lock:
-            lines = list(self._buffer)
+            records = list(self._buffer)
             self._buffer.clear()
-        return lines
+        return records
 
 
 def install_gui_log_handler() -> GuiLogHandler:

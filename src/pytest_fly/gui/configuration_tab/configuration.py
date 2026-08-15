@@ -45,6 +45,7 @@ from pytest_fly.preferences import (
     get_active_put_path,
     get_pref,
     graph_font_size_default,
+    log_tab_line_limit_default,
     max_descendant_processes_default,
     process_count_gate_enabled_default,
     refresh_rate_default,
@@ -69,6 +70,7 @@ minimum_refresh_rate = 1.0
 minimum_tooltip_line_limit = 1
 minimum_chart_window_minutes = 0.5
 minimum_graph_font_size = 6
+minimum_log_tab_line_limit = 100
 
 
 def _add_labeled_lineedit(
@@ -346,6 +348,19 @@ class Configuration(QWidget):
             self.update_graph_font_size,
             char_width=6,
             tooltip="Point size of the font used in the Progress Graph tab. Applies on the next refresh tick.",
+        )
+
+        layout.addWidget(QLabel(""))  # space
+
+        log_tab_line_limit_label = f"Log Tab Line Limit (min {minimum_log_tab_line_limit}, {log_tab_line_limit_default} default)"
+        self.log_tab_line_limit_lineedit = _add_labeled_lineedit(
+            layout,
+            log_tab_line_limit_label,
+            str(pref.log_tab_line_limit),
+            QIntValidator(),
+            self.update_log_tab_line_limit,
+            char_width=7,
+            tooltip="Maximum log lines retained and displayed in the Log tab (bounds memory over a long\nsession). The oldest lines are dropped first. Applies on the next refresh tick.",
         )
 
         layout.addWidget(QLabel(""))  # space
@@ -645,11 +660,10 @@ class Configuration(QWidget):
         )
 
         right_column.addWidget(resource_guard_group)
-        right_column.addStretch()
 
-        layout.addWidget(QLabel(""))  # space
-
-        # Expert group — settings most users should not need to change. Placed last to de-emphasize.
+        # Expert group — settings most users should not need to change. Lives at the bottom of
+        # the right column (last position, to de-emphasize) rather than the left column, which
+        # is the taller of the two and drives the tab's overall height.
         expert_group = QGroupBox("Expert")
         expert_group.setToolTip("Advanced diagnostic options. Normal users should not need to change these.")
         expert_layout = QVBoxLayout()
@@ -667,7 +681,8 @@ class Configuration(QWidget):
             tooltip="Log per-tick phase timings (DB query, tab updates, etc.) to help diagnose UI lag.",
         )
 
-        layout.addWidget(expert_group)
+        right_column.addWidget(expert_group)
+        right_column.addStretch()
 
     # ------------------------------------------------------------------
     # Preference-persistence helpers — shared by all the update_* slots below
@@ -842,6 +857,10 @@ class Configuration(QWidget):
         """Persist the Progress Graph font size (clamped to *minimum_graph_font_size*)."""
         self._set_int_pref("graph_font_size", value, minimum=minimum_graph_font_size)
 
+    def update_log_tab_line_limit(self, value: str):
+        """Persist the Log tab line limit (clamped to *minimum_log_tab_line_limit*)."""
+        self._set_int_pref("log_tab_line_limit", value, minimum=minimum_log_tab_line_limit)
+
     def restore_defaults(self):
         """Ask for confirmation, then reset every Configuration-tab setting to its default."""
         response = QMessageBox.question(
@@ -891,6 +910,7 @@ class Configuration(QWidget):
             ("tooltip_line_limit", self.tooltip_line_limit_lineedit, tooltip_line_limit_default),
             ("chart_window_minutes", self.chart_window_minutes_lineedit, chart_window_minutes_default),
             ("graph_font_size", self.graph_font_size_lineedit, graph_font_size_default),
+            ("log_tab_line_limit", self.log_tab_line_limit_lineedit, log_tab_line_limit_default),
             ("cpu_active_epsilon", self.cpu_active_epsilon_lineedit, cpu_active_epsilon_default),
             ("max_descendant_processes", self.max_descendant_processes_lineedit, max_descendant_processes_default),
             ("commit_gate_threshold", self.commit_gate_threshold_lineedit, commit_gate_threshold_default),

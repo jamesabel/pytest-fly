@@ -15,6 +15,7 @@ from pytest_fly.preferences import (
     get_active_put_path,
     get_ordering_aspects_ordered,
     get_pref,
+    log_tab_line_limit_default,
     refresh_rate_default,
     set_ordering_aspects_ordered,
     stall_warn_unit_default,
@@ -67,6 +68,13 @@ def test_update_numeric_prefs_and_clamping(app):
     assert get_pref().graph_font_size == 12
     cfg.update_graph_font_size("bad")  # not numeric -> ignored
 
+    cfg.update_log_tab_line_limit("500")
+    assert get_pref().log_tab_line_limit == 500
+    cfg.update_log_tab_line_limit("10")  # clamped up to the minimum of 100
+    assert get_pref().log_tab_line_limit == 100
+    cfg.update_log_tab_line_limit("bad")  # not numeric -> ignored
+    assert get_pref().log_tab_line_limit == 100
+
 
 def test_update_utilization_thresholds_warns(app, caplog):
     cfg = Configuration()
@@ -101,6 +109,7 @@ def test_apply_defaults_resets_prefs_and_widgets(app):
     get_pref().stall_warn_value = 99.0
     get_pref().stall_warn_unit = "Hours"
     cfg.update_test_results_db_dir("/some/dir")
+    cfg.update_log_tab_line_limit("500")
     get_pref().put_path = "/stale/put"
     set_ordering_aspects_ordered([OrderingAspect.COVERAGE_EFFICIENCY])
 
@@ -111,6 +120,7 @@ def test_apply_defaults_resets_prefs_and_widgets(app):
     assert pref.cpu_gate_threshold == cpu_gate_threshold_default
     assert pref.cpu_gate_enabled is False
     assert pref.tooltip_line_limit == tooltip_line_limit_default
+    assert pref.log_tab_line_limit == log_tab_line_limit_default
     assert pref.stall_warn_value == stall_warn_value_default
     assert pref.stall_warn_unit == stall_warn_unit_default
     assert pref.test_results_db_dir == ""

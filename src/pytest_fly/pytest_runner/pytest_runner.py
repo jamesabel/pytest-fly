@@ -24,7 +24,7 @@ from typeguard import typechecked
 
 from ..db import PytestProcessInfoDB, PytestProcessInfoReader
 from ..interfaces import PyTestFlyExitCode, ScheduledTest, status_record
-from ..logger import get_logger
+from ..logger import EVENT_EXTRA, get_logger
 from .admission import AdmissionGate, AdmissionGateConfig
 from .commit_memory import PSUTIL_READ_ERRORS, subtree_processes
 from .const import FAIL_OPEN_ERRORS, TIMEOUT
@@ -231,7 +231,7 @@ class PytestRunner(Thread):
                 # Retire the most-recently-spawned workers (dict preserves insertion order).
                 for test_runner in active[delta:]:
                     test_runner.retire()
-            log.info(f"resized worker pool to {number_of_processes} ({len(active)} active before, delta {delta}) ({self.run_guid=})")
+            log.info(f"resized worker pool to {number_of_processes} ({len(active)} active before, delta {delta}) ({self.run_guid=})", extra=EVENT_EXTRA)
 
     def is_running(self) -> bool:
         """Return ``True`` if any worker thread is still alive."""
@@ -403,7 +403,7 @@ class PytestRunner(Thread):
                 active = [r for r in self._test_runners.values() if not r.is_retiring()]
                 for _ in range(self.number_of_processes - len(active)):
                     self._spawn_worker_locked()
-            log.info(f"soft stop canceled ({self.run_guid=})")
+            log.info(f"soft stop canceled ({self.run_guid=})", extra=EVENT_EXTRA)
         return True
 
     def _mark_queued_tests_stopped(self) -> None:
@@ -436,7 +436,7 @@ class PytestRunner(Thread):
             proc = test_runner.process
             if proc is not None and proc.name == test_name:
                 test_runner.force_stop_current()
-                log.info(f'force stop requested for test "{test_name}" ({self.run_guid=})')
+                log.info(f'force stop requested for test "{test_name}" ({self.run_guid=})', extra=EVENT_EXTRA)
                 return True
         log.warning(f'force stop: no running process found for test "{test_name}" ({self.run_guid=})')
         return False
@@ -688,18 +688,18 @@ class _TestRunner(Thread):
             failing = gate.failing_gates()
             if not failing:
                 if defer_start is not None:
-                    log.info(f'admission gate: admitted "{test}" after deferring {time.monotonic() - defer_start:.0f}s')
+                    log.info(f'admission gate: admitted "{test}" after deferring {time.monotonic() - defer_start:.0f}s', extra=EVENT_EXTRA)
                 return True
             if self._coordinator.active_slot_count() == 0:
                 # min-1: nothing in flight, always make forward progress
-                log.info(f'admission gate: over budget ({", ".join(failing)}) but nothing in flight — admitting "{test}" for forward progress')
+                log.info(f'admission gate: over budget ({", ".join(failing)}) but nothing in flight — admitting "{test}" for forward progress', extra=EVENT_EXTRA)
                 return True
             if defer_start is None:
                 defer_start = time.monotonic()
-                log.info(f'admission gate: deferring dispatch of "{test}" — over budget: {", ".join(failing)}')
+                log.info(f'admission gate: deferring dispatch of "{test}" — over budget: {", ".join(failing)}', extra=EVENT_EXTRA)
             self._stop_event.wait(self.update_rate)  # interruptible defer
         if defer_start is not None:
-            log.info(f'admission gate: defer of "{test}" ended by stop/soft-stop/retire after {time.monotonic() - defer_start:.0f}s')
+            log.info(f'admission gate: defer of "{test}" ended by stop/soft-stop/retire after {time.monotonic() - defer_start:.0f}s', extra=EVENT_EXTRA)
         return False
 
     def stop(self):

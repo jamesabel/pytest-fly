@@ -75,6 +75,34 @@ def test_status_window_rich_tick_with_soft_stop(app):
     assert "Estimated finish:" in text
 
 
+def test_status_window_resource_guard_banner(app):
+    """A triggered resource guard shows the low-resources banner; canceled stop changes the wording."""
+    from pytest_fly.pytest_runner.resource_guard import ResourceGuardInfo
+
+    now = time.time()
+    tick = build_tick_data([_info("test_a.py", 1, PyTestFlyExitCode.NONE, now)])
+    tick.resource_guard_info = ResourceGuardInfo(triggered=True, reason="free disk space 2.5 GB is below the 10 GB minimum", free_disk_gb=2.5, commit_fraction=0.5)
+    tick.soft_stop_requested = True
+
+    window = StatusWindow(None)
+    window.update_tick(tick)
+    assert window.stall_banner_label.isVisibleTo(window)
+    assert "Low system resources" in window.stall_banner_label.text()
+    assert "Cancel Stop" in window.stall_banner_label.text()
+
+    # After the user cancels the soft stop, the banner reports the trigger without "stopping" text.
+    tick.soft_stop_requested = False
+    window.update_tick(tick)
+    assert window.stall_banner_label.isVisibleTo(window)
+    assert "automatic stop" in window.stall_banner_label.text()
+    assert "Cancel Stop" not in window.stall_banner_label.text()
+
+    # An untriggered guard renders no banner.
+    tick.resource_guard_info = ResourceGuardInfo(triggered=False)
+    window.update_tick(tick)
+    assert not window.stall_banner_label.isVisibleTo(window)
+
+
 def test_status_window_empty_with_put_info(app):
     """The no-tests-yet branch still renders the PUT line."""
     tick = build_tick_data([])

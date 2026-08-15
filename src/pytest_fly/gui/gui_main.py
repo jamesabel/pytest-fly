@@ -316,6 +316,7 @@ class FlyAppMainWindow(QMainWindow):
             runner = control.pytest_runner
             if runner is not None:
                 tick.stall_info = runner.get_stall_info()
+                tick.resource_guard_info = runner.get_resource_guard_info()
                 # When a run has finished but some tests never reached a terminal state
                 # (e.g. singletons that were blocked behind a wedged slot), surface them.
                 completion = runner.get_run_completion()

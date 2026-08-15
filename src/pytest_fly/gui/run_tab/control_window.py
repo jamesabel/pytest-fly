@@ -23,6 +23,7 @@ from ...put_version import detect_put_version
 from ...pytest_runner.coverage import compute_per_test_coverage
 from ...pytest_runner.ordering import OrderingContext, apply_ordering_aspects
 from ...pytest_runner.pytest_runner import PytestRunner, _AdmissionGateConfig, _StallConfig
+from ...pytest_runner.resource_guard import ResourceGuardConfig
 from ...pytest_runner.test_list import GetTests
 from ..target_path_dialog import ensure_valid_target_project_path
 from .control_pushbutton import ControlButton
@@ -135,6 +136,11 @@ class ControlWindow(QGroupBox):
         would silently mutate button state instead.
         """
         runner = self.pytest_runner
+        # A soft stop can originate outside this window (the resource guard's automatic
+        # low-resource stop); adopt it so the Stop button relabels to Cancel Stop and the
+        # status pane shows the stopping state.
+        if runner is not None and runner.is_running() and not self._soft_stop_requested and runner.is_soft_stop_pending():
+            self._soft_stop_requested = True
         # Part D: gate Run on terminal-state completion (or force-stop), not pure thread
         # liveness — so a wedged worker thread can never permanently disable Run. A run is
         # "done" for the user when every test reached a terminal state or it was force-stopped.
@@ -300,8 +306,22 @@ class ControlWindow(QGroupBox):
             auto_force_stop=pref.auto_force_stop_on_stall,
             kill_seconds=duration_to_seconds(pref.stall_kill_value, pref.stall_kill_unit),
         )
+        resource_guard_config = ResourceGuardConfig(
+            enabled=pref.resource_guard_enabled,
+            min_free_disk_gb=pref.resource_guard_min_free_disk_gb,
+            commit_threshold=pref.resource_guard_commit_threshold,
+        )
         self.pytest_runner = PytestRunner(
-            self.run_guid, tests, processes, self.data_dir, refresh_rate, put_version=put_label, put_fingerprint=put_fp, gate_config=gate_config, stall_config=stall_config
+            self.run_guid,
+            tests,
+            processes,
+            self.data_dir,
+            refresh_rate,
+            put_version=put_label,
+            put_fingerprint=put_fp,
+            gate_config=gate_config,
+            stall_config=stall_config,
+            resource_guard_config=resource_guard_config,
         )
         self.pytest_runner.start()
 

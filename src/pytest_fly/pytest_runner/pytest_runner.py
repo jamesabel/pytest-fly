@@ -28,6 +28,7 @@ from .commit_memory import commit_charge_and_limit, subtree_process_count
 from .const import TIMEOUT
 from .process_monitor import normalize_cpu_percent
 from .pytest_process import PytestProcess, PytestProcessInfo, reap_pids, terminate_process_tree
+from .resource_guard import ResourceGuard, ResourceGuardConfig, ResourceGuardInfo
 
 log = get_logger()
 
@@ -155,6 +156,7 @@ class PytestRunner(Thread):
         put_fingerprint: str = "",
         gate_config: _AdmissionGateConfig | None = None,
         stall_config: _StallConfig | None = None,
+        resource_guard_config: ResourceGuardConfig | None = None,
     ):
         self.run_guid = run_guid
         self.tests = tests
@@ -165,6 +167,7 @@ class PytestRunner(Thread):
         self.put_fingerprint = put_fingerprint
         self.gate_config = gate_config or _AdmissionGateConfig()
         self.stall_config = stall_config or _StallConfig()
+        self.resource_guard_config = resource_guard_config or ResourceGuardConfig()
         self._controller_pid = os.getpid()
 
         # Worker pool. _pool_lock guards _test_runners, _next_worker_id, and
@@ -178,6 +181,7 @@ class PytestRunner(Thread):
         self._started_event = Event()
         self._written_to_db = set()
         self._watchdog: _StallWatchdog | None = None
+        self._resource_guard: ResourceGuard | None = None
         self._force_stopped = False  # one-way latch: user (or auto-escalation) force-stopped & reset
         self._stop_requested = False  # hard stop requested; suppresses pool healing and soft-stop cancel
         # Runner-owned so a pending soft stop can be canceled: workers share this single
@@ -232,6 +236,21 @@ class PytestRunner(Thread):
                 sample_interval=max(self.update_rate, 1.0),
             )
             self._watchdog.start()
+
+        # Resource guard: opt-in background monitor that soft-stops the run when the system
+        # is low on disk or commit space. Like the watchdog, it self-terminates when the run
+        # finishes. The soft stop it requests is the ordinary cancelable one, so the user can
+        # override it with Cancel Stop.
+        if self.resource_guard_config.enabled and self._resource_guard is None:
+            self._resource_guard = ResourceGuard(
+                self.run_guid,
+                self.data_dir,
+                self.resource_guard_config,
+                self.is_running,
+                self.soft_stop,
+                sample_interval=max(self.update_rate, 1.0),
+            )
+            self._resource_guard.start()
 
         # Supervise the pool until the run winds down. This loop is what makes a soft
         # stop cancelable: workers no longer drain the queue themselves — they simply
@@ -362,6 +381,21 @@ class PytestRunner(Thread):
         if watchdog is None:
             return None
         return watchdog.get_stall_info()
+
+    def get_resource_guard_info(self) -> ResourceGuardInfo | None:
+        """Return the latest :class:`ResourceGuardInfo`, or ``None`` when the guard is not enabled."""
+        resource_guard = self._resource_guard
+        if resource_guard is None:
+            return None
+        return resource_guard.get_info()
+
+    def is_soft_stop_pending(self) -> bool:
+        """Return ``True`` while a soft stop (user- or resource-guard-requested) is pending.
+
+        Lets the GUI reflect a soft stop it did not itself initiate (the resource guard's
+        automatic stop) — e.g. relabeling the Stop button to Cancel Stop.
+        """
+        return self._soft_stop_event.is_set()
 
     def force_stop_and_reset(self) -> None:
         """Force-stop every worker and mark all non-terminal tests STOPPED so the run completes (Part D).

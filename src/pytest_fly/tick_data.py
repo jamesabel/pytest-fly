@@ -39,6 +39,8 @@ class TickData:
     put_version_info: PutVersionInfo | None = None  # program-under-test metadata detected at the start of the current run
     # Stall watchdog snapshot (Part B); typed as Any to avoid a circular import with pytest_runner. None when no watchdog is running.
     stall_info: object | None = None
+    # Resource guard snapshot; typed as Any to avoid a circular import with pytest_runner. None when the guard is not enabled/running.
+    resource_guard_info: object | None = None
     run_complete_stuck: list[str] = field(default_factory=list)  # non-terminal tests when the run is otherwise finished (Part D); drives the "finished — N stuck" message
 
     @property

@@ -41,7 +41,9 @@ pip install pytest-fly
   - **Configuration** — Resume-vs-Check toggle, a reorderable test-ordering aspect list, process
     count, refresh rate, utilization thresholds, tooltip line limit, system-metrics chart window,
     Progress Graph font size, target project path (applies on the next run),
-    test-results DB directory, and an Expert group (verbose logging, UI performance logging)
+    test-results DB directory, a Resource Guard group (low-resource automatic soft stop with
+    free-disk and commit-space thresholds), and an Expert group (verbose logging, UI performance
+    logging)
   - **About** — system and project information
 - Parallel test execution at the module level with configurable process count.
 - Three run modes — **Restart** (rerun all tests), **Resume** (skip already-passed tests and
@@ -51,6 +53,12 @@ pip install pytest-fly
 be canceled (**Cancel Stop**) at any point until the last running test finishes, resuming the
 remaining queued tests without losing any progress.
 - Per-process resource monitoring — tracks peak CPU and memory usage for each test module.
+- Resource guard (opt-in) — monitors system resources in the background during a run and
+automatically soft-stops the suite when the system runs low on free disk space (on the drive
+holding the pytest-fly data directory) or commit space (RAM + page file, AKA paging/swap space).
+Running tests finish, queued tests are not started, and the stop can be overridden with
+**Cancel Stop**. Enablement and both thresholds are set in the Configuration tab's
+**Resource Guard** group.
 - Estimated time remaining based on prior run durations, accounting for parallelism.
 - Code coverage tracking — each test writes its own coverage data, combined automatically as tests
 complete. The Coverage tab plots coverage over time, and the Table shows per-test coverage.

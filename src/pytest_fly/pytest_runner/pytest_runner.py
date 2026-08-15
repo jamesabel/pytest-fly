@@ -15,113 +15,37 @@ admission gates, Part D = the DB-backed run-completion view.
 
 import os
 import time
-from dataclasses import dataclass, field
 from pathlib import Path
 from queue import Empty, Queue
 from threading import Event, Lock, Thread
 from typing import Optional
 
-import psutil
 from typeguard import typechecked
 
 from ..db import PytestProcessInfoDB
-from ..interfaces import PyTestFlyExitCode, PytestRunnerState, ScheduledTest, status_record
+from ..interfaces import PyTestFlyExitCode, ScheduledTest, status_record
 from ..logger import get_logger
-from ..platform import get_performance_core_count
-from .commit_memory import PSUTIL_READ_ERRORS, commit_charge_and_limit, subtree_process_count, subtree_processes
+from .admission import AdmissionGate, AdmissionGateConfig
+from .commit_memory import PSUTIL_READ_ERRORS, subtree_processes
 from .const import FAIL_OPEN_ERRORS, TIMEOUT
-from .monitor_thread import MonitorThread
-from .process_monitor import SubtreeCpuSampler, normalize_cpu_percent
 from .pytest_process import PytestProcess, reap_pids, terminate_process_tree
 from .resource_guard import ResourceGuard, ResourceGuardConfig, ResourceGuardInfo
-from .run_state import TERMINAL_STATES, latest_info_per_name, latest_states, state_of
+from .run_state import TERMINAL_STATES, latest_info_per_name, latest_states
 from .run_state import PytestRunState as PytestRunState  # re-export: lived here before the run_state extraction
 from .singleton_coordinator import SingletonCoordinator
+from .stall_watchdog import StallConfig, StallInfo, StallWatchdog
 
 log = get_logger()
 
-# Backward-compatible aliases for names that predate the run_state / singleton_coordinator
-# extractions (still imported from this module by older call sites and tests).
+# Backward-compatible aliases for names that predate the run_state / singleton_coordinator /
+# stall_watchdog / admission extractions (still imported from this module by older call
+# sites and tests).
 _TERMINAL_STATES = TERMINAL_STATES
 _latest_info_per_name = latest_info_per_name
 _SingletonCoordinator = SingletonCoordinator
-
-
-@dataclass(frozen=True)
-class AdmissionGateConfig:
-    """Configuration for the dispatch-time admission gates (Part C).
-
-    All gates default to disabled, so dispatch behavior is unchanged until a gate is
-    explicitly enabled. The gates only *defer* starting new tests; they never cap how
-    long a running test may take.
-    """
-
-    process_count_gate_enabled: bool = False
-    max_descendant_processes: int = 0  # ignored when the process-count gate is disabled
-    commit_gate_enabled: bool = False
-    commit_gate_threshold: float = 0.90  # fraction of the system commit limit
-    cpu_gate_enabled: bool = False
-    cpu_gate_threshold: float = 0.90  # fraction of total system CPU utilization (0.0-1.0)
-
-
-# System-wide CPU sampling for the CPU admission gate. ``psutil.cpu_percent(interval=None)``
-# measures utilization since the *previous* call from this process, so the first reading is
-# meaningless and rapid calls from several deferring worker threads would shrink the
-# measurement window to noise. This process-wide cache primes once and re-samples at most
-# once per ``_cpu_sample_min_interval_seconds``, returning the cached fraction in between.
-_cpu_sample_lock = Lock()
-_cpu_sample_min_interval_seconds = 1.0
-_cpu_sample_primed = False
-_cpu_sample_monotonic = 0.0
-_cpu_sample_fraction: float | None = None
-
-
-def system_cpu_fraction() -> float | None:
-    """Return system-wide CPU utilization as a fraction (0.0-1.0), or ``None`` until primed.
-
-    Callers must treat ``None`` as "signal unavailable" and fail open (admit), matching the
-    other admission-gate readers.
-    """
-    global _cpu_sample_primed, _cpu_sample_monotonic, _cpu_sample_fraction
-    with _cpu_sample_lock:
-        now = time.monotonic()
-        if not _cpu_sample_primed:
-            psutil.cpu_percent(interval=None)  # prime; the first reading is meaningless
-            _cpu_sample_primed = True
-            _cpu_sample_monotonic = now
-            return None
-        if now - _cpu_sample_monotonic >= _cpu_sample_min_interval_seconds:
-            _cpu_sample_fraction = psutil.cpu_percent(interval=None) / 100.0
-            _cpu_sample_monotonic = now
-        return _cpu_sample_fraction
-
-
-@dataclass(frozen=True)
-class StallConfig:
-    """Configuration for the stall watchdog (Part B)."""
-
-    enabled: bool = True
-    warn_seconds: float = 600.0
-    cpu_active_epsilon: float = 1.0
-    auto_force_stop: bool = False
-    kill_seconds: float = 1800.0
-
-
-# Backward-compatible aliases: these configs were underscore-private before being adopted
-# by the GUI (control_window constructs both), which made them de-facto public API.
 _AdmissionGateConfig = AdmissionGateConfig
 _StallConfig = StallConfig
-
-
-@dataclass(frozen=True)
-class StallInfo:
-    """Snapshot of the stall watchdog's view of the run (Part B). Read-only, GUI-facing."""
-
-    stalled: bool
-    stuck_tests: list[str] = field(default_factory=list)  # non-terminal test node-ids
-    idle_pids: list[int] = field(default_factory=list)  # in-flight test PIDs sampled below cpu_active_epsilon
-    descendant_count: int = 0  # processes in the controller's tree
-    seconds_since_progress: float = 0.0  # wall time since the last DB state transition
+_StallWatchdog = StallWatchdog
 
 
 class PytestRunner(Thread):
@@ -165,7 +89,7 @@ class PytestRunner(Thread):
         self._test_queue: Queue | None = None
         self._coordinator: SingletonCoordinator | None = None
         self._started_event = Event()
-        self._watchdog: _StallWatchdog | None = None
+        self._watchdog: StallWatchdog | None = None
         self._resource_guard: ResourceGuard | None = None
         self._force_stopped = False  # one-way latch: user (or auto-escalation) force-stopped & reset
         self._stop_requested = False  # hard stop requested; suppresses pool healing and soft-stop cancel
@@ -208,7 +132,7 @@ class PytestRunner(Thread):
         # Part B: start the read-only stall watchdog once workers exist (so is_running()
         # is meaningful). It self-terminates when the run finishes.
         if self.stall_config.enabled and self._watchdog is None:
-            self._watchdog = _StallWatchdog(
+            self._watchdog = StallWatchdog(
                 self.run_guid,
                 self.data_dir,
                 self._controller_pid,
@@ -516,178 +440,6 @@ class PytestRunner(Thread):
         return False
 
 
-class _StallWatchdog(MonitorThread):
-    """Read-only watchdog that flags a run as *stalled* (Part B).
-
-    A run is stalled when, for at least ``warn_seconds``: a worker is alive and at least one
-    test is non-terminal, **no** DB state transition has occurred, **and** no in-flight test's
-    subtree CPU has exceeded ``cpu_active_epsilon``. This is a run-wide, activity-based signal —
-    deliberately *not* a per-test clock: a long test that is actually burning CPU keeps resetting
-    the timer and never flags, no matter how long it runs.
-
-    The watchdog never terminates anything itself except the opt-in escalation
-    (``auto_force_stop`` → ``escalate_fn`` after ``kill_seconds``); otherwise it only reads DB +
-    psutil and publishes a :class:`StallInfo`, so it can never become a source of deadlock.
-    The tick loop, stop signal, and fail-open error policy come from :class:`MonitorThread`.
-
-    The CPU sampler and progress source are injectable so tests can drive the watchdog with a
-    fake clock and synthetic samples without depending on the host.
-    """
-
-    def __init__(
-        self,
-        run_guid: str,
-        data_dir: Path,
-        controller_pid: int | None,
-        config: StallConfig,
-        is_running_fn,
-        escalate_fn,
-        sample_interval: float,
-        clock=time.monotonic,
-        cpu_sampler=None,
-        progress_source=None,
-    ) -> None:
-        super().__init__(is_running_fn, sample_interval)
-        self.run_guid = run_guid
-        self.data_dir = data_dir
-        self.controller_pid = controller_pid
-        self.config = config
-        self._escalate_fn = escalate_fn
-        self._clock = clock
-        self._cpu_sampler = cpu_sampler or self._default_cpu_sampler
-        self._progress_source = progress_source or self._default_progress_source
-
-        self._stall_info = StallInfo(stalled=False)
-        self._subtree_cpu = SubtreeCpuSampler()  # persistent-handle cache for interval=None subtree sampling
-        self._last_fingerprint = None
-        self._last_progress_monotonic = clock()
-        self._escalated = False
-
-    def is_stalled(self) -> bool:
-        """Return ``True`` if the most recent tick classified the run as stalled."""
-        with self._state_lock:
-            return self._stall_info.stalled
-
-    def get_stall_info(self) -> StallInfo | None:
-        """Return the most recently published :class:`StallInfo`."""
-        with self._state_lock:
-            return self._stall_info
-
-    def on_tick_error(self, error: BaseException) -> None:
-        """After a failed tick, publish "not stalled" so a read error can't leave a stale banner."""
-        self._publish(StallInfo(stalled=False))
-
-    def tick(self) -> None:
-        """Evaluate the stall signal once and publish a fresh :class:`StallInfo`."""
-        now = self._clock()
-        fingerprint, stuck_tests, running_pids, _n_total = self._progress_source()
-
-        live = self._is_running_fn() and len(stuck_tests) > 0
-        if not live:
-            self._last_progress_monotonic = now
-            self._last_fingerprint = fingerprint
-            self._publish(StallInfo(stalled=False))
-            return
-
-        # Progress: any DB state transition resets the no-progress timer.
-        if fingerprint != self._last_fingerprint:
-            self._last_fingerprint = fingerprint
-            self._last_progress_monotonic = now
-
-        # CPU activity: any in-flight test above epsilon resets the timer. Newly-seen pids are
-        # primed (their first reading is meaningless) and treated as activity-unknown.
-        idle_pids: list[int] = []
-        any_active = False
-        real_readings = 0
-        for pid in running_pids:
-            cpu = self._cpu_sampler(pid)
-            if cpu is None:
-                continue  # unknown (just primed or unreadable)
-            real_readings += 1
-            if cpu > self.config.cpu_active_epsilon:
-                any_active = True
-            else:
-                idle_pids.append(pid)
-        # Reset on real activity, or when we have running pids but no usable reading yet
-        # (never fabricate a stall from a transient psutil error or an unprimed sampler).
-        if any_active or (running_pids and real_readings == 0):
-            self._last_progress_monotonic = now
-
-        elapsed = now - self._last_progress_monotonic
-        stalled = elapsed >= self.config.warn_seconds
-        # Only walk the controller tree when we have something to report — avoids a recursive
-        # process-tree walk on every healthy tick.
-        descendant_count = subtree_process_count(self.controller_pid) if (stalled and self.controller_pid is not None) else 0
-        info = StallInfo(stalled=stalled, stuck_tests=sorted(stuck_tests), idle_pids=idle_pids, descendant_count=descendant_count, seconds_since_progress=elapsed)
-        self._publish(info)
-
-        if stalled:
-            log.warning(
-                f"run appears stalled: {len(stuck_tests)} test(s) not progressing for {elapsed:.0f}s, "
-                f"{len(idle_pids)} in-flight idle, {descendant_count} descendant process(es) ({self.run_guid=})"
-            )
-            self._maybe_escalate(elapsed)
-
-    def _maybe_escalate(self, elapsed: float) -> None:
-        cfg = self.config
-        if not cfg.auto_force_stop or self._escalated:
-            return
-        if cfg.kill_seconds <= cfg.warn_seconds:
-            log.warning("auto-force-stop enabled but the stall kill window is not greater than the stall warn window; escalation disabled")
-            self._escalated = True  # log once
-            return
-        if elapsed >= cfg.kill_seconds:
-            log.warning(f"auto-escalating: Force-stop & reset after {elapsed:.0f}s stall ({self.run_guid=})")
-            self._escalated = True
-            try:
-                self._escalate_fn()
-            except FAIL_OPEN_ERRORS as e:
-                log.warning(f"error during auto Force-stop & reset: {e}", exc_info=True)
-
-    def _publish(self, info: StallInfo) -> None:
-        with self._state_lock:
-            self._stall_info = info
-
-    def _default_progress_source(self):
-        """Read latest-per-name DB records → (fingerprint, stuck_tests, running_pids, n_total)."""
-        with PytestProcessInfoDB(self.data_dir) as db:
-            infos = db.query(self.run_guid)
-        latest = latest_info_per_name(infos)
-        stuck: list[str] = []
-        running_pids: list[int] = []
-        n_terminal = 0
-        n_running = 0
-        max_started_ts = 0.0
-        for name, info in latest.items():
-            state = state_of(info)
-            if state in TERMINAL_STATES:
-                n_terminal += 1
-            else:
-                stuck.append(name)
-                if state == PytestRunnerState.RUNNING:
-                    n_running += 1
-                    if info.pid is not None:
-                        running_pids.append(info.pid)
-            if info.pid is not None:
-                max_started_ts = max(max_started_ts, info.time_stamp)
-        fingerprint = (n_terminal, n_running, max_started_ts)
-        return fingerprint, stuck, running_pids, len(latest)
-
-    def _default_cpu_sampler(self, pid: int) -> float | None:
-        """Sample a pid's whole-subtree CPU percent (single-core-equiv), priming on first sight.
-
-        Delegates the persistent-handle subtree walk to the shared
-        :class:`~pytest_fly.pytest_runner.process_monitor.SubtreeCpuSampler` (see its docstring
-        for why handles must persist across ticks) and normalizes the raw psutil total to a
-        single-core-equivalent 0-100 scale. ``None`` means "unknown" (priming/unreadable) and
-        must never be treated as idle.
-        """
-        total = self._subtree_cpu.sample(pid)
-        if total is None:
-            return None
-        return normalize_cpu_percent(total, get_performance_core_count())
-
-
 class _TestRunner(Thread):
     """
     Worker thread that pulls tests from a shared queue and runs each one
@@ -732,6 +484,7 @@ class _TestRunner(Thread):
         self.put_fingerprint = put_fingerprint
         self.controller_pid = controller_pid
         self.gate_config = gate_config or AdmissionGateConfig()
+        self._admission_gate = AdmissionGate(self.gate_config, controller_pid)
 
         self.process: Optional[PytestProcess] = None
         self._stop_event = Event()
@@ -913,52 +666,23 @@ class _TestRunner(Thread):
     def _await_admission(self, should_abort) -> bool:
         """Defer dispatching the next test while an enabled admission gate is over budget (Part C).
 
-        Composes the process-count, commit-charge, and CPU gates as a logical AND. The min-1
-        forward-progress guarantee (admit whenever nothing is in flight) overrides them all, so a
-        single heavy test can never deadlock the suite. Fail-open: a read error or a disabled
-        gate admits. Poll-interruptible via *should_abort*.
+        The per-gate checks (AND-composed, fail-open) live in :class:`AdmissionGate`; this
+        loop owns the timing: the min-1 forward-progress guarantee (admit whenever nothing
+        is in flight) overrides the gates so a single heavy test can never deadlock the
+        suite, and the defer is poll-interruptible via *should_abort*.
 
         :return: ``True`` if admitted, ``False`` if *should_abort* went true while deferring.
         """
-        cfg = self.gate_config
-        if not (cfg.process_count_gate_enabled or cfg.commit_gate_enabled or cfg.cpu_gate_enabled):
+        gate = self._admission_gate
+        if not gate.any_enabled():
             return True
         while not should_abort():
-            process_ok = not cfg.process_count_gate_enabled or self._process_count_ok()
-            commit_ok = not cfg.commit_gate_enabled or self._commit_ok()
-            cpu_ok = not cfg.cpu_gate_enabled or self._cpu_ok()
-            if process_ok and commit_ok and cpu_ok:
+            if gate.checks_pass():
                 return True
             if self._coordinator.active_slot_count() == 0:
                 return True  # min-1: nothing in flight, always make forward progress
             self._stop_event.wait(self.update_rate)  # interruptible defer
         return False
-
-    def _process_count_ok(self) -> bool:
-        """Return ``True`` if the controller's descendant tree is below the ceiling (fail-open)."""
-        if self.controller_pid is None:
-            return True
-        count = subtree_process_count(self.controller_pid)
-        if count <= 0:  # fail-open: tree could not be read
-            return True
-        return count < self.gate_config.max_descendant_processes
-
-    def _commit_ok(self) -> bool:
-        """Return ``True`` if system commit charge is below the gate threshold (fail-open)."""
-        commit = commit_charge_and_limit()
-        if commit is None:
-            return True  # signal unavailable -> admit
-        commit_total, commit_limit = commit
-        if commit_limit <= 0:
-            return True
-        return (commit_total / commit_limit) < self.gate_config.commit_gate_threshold
-
-    def _cpu_ok(self) -> bool:
-        """Return ``True`` if system-wide CPU utilization is below the gate threshold (fail-open)."""
-        cpu = system_cpu_fraction()
-        if cpu is None:
-            return True  # unprimed / unavailable -> admit
-        return cpu < self.gate_config.cpu_gate_threshold
 
     def stop(self):
         """Signal all work to stop as soon as possible."""

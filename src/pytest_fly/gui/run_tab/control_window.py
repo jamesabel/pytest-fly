@@ -20,10 +20,12 @@ from ...interfaces import OrderingAspect, PutVersionInfo, PyTestFlyExitCode, Run
 from ...logger import get_logger
 from ...preferences import ParallelismControl, duration_to_seconds, get_ordering_aspects_ordered, get_pref
 from ...put_version import detect_put_version
+from ...pytest_runner.admission import AdmissionGateConfig
 from ...pytest_runner.coverage import compute_per_test_coverage
 from ...pytest_runner.ordering import OrderingContext, apply_ordering_aspects
-from ...pytest_runner.pytest_runner import AdmissionGateConfig, PytestRunner, StallConfig
+from ...pytest_runner.pytest_runner import PytestRunner
 from ...pytest_runner.resource_guard import ResourceGuardConfig
+from ...pytest_runner.stall_watchdog import StallConfig
 from ...pytest_runner.test_list import GetTests
 from ..target_path_dialog import ensure_valid_target_project_path
 from .control_pushbutton import ControlButton

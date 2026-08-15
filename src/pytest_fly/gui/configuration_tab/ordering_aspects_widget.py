@@ -9,7 +9,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QGroupBox, QHBoxLayout, QListWidget, QListWidgetItem, QPushButton, QSizePolicy, QStyle, QVBoxLayout, QWidget
 
 from pytest_fly.interfaces import OrderingAspect
-from pytest_fly.preferences import get_ordering_aspects_ordered, set_ordering_aspects_ordered
+from pytest_fly.preferences import get_ordering_aspects_ordered, reset_ordering_aspects_to_default, set_ordering_aspects_ordered
 
 _ordering_aspect_labels: dict[OrderingAspect, str] = {
     OrderingAspect.FAILED_FIRST: "Failed tests",
@@ -122,6 +122,18 @@ class OrderingAspectsWidget(QGroupBox):
         width = text_width + indicator + scroll_extent + slack + frame
         row_height = self._list.sizeHintForRow(0) or fm.height() + 4
         self._list.setFixedSize(width, row_height * count + frame)
+
+    def reset_to_defaults(self) -> None:
+        """Restore the built-in default aspect seed (persisted) and re-render the list.
+
+        Signals are blocked during the repopulate — unlike the initial populate (which runs
+        before ``itemChanged`` is connected), a later repopulate would otherwise fire the
+        persistence slot once per row while the list is half-built.
+        """
+        reset_ordering_aspects_to_default()
+        self._list.blockSignals(True)
+        self._populate_from_prefs()
+        self._list.blockSignals(False)
 
     def _populate_from_prefs(self) -> None:
         """Render enabled aspects (in priority order) first, then disabled aspects in enum order."""

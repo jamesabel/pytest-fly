@@ -42,8 +42,9 @@ pip install pytest-fly
     count, refresh rate, utilization thresholds, tooltip line limit, system-metrics chart window,
     Progress Graph font size, target project path (applies on the next run),
     test-results DB directory, a Resource Guard group (low-resource automatic soft stop with
-    free-disk and commit-space thresholds), and an Expert group (verbose logging, UI performance
-    logging)
+    free-disk and commit-space thresholds), an Expert group (verbose logging, UI performance
+    logging), and a Restore Defaults button that resets every setting on the tab (with
+    confirmation)
   - **About** — system and project information
 - Parallel test execution at the module level with configurable process count.
 - Three run modes — **Restart** (rerun all tests), **Resume** (skip already-passed tests and

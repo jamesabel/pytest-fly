@@ -26,7 +26,7 @@ from typeguard import typechecked
 from ..__version__ import application_name
 from ..db import PytestProcessInfoDB, PytestProcessInfoReader
 from ..interfaces import PyTestFlyExitCode, PytestRunnerState
-from ..logger import get_logger
+from ..logger import EVENT_EXTRA, get_logger
 from ..preferences import get_pref
 from ..pytest_runner.run_state import TERMINAL_STATES
 from ..pytest_runner.system_monitor import SystemMonitor, SystemMonitorSample
@@ -203,7 +203,7 @@ class FlyAppMainWindow(QMainWindow):
             return
         with PytestProcessInfoDB(self.data_dir) as db:
             if db.mark_test_terminated_if_stale(control.run_guid, test_name):
-                log.info(f'force stop: cleared stale running row for "{test_name}"')
+                log.info(f'force stop: cleared stale running row for "{test_name}"', extra=EVENT_EXTRA)
 
     def _drain_system_monitor(self) -> None:
         """Drain queued system-resource samples into the Run tab's metrics widget."""

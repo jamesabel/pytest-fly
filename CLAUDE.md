@@ -47,7 +47,7 @@ pip install -r requirements-dev.txt
 
 ### GUI layer (`src/pytest_fly/gui/`)
 - `gui_main.py` — `FlyAppMainWindow`: 7-tab Qt window with a periodic timer (default 3 s) that pulls updates from the runner and refreshes all tabs.
-- Tabs: `run_tab/` (run/stop controls, status, system metrics, failed tests, live output), `graph_tab/` (time-based progress chart), `table_tab/` (per-test status grid), `coverage_tab/` (coverage-over-time chart), `log_tab/` (live application event log — admission-gate, resource-guard, and stall-watchdog events, each line date/time-prefixed), `configuration_tab/` (parallelism, thresholds, gates), `about_tab/`.
+- Tabs: `run_tab/` (run/stop controls, status, system metrics, failed tests, live output), `graph_tab/` (time-based progress chart), `table_tab/` (per-test status grid), `coverage_tab/` (coverage-over-time chart), `log_tab/` (live application event log — admission-gate, resource-guard, and stall-watchdog events, each line date/time-prefixed; default view shows tagged `EVENT_EXTRA` events + warnings, Verbose shows all INFO+), `configuration_tab/` (parallelism, thresholds, gates), `about_tab/`.
 
 ### Core runner (`src/pytest_fly/pytest_runner/`)
 - `pytest_runner.py` — `PytestRunner` (thread): orchestrates worker threads, schedules tests, handles run modes.

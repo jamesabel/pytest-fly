@@ -53,7 +53,7 @@ def test_handle_new_run_resets_state():
     """Passing a new GUID must clear accumulated state."""
     with TemporaryDirectory() as tmp:
         tracker = CoverageTracker(Path(tmp))
-        tracker._completed_tests = {"stale"}
+        tracker._submitted_completed = {"stale"}
         tracker._coverage_history = [(1.0, 0.5)]
         tracker._per_test_coverage = {"stale": 0.5}
         tracker._covered_lines = 42
@@ -62,7 +62,7 @@ def test_handle_new_run_resets_state():
 
         tracker.handle_new_run("new-guid")
 
-        assert tracker._completed_tests == set()
+        assert tracker._submitted_completed == set()
         assert tracker._coverage_history == []
         assert tracker._per_test_coverage == {}
         assert tracker._covered_lines == 0
@@ -74,15 +74,15 @@ def test_handle_new_run_noop_when_same_guid():
     with TemporaryDirectory() as tmp:
         tracker = CoverageTracker(Path(tmp))
         tracker._last_run_guid = "same"
-        tracker._completed_tests = {"keep"}
+        tracker._submitted_completed = {"keep"}
 
         tracker.handle_new_run("same")
 
-        assert tracker._completed_tests == {"keep"}
+        assert tracker._submitted_completed == {"keep"}
 
 
 def test_update_records_coverage_for_completed_tests():
-    """When tests complete, update() recalculates combined + per-test coverage."""
+    """When tests complete, update() recalculates combined + per-test coverage (on the worker)."""
     with TemporaryDirectory() as tmp:
         data_dir = Path(tmp)
         coverage_dir = data_dir / "coverage"
@@ -96,6 +96,7 @@ def test_update_records_coverage_for_completed_tests():
         tracker = CoverageTracker(data_dir)
         tick = _make_tick([test_name], data_dir)
         tracker.update(tick)
+        assert tracker.wait_for_pending(), "background coverage calculation did not finish"
         tracker.apply_to_tick(tick)
 
         # Coverage history seeded + one current-tick data point.
@@ -114,6 +115,30 @@ def test_update_skips_when_no_new_completions():
 
         tracker.update(tick)
         tracker.update(tick)
+        assert tracker.wait_for_pending()
         tracker.apply_to_tick(tick)
 
         assert tick.coverage_history == []
+
+
+def test_new_run_discards_in_flight_results():
+    """Results computed for a prior run's generation must not be published after handle_new_run."""
+    with TemporaryDirectory() as tmp:
+        data_dir = Path(tmp)
+        coverage_dir = data_dir / "coverage"
+        src = data_dir / "m.py"
+        src.write_text("a = 1\nb = 2\n")
+        test_name = "tests/test_one.py"
+        _write_per_test_coverage(test_name, src, [1, 2], coverage_dir)
+
+        tracker = CoverageTracker(data_dir)
+        tracker._last_run_guid = "run-1"
+        stale_generation = tracker._generation
+        # Simulate a calculation that was in flight when a new run started.
+        tracker.handle_new_run("run-2")
+        tracker._calculate({test_name}, stale_generation, run_start=50.0)
+
+        tick = _make_tick([], data_dir)
+        tracker.apply_to_tick(tick)
+        assert tick.coverage_history == []
+        assert tick.per_test_coverage == {}

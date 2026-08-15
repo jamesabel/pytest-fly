@@ -66,7 +66,7 @@ pip install -r requirements-dev.txt
 - `ordering.py` — applies the user's test-ordering aspects; `live_output.py` — per-test live-output file paths.
 
 ### Persistence
-- `db/db.py` — thin wrapper around **msqlite** (thread-safe SQLite). Stores `PytestProcessInfo` records (status, timing, resource usage) — the foundation for RESUME mode.
+- `db/db.py` — stores `PytestProcessInfo` records (status, timing, resource usage) — the foundation for RESUME mode. Two access classes: `PytestProcessInfoDB` (read/write via **msqlite**, whose context manager holds the DB's EXCLUSIVE lock) and `PytestProcessInfoReader` (read-only, lock-free WAL snapshot reads — required for the GUI thread and monitor threads so they never contend with test-process writers).
 - `preferences.py` — persists user settings (window geometry, parallelism count, utilization thresholds, run mode) via the **pref** library.
 
 ### Key data structures (`interfaces.py`)

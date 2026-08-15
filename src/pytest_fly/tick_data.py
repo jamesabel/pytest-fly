@@ -48,6 +48,9 @@ class TickData:
     # Resource guard snapshot (typed loosely as `object`, as above). None when the guard is not enabled/running.
     resource_guard_info: object | None = None
     run_complete_stuck: list[str] = field(default_factory=list)  # non-terminal tests when the run is otherwise finished (Part D); drives the "finished — N stuck" message
+    # Part D user-facing completion (force-stopped, or every test terminal), derived from this
+    # tick's records so button-state logic needs no extra DB queries. None when no runner exists.
+    user_complete: bool | None = None
 
     @property
     def effective_min_time_stamp(self) -> float | None:

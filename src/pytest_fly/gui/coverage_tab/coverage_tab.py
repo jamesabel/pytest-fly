@@ -9,12 +9,13 @@ from PySide6.QtCore import QPointF, Qt
 from PySide6.QtGui import QBrush, QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import QGroupBox, QHBoxLayout, QMessageBox, QPushButton, QSizePolicy, QVBoxLayout, QWidget
 
-from ...colors import COVERAGE_FILL_COLOR, COVERAGE_LINE_COLOR, GRID_LINE_COLOR
+from ...colors import COVERAGE_FILL_COLOR, COVERAGE_LINE_COLOR
 from ...interfaces import PytestRunnerState
 from ...logger import get_logger
 from ...pytest_runner.coverage import calculate_coverage
 from ...tick_data import TickData
-from ..graph_tab.time_axis import Y_GRID_PCTS, TimeAxisMapping, compute_grid_ticks
+from ..charts import paint_chart_frame
+from ..graph_tab.time_axis import Y_GRID_PCTS, TimeAxisMapping
 from ..gui_util import count_test_states, get_text_dimensions, window_text_color
 from ..view_coverage import ViewCoverage
 
@@ -50,44 +51,36 @@ class _CoverageChart(QWidget):
         self.update()
 
     def paintEvent(self, event):
+        """Paint the shared chart frame, the x-axis time labels, and the coverage step line."""
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        w = self.width()
         h = self.height()
-        margin_left = get_text_dimensions("100% ").width()
-        margin_top = get_text_dimensions("X").height() + 8  # room for coverage label and status
-        margin_bottom = get_text_dimensions("X").height() + 4
-        chart_w = w - margin_left
-        chart_h = h - margin_top - margin_bottom
-
-        if chart_w <= 0 or chart_h <= 0:
+        frame = paint_chart_frame(
+            painter,
+            self,
+            y_ticks=[(pct, f"{int(pct * 100)}%") for pct in Y_GRID_PCTS],
+            min_ts=self._min_ts,
+            max_ts=self._max_ts,
+            margin_left=get_text_dimensions("100% ").width(),
+            margin_top=get_text_dimensions("X").height() + 8,  # room for coverage label and status
+            margin_bottom=get_text_dimensions("X").height() + 4,
+        )
+        if frame is None:
             painter.end()
             return
+        margin_left = frame.margin_left
+        margin_top = frame.margin_top
+        chart_w = frame.chart_w
+        chart_h = frame.chart_h
+        w = self.width()
 
         text_color = window_text_color(self)
 
-        # Draw Y-axis labels and horizontal grid lines
-        painter.setPen(QPen(GRID_LINE_COLOR, 1))
-        for pct in Y_GRID_PCTS:
-            y = margin_top + int(chart_h * (1.0 - pct))
-            painter.drawLine(margin_left, y, w, y)
-
+        # X-axis time labels under the vertical grid lines the frame painter drew.
         painter.setPen(QPen(text_color, 1))
-        for pct in Y_GRID_PCTS:
-            y = margin_top + int(chart_h * (1.0 - pct))
-            label = f"{int(pct * 100)}%"
-            label_w = get_text_dimensions(label).width()
-            painter.drawText(margin_left - label_w - 4, y + 4, label)
-
-        # Draw vertical time grid lines
-        grid_ticks = compute_grid_ticks(self._min_ts, self._max_ts, chart_w)
-        painter.setPen(QPen(GRID_LINE_COLOR, 1))
-        for x, label in grid_ticks:
-            painter.drawLine(int(margin_left + x), margin_top, int(margin_left + x), margin_top + chart_h)
-            painter.setPen(QPen(text_color, 1))
+        for x, label in frame.grid_ticks:
             painter.drawText(int(margin_left + x) - 8, h - 2, label)
-            painter.setPen(QPen(GRID_LINE_COLOR, 1))
 
         # Draw status indicator
         if self._status_text:

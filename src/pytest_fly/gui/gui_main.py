@@ -8,6 +8,7 @@ GUI tabs.
 """
 
 import time
+from dataclasses import replace
 from pathlib import Path
 from queue import Empty
 
@@ -23,10 +24,11 @@ from PySide6.QtWidgets import (
 from typeguard import typechecked
 
 from ..__version__ import application_name
-from ..db import PytestProcessInfoDB
+from ..db import PytestProcessInfoDB, PytestProcessInfoReader
 from ..interfaces import PyTestFlyExitCode, PytestRunnerState
 from ..logger import get_logger
 from ..preferences import get_pref
+from ..pytest_runner.run_state import TERMINAL_STATES
 from ..pytest_runner.system_monitor import SystemMonitor, SystemMonitorSample
 from ..tick_data import build_tick_data
 from .about_tab.about import About
@@ -117,6 +119,13 @@ class FlyAppMainWindow(QMainWindow):
         self._last_pass_cache_run_guid: str | None = None
         self._last_pass_cache_pass_count: int = -1
 
+        # The per-tick query omits the output column (completed tests' output blobs dominate
+        # the row size and would be re-read every tick); outputs are fetched once per completed
+        # test and cached here for the rest of the run.  None marks a test whose final record
+        # carries no output (e.g. TERMINATED status records) so it is not re-queried each tick.
+        self._output_cache: dict[str, tuple[float, str] | None] = {}
+        self._output_cache_run_guid: str | None = None
+
         self.table_tab.force_stop_test_requested.connect(self._force_stop_single_test)
 
         self.setCentralWidget(self.tab_widget)
@@ -139,10 +148,12 @@ class FlyAppMainWindow(QMainWindow):
 
         log.info(f"{self.__class__.__name__}.closeEvent() - entering")
 
-        # If a run is in progress, confirm with the user before tearing it down. Skipped under
-        # automation, where a modal prompt would block the programmatic close.
-        pytest_runner = self.run_tab.control_window.pytest_runner
-        if not self._suppress_close_confirmation and pytest_runner is not None and pytest_runner.is_running():
+        # If a run is in progress (or being prepared), confirm with the user before tearing it
+        # down. Skipped under automation, where a modal prompt would block the programmatic close.
+        control = self.run_tab.control_window
+        pytest_runner = control.pytest_runner
+        run_in_progress = (pytest_runner is not None and pytest_runner.is_running()) or control.is_run_preparation_active()
+        if not self._suppress_close_confirmation and run_in_progress:
             response = QMessageBox.question(
                 self,
                 "Tests are running",
@@ -161,6 +172,13 @@ class FlyAppMainWindow(QMainWindow):
         # restoreGeometry() on next launch returns to the exact prior placement. Matches the hex
         # persistence used for the Run-tab splitters.
         pref.window_geometry = qt_state_to_hex(self.saveGeometry())
+
+        # Abort any in-flight run preparation, then deliver a just-finished preparation's
+        # queued adoption so a runner it already started is stopped by the path below
+        # instead of outliving the window.
+        control.abort_run_preparation()
+        QCoreApplication.processEvents()
+        pytest_runner = control.pytest_runner
 
         if pytest_runner is not None and pytest_runner.is_running():
             pytest_runner.stop()
@@ -199,6 +217,35 @@ class FlyAppMainWindow(QMainWindow):
         if samples:
             self.run_tab.system_metrics_window.ingest_samples(samples)
 
+    def _attach_completed_outputs(self, db: PytestProcessInfoReader, run_guid: str | None, process_infos: list) -> list:
+        """Rehydrate the ``output`` column onto completed tests' final records.
+
+        The per-tick query omits ``output`` so completed tests' full pytest output is not
+        re-read from the DB on every tick.  Each completed test's output is fetched once,
+        cached for the rest of the run, and re-attached to the record it came from (matched
+        by timestamp) so downstream consumers (tooltips, failed-test output, graph hover)
+        see the records exactly as if they had been queried whole.
+        """
+        # The tick may query with run_guid=None (no active run: "most recent run") — resolve
+        # the actual GUID from the records so the cache keys stay consistent either way.
+        effective_guid = run_guid if run_guid is not None else (process_infos[0].run_guid if process_infos else None)
+        if effective_guid != self._output_cache_run_guid:
+            self._output_cache = {}
+            self._output_cache_run_guid = effective_guid
+        if effective_guid is None:
+            return process_infos
+
+        completed_names = {info.name for info in process_infos if info.exit_code != PyTestFlyExitCode.NONE}
+        missing = completed_names - self._output_cache.keys()
+        if missing:
+            self._output_cache.update(db.query_outputs(effective_guid, sorted(missing)))
+            for name in missing - self._output_cache.keys():
+                self._output_cache[name] = None  # no stored output for this test — don't re-query every tick
+
+        if not any(self._output_cache.values()):
+            return process_infos
+        return [replace(info, output=cached[1]) if (cached := self._output_cache.get(info.name)) is not None and info.time_stamp == cached[0] else info for info in process_infos]
+
     def _update_tick(self):
         """Timer event handler — query the DB and refresh all tabs.
 
@@ -215,9 +262,13 @@ class FlyAppMainWindow(QMainWindow):
         tick_start = time.perf_counter()
 
         run_guid = self.run_tab.control_window.run_guid
-        with PytestProcessInfoDB(self.data_dir) as db:
+        # Read-only snapshot access — never contends for the DB's exclusive write lock,
+        # so a test process mid-write can no longer stall this (GUI-thread) tick.
+        with PytestProcessInfoReader(self.data_dir) as db:
             with timer.time("db_query"):
                 process_infos = db.query(run_guid)
+            with timer.time("db_outputs"):
+                process_infos = self._attach_completed_outputs(db, run_guid, process_infos)
             with timer.time("db_last_pass"):
                 # query_last_pass scans the full DB — only re-run when the set of
                 # passing tests for the current run has grown, or on run change.
@@ -244,11 +295,14 @@ class FlyAppMainWindow(QMainWindow):
             if runner is not None:
                 tick.stall_info = runner.get_stall_info()
                 tick.resource_guard_info = runner.get_resource_guard_info()
+                # Part D completion, derived from this tick's already-queried records rather
+                # than re-querying the DB (get_run_completion) — the tick query and the
+                # completion view are the same data.
+                stuck = sorted(name for name, run_state in tick.run_states.items() if run_state.get_state() not in TERMINAL_STATES)
+                tick.user_complete = runner.was_force_stopped() or (bool(tick.run_states) and not stuck)
                 # When a run has finished but some tests never reached a terminal state
                 # (e.g. singletons that were blocked behind a wedged slot), surface them.
-                completion = runner.get_run_completion()
-                if completion is not None and runner.is_user_complete():
-                    _n_terminal, _n_total, stuck = completion
+                if tick.user_complete:
                     tick.run_complete_stuck = stuck
 
         with timer.time("cov"):

@@ -22,7 +22,7 @@ from typing import Optional
 
 from typeguard import typechecked
 
-from ..db import PytestProcessInfoDB
+from ..db import PytestProcessInfoDB, PytestProcessInfoReader
 from ..interfaces import PyTestFlyExitCode, ScheduledTest, status_record
 from ..logger import get_logger
 from .admission import AdmissionGate, AdmissionGateConfig
@@ -249,7 +249,9 @@ class PytestRunner(Thread):
         :meth:`is_running`.
         """
         try:
-            with PytestProcessInfoDB(self.data_dir) as db:
+            # Read-only snapshot — callers include the GUI thread, which must never
+            # contend for the DB's exclusive write lock.
+            with PytestProcessInfoReader(self.data_dir) as db:
                 infos = db.query(self.run_guid)
         except FAIL_OPEN_ERRORS as e:
             log.warning(f"get_run_completion DB read failed, falling back to is_running: {e}")

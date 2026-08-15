@@ -11,7 +11,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from ..db import PytestProcessInfoDB
+from ..db import PytestProcessInfoReader
 from ..interfaces import PytestRunnerState
 from ..logger import get_logger
 from ..platform import get_performance_core_count
@@ -182,7 +182,9 @@ class StallWatchdog(MonitorThread):
 
     def _default_progress_source(self):
         """Read latest-per-name DB records → (fingerprint, stuck_tests, running_pids, n_total)."""
-        with PytestProcessInfoDB(self.data_dir) as db:
+        # Read-only snapshot — the watchdog samples every tick and must not contend with
+        # test-process writers for the exclusive write lock.
+        with PytestProcessInfoReader(self.data_dir) as db:
             infos = db.query(self.run_guid)
         latest = latest_info_per_name(infos)
         stuck: list[str] = []

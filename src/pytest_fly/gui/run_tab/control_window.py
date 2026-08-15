@@ -3,18 +3,26 @@ Control window — Run/Stop buttons and parallelism/run-mode selectors.
 
 Houses the run-preparation logic: test discovery, RESUME filtering, and
 the user-configured ordering-aspect chain (see :mod:`pytest_runner.ordering`).
+
+Run preparation is slow — git-based PUT detection, winding down a prior runner,
+``pytest --collect-only`` discovery, DB reads, RESUME record copying — so it runs
+on a background thread (:meth:`ControlWindow._prepare_run`); the Run click only
+validates, disables the controls, and hands off.  The prepared
+:class:`PytestRunner` is adopted back on the GUI thread via a queued signal.
 """
 
 import shutil
+import sqlite3
 import time
-from dataclasses import replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
+from threading import Event, Thread
 
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication, QGroupBox, QSizePolicy, QVBoxLayout
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtWidgets import QGroupBox, QSizePolicy, QVBoxLayout
 from typeguard import typechecked
 
-from ...db import PytestProcessInfoDB
+from ...db import PytestProcessInfoDB, PytestProcessInfoReader
 from ...guid import generate_uuid
 from ...interfaces import OrderingAspect, PutVersionInfo, PyTestFlyExitCode, RunMode, ScheduledTest
 from ...logger import get_logger
@@ -35,8 +43,43 @@ from .run_mode_control_box import RunModeControlBox
 log = get_logger()
 
 
+@dataclass(frozen=True)
+class _RunPrepConfig:
+    """Everything run preparation needs, gathered on the GUI thread at Run-click time.
+
+    The background prep thread works only from this snapshot (plus the data dir), so it
+    never touches preferences or Qt.
+    """
+
+    project_root: Path
+    run_guid: str
+    refresh_rate: float
+    run_mode: RunMode
+    processes: int
+    enabled_aspects: list[OrderingAspect]
+    gate_config: AdmissionGateConfig
+    stall_config: StallConfig
+    resource_guard_config: ResourceGuardConfig
+
+
+@dataclass
+class _RunPrepResult:
+    """Outcome of background run preparation, adopted on the GUI thread."""
+
+    runner: PytestRunner
+    prior_durations: dict[str, float] = field(default_factory=dict)
+    num_processes: int = 1
+    singleton_names: set[str] = field(default_factory=set)
+    put_version_info: PutVersionInfo | None = None
+
+
 class ControlWindow(QGroupBox):
     """Run/Stop controls and parallelism/run-mode selectors for the Run tab."""
+
+    # Emitted by the background prep thread when preparation finishes (payload:
+    # _RunPrepResult, or None on abort/failure). Cross-thread, so Qt queues the
+    # delivery onto the GUI thread.
+    run_prep_finished = Signal(object)
 
     @typechecked()
     def __init__(self, parent, data_dir: Path):
@@ -80,6 +123,10 @@ class ControlWindow(QGroupBox):
         self.prior_durations: dict[str, float] = {}
         self.num_processes: int = 1
         self._soft_stop_requested: bool = False
+        self._run_prep_thread: Thread | None = None
+        self._run_prep_abort = Event()
+        self._run_prep_active: bool = False
+        self.run_prep_finished.connect(self._on_run_prep_finished)
         # Restore the most recent run's start so the Progress Graph keeps its time-axis origin
         # after an app restart — RESUME-carried records (with genuine historical timestamps) are
         # shifted onto this origin at render time in build_tick_data.
@@ -130,23 +177,37 @@ class ControlWindow(QGroupBox):
             self.num_processes = desired
             self.pytest_runner.set_number_of_processes(desired)
 
-    def refresh_button_state(self):
+    def refresh_button_state(self, user_complete: bool | None = None):
         """Enable/disable run, stop, and force stop buttons based on the runner state.
 
         Named to avoid shadowing :meth:`QWidget.update`, which Qt internals may
         call to schedule a repaint — when that was overridden, a repaint request
         would silently mutate button state instead.
+
+        :param user_complete: Part D completion already derived from this tick's records
+            (:attr:`TickData.user_complete`).  ``None`` (legacy callers / no runner) falls
+            back to querying the runner directly.
         """
+        # While run preparation is in flight on the background thread, hold every control
+        # disabled — self.pytest_runner still points at the *previous* runner (or None), so
+        # the logic below would re-enable Run mid-preparation.
+        if self._run_prep_active:
+            self.run_button.setEnabled(False)
+            self.stop_button.setEnabled(False)
+            self.force_stop_button.setEnabled(False)
+            return
         runner = self.pytest_runner
         # A soft stop can originate outside this window (the resource guard's automatic
         # low-resource stop); adopt it so the Stop button relabels to Cancel Stop and the
         # status pane shows the stopping state.
         if runner is not None and runner.is_running() and not self._soft_stop_requested and runner.is_soft_stop_pending():
             self._soft_stop_requested = True
+        if user_complete is None:
+            user_complete = runner is not None and runner.is_user_complete()
         # Part D: gate Run on terminal-state completion (or force-stop), not pure thread
         # liveness — so a wedged worker thread can never permanently disable Run. A run is
         # "done" for the user when every test reached a terminal state or it was force-stopped.
-        if runner is None or runner.is_user_complete() or not runner.is_running():
+        if runner is None or user_complete or not runner.is_running():
             self.run_button.setEnabled(True)
             self.stop_button.setEnabled(False)
             self.force_stop_button.setEnabled(False)
@@ -172,8 +233,16 @@ class ControlWindow(QGroupBox):
             self.stop_button.setToolTip("Wait for the running tests and then stop")
 
     def run(self):
-        """Discover tests and launch a new :class:`PytestRunner`."""
-        pref = get_pref()
+        """Validate, then prepare and launch a new run on a background thread.
+
+        Everything that can block — git-based PUT detection, winding down a prior
+        runner, ``pytest --collect-only`` discovery, DB reads, RESUME copying,
+        ordering — runs in :meth:`_prepare_run` on a worker thread so the GUI stays
+        responsive.  The prepared :class:`PytestRunner` is adopted back on the GUI
+        thread in :meth:`_on_run_prep_finished`.
+        """
+        if self._run_prep_active:
+            return  # a preparation is already in flight
 
         # Resolve the configured PUT for test discovery and PUT-version detection. If it points at
         # a directory that no longer exists, guide the user to a valid one before discovering;
@@ -182,13 +251,15 @@ class ControlWindow(QGroupBox):
         if project_root is None:
             log.info("Run aborted: target project path is not set to an existing directory.")
             return
-        self.put_version_info = detect_put_version(project_root)
-        log.info(f"PUT detected: {self.put_version_info}")
 
-        get_tests = GetTests(test_dir=project_root)
-        get_tests.start()
+        # Disable the controls immediately.  Previously this happened at the END of the
+        # (synchronous) preparation, so a second click during discovery re-entered run().
+        self._run_prep_active = True
+        self.run_button.setEnabled(False)
+        self.stop_button.setEnabled(False)
+        self.force_stop_button.setEnabled(False)
 
-        refresh_rate = pref.refresh_rate
+        pref = get_pref()
         self.run_guid = generate_uuid()
         # Capture start time before any prior records are copied so the graph
         # time axis can use it as the origin, rather than trying to infer it
@@ -198,34 +269,131 @@ class ControlWindow(QGroupBox):
         # Persist so the graph time-axis origin survives an app restart (see __init__).
         pref.last_run_start = self.current_run_start
 
-        if self.pytest_runner is not None and self.pytest_runner.is_running():
-            self.pytest_runner.stop()
-            self.pytest_runner.join()
+        # Snapshot everything preparation needs while still on the GUI thread — the
+        # prep thread must not touch preferences or Qt.
+        config = _RunPrepConfig(
+            project_root=project_root,
+            run_guid=self.run_guid,
+            refresh_rate=pref.refresh_rate,
+            run_mode=pref.run_mode,
+            processes=self._desired_process_count(),
+            enabled_aspects=get_ordering_aspects_ordered(),
+            gate_config=AdmissionGateConfig(
+                process_count_gate_enabled=pref.process_count_gate_enabled,
+                max_descendant_processes=pref.max_descendant_processes,
+                commit_gate_enabled=pref.commit_gate_enabled,
+                commit_gate_threshold=pref.commit_gate_threshold,
+                cpu_gate_enabled=pref.cpu_gate_enabled,
+                cpu_gate_threshold=pref.cpu_gate_threshold,
+            ),
+            stall_config=StallConfig(
+                enabled=pref.stall_detection_enabled,
+                warn_seconds=duration_to_seconds(pref.stall_warn_value, pref.stall_warn_unit),
+                cpu_active_epsilon=pref.cpu_active_epsilon,
+                auto_force_stop=pref.auto_force_stop_on_stall,
+                kill_seconds=duration_to_seconds(pref.stall_kill_value, pref.stall_kill_unit),
+            ),
+            resource_guard_config=ResourceGuardConfig(
+                enabled=pref.resource_guard_enabled,
+                min_free_disk_gb=pref.resource_guard_min_free_disk_gb,
+                commit_threshold=pref.resource_guard_commit_threshold,
+            ),
+        )
+        self._run_prep_abort.clear()
+        self._run_prep_thread = Thread(target=self._prepare_run, args=(config, self.pytest_runner), name="run_prep", daemon=True)
+        self._run_prep_thread.start()
 
-        processes = self._desired_process_count()
+    def is_run_preparation_active(self) -> bool:
+        """Return ``True`` while run preparation is in flight on the background thread."""
+        return self._run_prep_active
+
+    def abort_run_preparation(self, timeout: float = 10.0) -> None:
+        """Abort an in-flight run preparation and wait briefly for the prep thread to exit.
+
+        Used by the main window's ``closeEvent`` so preparation cannot start a runner
+        after the window is gone.
+        """
+        thread = self._run_prep_thread
+        if thread is None or not thread.is_alive():
+            return
+        self._run_prep_abort.set()
+        thread.join(timeout)
+
+    def wait_for_run_preparation(self, timeout: float = 120.0) -> bool:
+        """Block until the prep thread exits (test/automation helper; the GUI never calls this).
+
+        Note: the adoption of the prepared runner still requires the Qt event loop to
+        deliver :attr:`run_prep_finished`.
+
+        :return: ``True`` if preparation finished within the timeout (or none was active).
+        """
+        thread = self._run_prep_thread
+        if thread is None:
+            return True
+        thread.join(timeout)
+        return not thread.is_alive()
+
+    def _prepare_run(self, config: _RunPrepConfig, prior_runner: PytestRunner | None) -> None:
+        """Background thread body: build and start the runner, then hand it to the GUI thread.
+
+        The ``finally`` guarantees the finished signal is emitted even if preparation
+        raises, so the GUI always recovers its controls instead of staying disabled.
+        """
+        result: _RunPrepResult | None = None
+        try:
+            result = self._build_runner(config, prior_runner)
+        except (OSError, RuntimeError, ValueError, sqlite3.OperationalError) as e:
+            log.error(f"run preparation failed: {e}", exc_info=True)
+        finally:
+            self.run_prep_finished.emit(result)
+
+    def _build_runner(self, config: _RunPrepConfig, prior_runner: PytestRunner | None) -> "_RunPrepResult | None":
+        """Prepare a run: discovery, RESUME handling, ordering — and start the runner.
+
+        Runs on the prep thread.  Returns ``None`` if aborted (the runner, if it was
+        already started, is stopped again).
+        """
+        put_version_info = detect_put_version(config.project_root)
+        log.info(f"PUT detected: {put_version_info}")
+
+        get_tests = GetTests(test_dir=config.project_root)
+        get_tests.start()
+
+        # Wind down any previous runner while discovery proceeds. Bounded join: a wedged
+        # worker thread must not hang preparation forever (and since this is no longer on
+        # the GUI thread, it cannot freeze the UI either way).
+        if prior_runner is not None and prior_runner.is_running():
+            prior_runner.stop()
+            if not prior_runner.join(120.0):
+                log.warning(f"previous run did not wind down within 120 s; starting the new run anyway ({config.run_guid=})")
 
         while get_tests.is_alive():
-            get_tests.join(1)
-            QApplication.processEvents()  # keep the GUI at least somewhat responsive while we gather the tests
+            get_tests.join(1.0)
+            if self._run_prep_abort.is_set():
+                get_tests.terminate()
+                get_tests.join(5.0)
+                return None
         get_tests.join()
 
         tests = get_tests.get_tests()
 
-        # Query prior results once (used by RESUME filtering, failed-first ordering, and never-run prioritization)
-        with PytestProcessInfoDB(self.data_dir) as db:
-            prior_results = db.query()  # most recent run
+        # Query prior results once (used by RESUME filtering, failed-first ordering, and
+        # never-run prioritization). Read-only access; outputs are included because RESUME
+        # mode copies these records — output and all — into the new run below.
+        with PytestProcessInfoReader(self.data_dir) as db:
+            prior_results = db.query(include_output=True)  # most recent run
             last_pass_data = db.query_last_pass()  # most recent passing run per test
             ever_run = db.query_ever_run_names()  # names of tests that have ever run (any PUT version)
 
         # CHECK mode: behave like RESUME if the PUT fingerprint matches the prior run, else RESTART.
-        effective_mode = pref.run_mode
-        if pref.run_mode == RunMode.CHECK:
-            effective_mode = self._resolve_check_mode(prior_results)
+        effective_mode = config.run_mode
+        if config.run_mode == RunMode.CHECK:
+            effective_mode = self._resolve_check_mode(prior_results, put_version_info)
 
         # Clear stale coverage data before any PytestProcess starts writing into
-        # coverage/. Done here (synchronously, before pytest_runner.start) rather
-        # than from a periodic GUI tick so we cannot delete the directory while
-        # a still-running PytestProcess is mid-coverage.save().
+        # coverage/. Done here (before pytest_runner.start) rather than from a periodic
+        # GUI tick so we cannot delete the directory while a still-running PytestProcess
+        # is mid-coverage.save().
         if effective_mode != RunMode.RESUME:
             coverage_dir = Path(self.data_dir, "coverage")
             if coverage_dir.exists():
@@ -252,19 +420,16 @@ class ControlWindow(QGroupBox):
                 if records_to_copy:
                     with PytestProcessInfoDB(self.data_dir) as db:
                         for record in records_to_copy:
-                            db.write(replace(record, run_guid=self.run_guid))
+                            db.write(replace(record, run_guid=config.run_guid))
 
         # Use last-pass durations for ETA estimation (from the most recent passing run)
-        self.prior_durations = {name: duration for name, (_, duration) in last_pass_data.items()}
-        self.num_processes = processes
+        prior_durations = {name: duration for name, (_unused_start, duration) in last_pass_data.items()}
 
         # Apply the user's ordered list of ordering aspects (see Configuration tab).
         # Prior-run data still informs execution *order* even in RESTART mode — RESTART only
         # means "rerun every test," not "forget the durations/failures we know about."
-        enabled_aspects: list[OrderingAspect] = get_ordering_aspects_ordered()
-
         per_test_cov: dict[str, float] = {}
-        if OrderingAspect.COVERAGE_EFFICIENCY in enabled_aspects:
+        if OrderingAspect.COVERAGE_EFFICIENCY in config.enabled_aspects:
             per_test_cov = compute_per_test_coverage(self.data_dir, [t.node_id for t in tests])
             # Coverage-efficiency reads duration/coverage off the ScheduledTest
             # itself, so rebuild the list with those fields populated.
@@ -272,7 +437,7 @@ class ControlWindow(QGroupBox):
                 ScheduledTest(
                     node_id=t.node_id,
                     singleton=t.singleton,
-                    duration=self.prior_durations.get(t.node_id),
+                    duration=prior_durations.get(t.node_id),
                     coverage=per_test_cov.get(t.node_id),
                 )
                 for t in tests
@@ -286,48 +451,59 @@ class ControlWindow(QGroupBox):
         ctx = OrderingContext(
             failed_names=failed_names,
             ever_run_names=ever_run,
-            prior_durations=self.prior_durations,
+            prior_durations=prior_durations,
             per_test_coverage=per_test_cov,
         )
-        tests = apply_ordering_aspects(tests, enabled_aspects, ctx)
+        tests = apply_ordering_aspects(tests, config.enabled_aspects, ctx)
 
-        self.singleton_names = {t.node_id for t in tests if t.singleton}
+        if self._run_prep_abort.is_set():
+            return None
 
-        put_label = self.put_version_info.short_label() if self.put_version_info else ""
-        put_fp = self.put_version_info.fingerprint() if self.put_version_info else ""
-        gate_config = AdmissionGateConfig(
-            process_count_gate_enabled=pref.process_count_gate_enabled,
-            max_descendant_processes=pref.max_descendant_processes,
-            commit_gate_enabled=pref.commit_gate_enabled,
-            commit_gate_threshold=pref.commit_gate_threshold,
-            cpu_gate_enabled=pref.cpu_gate_enabled,
-            cpu_gate_threshold=pref.cpu_gate_threshold,
-        )
-        stall_config = StallConfig(
-            enabled=pref.stall_detection_enabled,
-            warn_seconds=duration_to_seconds(pref.stall_warn_value, pref.stall_warn_unit),
-            cpu_active_epsilon=pref.cpu_active_epsilon,
-            auto_force_stop=pref.auto_force_stop_on_stall,
-            kill_seconds=duration_to_seconds(pref.stall_kill_value, pref.stall_kill_unit),
-        )
-        resource_guard_config = ResourceGuardConfig(
-            enabled=pref.resource_guard_enabled,
-            min_free_disk_gb=pref.resource_guard_min_free_disk_gb,
-            commit_threshold=pref.resource_guard_commit_threshold,
-        )
-        self.pytest_runner = PytestRunner(
-            self.run_guid,
+        put_label = put_version_info.short_label() if put_version_info else ""
+        put_fp = put_version_info.fingerprint() if put_version_info else ""
+        runner = PytestRunner(
+            config.run_guid,
             tests,
-            processes,
+            config.processes,
             self.data_dir,
-            refresh_rate,
+            config.refresh_rate,
             put_version=put_label,
             put_fingerprint=put_fp,
-            gate_config=gate_config,
-            stall_config=stall_config,
-            resource_guard_config=resource_guard_config,
+            gate_config=config.gate_config,
+            stall_config=config.stall_config,
+            resource_guard_config=config.resource_guard_config,
         )
-        self.pytest_runner.start()
+        runner.start()
+
+        if self._run_prep_abort.is_set():
+            # Aborted between start and adoption (window closing) — stop the runner here,
+            # since no GUI slot will adopt (and later stop) it.
+            runner.stop()
+            return None
+
+        return _RunPrepResult(
+            runner=runner,
+            prior_durations=prior_durations,
+            num_processes=config.processes,
+            singleton_names={t.node_id for t in tests if t.singleton},
+            put_version_info=put_version_info,
+        )
+
+    def _on_run_prep_finished(self, result: "_RunPrepResult | None") -> None:
+        """Adopt the prepared runner (GUI thread; queued from the prep thread)."""
+        self._run_prep_thread = None
+        self._run_prep_active = False
+        if result is None:
+            log.warning("run preparation did not produce a runner (aborted or failed); controls re-enabled")
+            self.run_button.setEnabled(True)
+            self.stop_button.setEnabled(False)
+            self.force_stop_button.setEnabled(False)
+            return
+        self.pytest_runner = result.runner
+        self.prior_durations = result.prior_durations
+        self.num_processes = result.num_processes
+        self.singleton_names = result.singleton_names
+        self.put_version_info = result.put_version_info
 
         self.run_button.setEnabled(False)
         self.stop_button.setEnabled(True)
@@ -353,7 +529,7 @@ class ControlWindow(QGroupBox):
             log.info(f"run_mode={effective_mode!r} (not RESUME), skipping filter — all {original_count} tests will run")
         return tests
 
-    def _resolve_check_mode(self, prior_results) -> RunMode:
+    def _resolve_check_mode(self, prior_results, put_version_info: PutVersionInfo | None = None) -> RunMode:
         """Collapse :attr:`RunMode.CHECK` into either RESUME or RESTART based on the PUT fingerprint.
 
         If the prior run's PUT fingerprint matches the current one, behave like RESUME;
@@ -362,9 +538,13 @@ class ControlWindow(QGroupBox):
         iterating on code get fresh runs.
 
         :param prior_results: Records from the most recent prior run, or an empty list.
+        :param put_version_info: PUT metadata for the run being prepared; ``None`` falls back
+            to :attr:`put_version_info` (the last adopted run's).
         :return: Either :attr:`RunMode.RESUME` or :attr:`RunMode.RESTART`.
         """
-        current_fp = self.put_version_info.fingerprint() if self.put_version_info else ""
+        if put_version_info is None:
+            put_version_info = self.put_version_info
+        current_fp = put_version_info.fingerprint() if put_version_info else ""
         prior_fp = None
         for record in prior_results:
             if record.put_fingerprint:
@@ -388,6 +568,8 @@ class ControlWindow(QGroupBox):
 
     def soft_stop(self):
         """Stop scheduling new tests but let running tests finish. Cancelable until the run winds down."""
+        if self.pytest_runner is None:
+            return
         self.pytest_runner.soft_stop()
         self._soft_stop_requested = True
         self._update_stop_button_label()

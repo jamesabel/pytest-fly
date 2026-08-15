@@ -70,7 +70,12 @@ class StatusWindow(QGroupBox):
         if len(tick.infos_by_name) > 0:
             total_tests = len(tick.infos_by_name)
             lines = _put_header_lines(tick)
+            if tick.run_prep_active:
+                # RESUME preparation copies prior-run records in before the runner starts, so
+                # counts can already be showing — make it clear the run has not begun yet.
+                lines.extend(["Preparing run — please wait ...", ""])
             lines.extend([f"{total_tests} tests", ""])
+            self.progress_bar.setRange(0, 100)  # restore after the indeterminate preparing state
 
             # get current pass rate
             current_pass_count = counts[PytestRunnerState.PASS]
@@ -135,10 +140,18 @@ class StatusWindow(QGroupBox):
                         lines.append("Estimated finish: unknown")
         else:
             lines = _put_header_lines(tick)
-            lines.append("No test run yet — press Run to start.")
-
-            self.progress_bar.setValue(0)
-            self.complete_label.setText("Complete: —")
+            if tick.run_prep_active:
+                # Run was clicked; preparation (PUT detection, test discovery, prior-runner
+                # wind-down) is running on the background thread. On large suites discovery
+                # can take a while — tell the user instead of still prompting them to Run.
+                lines.append("Preparing run — detecting program version and discovering tests, please wait ...")
+                self.progress_bar.setRange(0, 0)  # indeterminate busy indicator
+                self.complete_label.setText("Complete: (preparing)")
+            else:
+                lines.append("No test run yet — press Run to start.")
+                self.progress_bar.setRange(0, 100)
+                self.progress_bar.setValue(0)
+                self.complete_label.setText("Complete: —")
             self.complete_label.setStyleSheet("font-weight: normal;")
             self.pass_rate_label.setText("Pass rate: —")
             self.pass_rate_label.setStyleSheet("")

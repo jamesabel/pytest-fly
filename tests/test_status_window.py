@@ -113,3 +113,31 @@ def test_status_window_empty_with_put_info(app):
     assert "PUT: pkg" in text
     assert "uncommitted changes" in text
     assert "press Run" in text
+
+
+def test_status_window_preparing_run_message(app):
+    """While run preparation is in flight (no records yet), show the please-wait status, not the Run prompt."""
+    window = StatusWindow(None)
+    tick = build_tick_data([])
+    tick.run_prep_active = True
+    window.update_tick(tick)
+    assert "please wait" in window.status_widget.toPlainText()
+    assert "press Run" not in window.status_widget.toPlainText()
+    assert window.progress_bar.maximum() == 0  # indeterminate busy indicator
+    assert "preparing" in window.complete_label.text()
+
+    # Preparation finished with no run (aborted/failed): back to the idle prompt and determinate bar.
+    tick.run_prep_active = False
+    window.update_tick(tick)
+    assert "press Run" in window.status_widget.toPlainText()
+    assert window.progress_bar.maximum() == 100
+
+
+def test_status_window_preparing_with_resume_copies(app):
+    """RESUME preparation copies records in before the runner starts — still say preparing."""
+    window = StatusWindow(None)
+    tick = build_tick_data([_info("test_p.py", 1, PyTestFlyExitCode.OK, time.time())])
+    tick.run_prep_active = True
+    window.update_tick(tick)
+    assert "please wait" in window.status_widget.toPlainText()
+    assert window.progress_bar.maximum() == 100  # counts are real, keep the determinate bar

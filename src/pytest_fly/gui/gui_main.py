@@ -292,6 +292,7 @@ class FlyAppMainWindow(QMainWindow):
             )
             tick.last_pass_data = last_pass_data
             tick.soft_stop_requested = control._soft_stop_requested
+            tick.run_prep_active = control.is_run_preparation_active()
             runner = control.pytest_runner
             if runner is not None:
                 tick.stall_info = runner.get_stall_info()

@@ -29,7 +29,7 @@ from ..interfaces import PyTestFlyExitCode, PytestRunnerState, ScheduledTest, st
 from ..logger import get_logger
 from ..platform import get_performance_core_count
 from .commit_memory import PSUTIL_READ_ERRORS, commit_charge_and_limit, subtree_process_count, subtree_processes
-from .const import TIMEOUT
+from .const import FAIL_OPEN_ERRORS, TIMEOUT
 from .monitor_thread import MonitorThread
 from .process_monitor import SubtreeCpuSampler, normalize_cpu_percent
 from .pytest_process import PytestProcess, reap_pids, terminate_process_tree
@@ -327,7 +327,7 @@ class PytestRunner(Thread):
         try:
             with PytestProcessInfoDB(self.data_dir) as db:
                 infos = db.query(self.run_guid)
-        except Exception as e:
+        except FAIL_OPEN_ERRORS as e:
             log.warning(f"get_run_completion DB read failed, falling back to is_running: {e}")
             return None
         states = latest_states(infos)
@@ -397,7 +397,7 @@ class PytestRunner(Thread):
                     if state in TERMINAL_STATES:
                         continue
                     db.write(status_record(self.run_guid, name, PyTestFlyExitCode.STOPPED, self.put_version, self.put_fingerprint))
-        except Exception as e:
+        except FAIL_OPEN_ERRORS as e:
             log.warning(f"force_stop_and_reset: error marking remaining tests STOPPED: {e}", exc_info=True)
 
     @typechecked()
@@ -641,7 +641,7 @@ class _StallWatchdog(MonitorThread):
             self._escalated = True
             try:
                 self._escalate_fn()
-            except Exception as e:
+            except FAIL_OPEN_ERRORS as e:
                 log.warning(f"error during auto Force-stop & reset: {e}", exc_info=True)
 
     def _publish(self, info: StallInfo) -> None:

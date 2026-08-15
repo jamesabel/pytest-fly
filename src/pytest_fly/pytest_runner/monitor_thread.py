@@ -7,20 +7,12 @@ the run finishes, and treats a tick failure as fail-open (log and keep going) so
 monitoring error can never stall or crash a test run.
 """
 
-import sqlite3
 from threading import Event, Lock, Thread
 
-import psutil
-
 from ..logger import get_logger
+from .const import FAIL_OPEN_ERRORS
 
 log = get_logger()
-
-# Exception types a monitor tick may plausibly raise at runtime — DB reads (sqlite3 via
-# msqlite), psutil process probes, filesystem access, and value/lookup errors on partial
-# data. Enumerated (rather than a blanket ``except Exception``) so genuine programming
-# errors still surface in tests instead of being silently swallowed.
-FAIL_OPEN_TICK_ERRORS = (OSError, RuntimeError, ValueError, KeyError, sqlite3.Error, psutil.Error)
 
 
 class MonitorThread(Thread):
@@ -51,7 +43,7 @@ class MonitorThread(Thread):
         while not self._stop_event.is_set():
             try:
                 self.tick()
-            except FAIL_OPEN_TICK_ERRORS as e:  # fail-open: a monitor error must never stall or crash the run
+            except FAIL_OPEN_ERRORS as e:  # fail-open: a monitor error must never stall or crash the run
                 log.warning(f"{type(self).__name__} tick error (logged once per tick): {e}")
                 self.on_tick_error(e)
             if not self._is_running_fn():

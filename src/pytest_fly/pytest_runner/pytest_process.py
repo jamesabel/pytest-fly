@@ -187,7 +187,7 @@ def reap_pids(snapshot: set[tuple[int, float]], terminate_timeout: float = 3.0, 
         if not alive:
             return
         _kill_survivors(alive, kill_timeout, "orphan")
-    except Exception as e:  # fail-open: reaping must never raise into the worker loop
+    except (OSError, RuntimeError, ValueError, psutil.Error) as e:  # fail-open: reaping must never raise into the worker loop
         if not _reap_warned_once:
             _reap_warned_once = True
             log.warning(f"error reaping orphaned processes (logged once): {e}", exc_info=True)
@@ -294,7 +294,12 @@ class PytestProcess(Process):
                     # -s: disable pytest capture so stdout/stderr stream live to the log file
                     pytest_exit_code = pytest.main([self.name, "-rA", "-s"])
                     exit_code = int_exit_code_to_pytest_fly_exit_code(pytest_exit_code)
-                except Exception:
+                except Exception:  # deliberate broad catch — see comment
+                    # pytest.main executes arbitrary user/plugin code, so no exception
+                    # enumeration is possible here. An uncaught type would kill this
+                    # subprocess before the result record below is written, leaving the
+                    # test permanently "Running" — the wedge the liveness machinery exists
+                    # to prevent. This is the one intentional broad catch in the codebase.
                     exit_code = PyTestFlyExitCode.INTERNAL_ERROR
                     try:
                         live_file.write(f"\n\npytest.main raised an exception:\n{traceback.format_exc()}")

@@ -46,6 +46,8 @@ from pytest_fly.preferences import (
     graph_font_size_default,
     max_descendant_processes_default,
     refresh_rate_default,
+    resource_guard_commit_threshold_default,
+    resource_guard_min_free_disk_gb_default,
     set_active_put_path,
     set_ordering_aspects_ordered,
     stall_kill_value_default,
@@ -604,6 +606,63 @@ class Configuration(QWidget):
         )
 
         right_column.addWidget(liveness_group)
+
+        # Resource guard group — background low-resource monitor that automatically soft-stops
+        # the run. Kept separate from Liveness / Recovery: that group is about a *wedged* run,
+        # this one is about protecting the *machine* (disk and commit space) from a healthy run.
+        resource_guard_group = QGroupBox("Resource Guard")
+        resource_guard_group.setToolTip(
+            "Monitors system resources in the background during a run and automatically requests a\n"
+            "soft stop when the system is running low — running tests finish, queued tests do not\n"
+            "start. The stop is the same cancelable stop as the Stop button, so it can be overridden\n"
+            "with Cancel Stop. Off by default."
+        )
+        resource_guard_layout = QVBoxLayout()
+        resource_guard_group.setLayout(resource_guard_layout)
+
+        self.resource_guard_enabled_checkbox = QCheckBox("Low-resource Auto Stop (default: off)")
+        self.resource_guard_enabled_checkbox.setToolTip(
+            "When enabled, pytest-fly watches free disk space (on the drive holding its data\n"
+            "directory) and system commit space (RAM + page file) while a run is in progress.\n"
+            "If either stays past its threshold, the run is soft-stopped: running tests finish,\n"
+            "queued tests are not started. Use Cancel Stop to override and keep running.\n\n"
+            "Triggers at most once per run, and never fires when a signal is unavailable\n"
+            "(e.g. commit space on non-Windows platforms). Applies on the next run."
+        )
+        self.resource_guard_enabled_checkbox.setChecked(to_bool_strict(pref.resource_guard_enabled))
+        self.resource_guard_enabled_checkbox.stateChanged.connect(self.update_resource_guard_enabled)
+        resource_guard_layout.addWidget(self.resource_guard_enabled_checkbox)
+
+        self.resource_guard_min_free_disk_gb_lineedit = _add_labeled_lineedit(
+            resource_guard_layout,
+            f"Minimum Free Disk Space (GB, {_format_number(resource_guard_min_free_disk_gb_default)} default, 0 disables)",
+            _format_number(pref.resource_guard_min_free_disk_gb),
+            QDoubleValidator(),
+            self.update_resource_guard_min_free_disk_gb,
+            char_width=7,
+            tooltip=(
+                "The run is soft-stopped when free space on the drive holding the pytest-fly data\n"
+                "directory (test-results DB and coverage data) drops below this many GB.\n"
+                "Set to 0 to disable the disk check. Only used when Low-resource Auto Stop is enabled."
+            ),
+        )
+
+        self.resource_guard_commit_threshold_lineedit = _add_labeled_lineedit(
+            resource_guard_layout,
+            f"Commit Space Stop Threshold (0.0-1.0, {resource_guard_commit_threshold_default} default)",
+            str(pref.resource_guard_commit_threshold),
+            QDoubleValidator(),
+            self.update_resource_guard_commit_threshold,
+            tooltip=(
+                "The run is soft-stopped when system commit charge (RAM + page file currently\n"
+                "committed) exceeds this fraction of the commit limit — e.g. 0.95 means 'stop once\n"
+                "commit space is 95% used.' Exhausting commit space crashes test workers with\n"
+                "page-file errors. Only used when Low-resource Auto Stop is enabled. (Commit charge\n"
+                "is read on Windows; on other platforms this check stays out of the way.)"
+            ),
+        )
+
+        right_column.addWidget(resource_guard_group)
         right_column.addStretch()
 
         layout.addWidget(QLabel(""))  # space
@@ -746,6 +805,26 @@ class Configuration(QWidget):
         pref = get_pref()
         try:
             pref.commit_gate_threshold = float(value)
+        except ValueError:
+            pass
+
+    def update_resource_guard_enabled(self):
+        """Persist the resource-guard (low-resource automatic soft stop) enable checkbox."""
+        get_pref().resource_guard_enabled = self.resource_guard_enabled_checkbox.isChecked()
+
+    def update_resource_guard_min_free_disk_gb(self, value: str):
+        """Persist the resource-guard minimum free disk space (GB; 0 disables the disk check)."""
+        pref = get_pref()
+        try:
+            pref.resource_guard_min_free_disk_gb = max(float(value), 0.0)
+        except ValueError:
+            pass
+
+    def update_resource_guard_commit_threshold(self, value: str):
+        """Persist the resource-guard commit-space stop threshold (fraction of the commit limit)."""
+        pref = get_pref()
+        try:
+            pref.resource_guard_commit_threshold = float(value)
         except ValueError:
             pass
 

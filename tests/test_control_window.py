@@ -25,8 +25,13 @@ class _FakeRunner:
     def soft_stop(self):
         self.soft_stopped = True
 
+    def is_soft_stop_pending(self):
+        return self.soft_stopped
+
     def cancel_soft_stop(self):
         self.cancel_calls += 1
+        if self.cancel_result:
+            self.soft_stopped = False
         return self.cancel_result
 
     def stop(self):

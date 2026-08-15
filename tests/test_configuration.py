@@ -76,6 +76,26 @@ def test_update_commit_warning_threshold(app):
     assert get_pref().commit_warning_threshold == 0.9
 
 
+def test_update_resource_guard_prefs(app):
+    cfg = Configuration()
+
+    cfg.resource_guard_enabled_checkbox.setChecked(True)
+    cfg.update_resource_guard_enabled()
+    assert get_pref().resource_guard_enabled is True
+
+    cfg.update_resource_guard_min_free_disk_gb("25")
+    assert get_pref().resource_guard_min_free_disk_gb == 25.0
+    cfg.update_resource_guard_min_free_disk_gb("-5")  # clamped up to 0 (0 disables the disk check)
+    assert get_pref().resource_guard_min_free_disk_gb == 0.0
+    cfg.update_resource_guard_min_free_disk_gb("bad")  # ValueError swallowed
+    assert get_pref().resource_guard_min_free_disk_gb == 0.0
+
+    cfg.update_resource_guard_commit_threshold("0.9")
+    assert get_pref().resource_guard_commit_threshold == 0.9
+    cfg.update_resource_guard_commit_threshold("bad")  # ValueError swallowed
+    assert get_pref().resource_guard_commit_threshold == 0.9
+
+
 def test_update_resume_skip_put_check(app):
     cfg = Configuration()
     get_pref().run_mode = RunMode.CHECK

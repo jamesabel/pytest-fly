@@ -147,13 +147,25 @@ class StatusWindow(QGroupBox):
         self._update_banner(tick)
 
     def _update_banner(self, tick: TickData) -> None:
-        """Render the stall warning (Part B) or the 'finished — N stuck' notice (Part D)."""
+        """Render the stall warning (Part B), the resource-guard notice, or the 'finished — N stuck' notice (Part D)."""
         stall_info = tick.stall_info
         if stall_info is not None and getattr(stall_info, "stalled", False):
             stuck = getattr(stall_info, "stuck_tests", [])
             idle = getattr(stall_info, "idle_pids", [])
             seconds = getattr(stall_info, "seconds_since_progress", 0.0)
             text = f"⚠ Run appears stalled — {len(stuck)} test(s) not progressing for {format_runtime(seconds)}, {len(idle)} in-flight process(es) idle.\nUse Force Stop to recover."
+            self.stall_banner_label.setText(text)
+            self.stall_banner_label.setStyleSheet("color: #b25400; font-weight: bold;")
+            self.stall_banner_label.setVisible(True)
+            return
+
+        guard_info = tick.resource_guard_info
+        if guard_info is not None and getattr(guard_info, "triggered", False):
+            reason = getattr(guard_info, "reason", "")
+            if tick.soft_stop_requested:
+                text = f"⚠ Low system resources — {reason}.\nStopping: running tests will finish, queued tests will not start. Click Cancel Stop to override."
+            else:
+                text = f"⚠ Low system resources triggered an automatic stop — {reason}."
             self.stall_banner_label.setText(text)
             self.stall_banner_label.setStyleSheet("color: #b25400; font-weight: bold;")
             self.stall_banner_label.setVisible(True)

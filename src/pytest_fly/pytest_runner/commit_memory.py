@@ -90,7 +90,7 @@ def commit_charge_and_limit() -> tuple[int, int] | None:
             raise OSError("GetPerformanceInfo failed")
         page = info.PageSize
         return info.CommitTotal * page, info.CommitLimit * page
-    except Exception as e:
+    except (OSError, AttributeError, ValueError) as e:  # ctypes/psapi load or call failure
         if not _warned_once:
             log.warning(f"could not read system commit charge ({e}); commit indicator disabled")
             _warned_once = True
@@ -141,7 +141,7 @@ def pagefile_breakdown() -> list[PageFileInfo]:
             system_managed = initial_mb == 0 and maximum_mb == 0
             entries.append(PageFileInfo(path=path, drive=drive.upper(), initial_mb=initial_mb, maximum_mb=maximum_mb, system_managed=system_managed))
         return entries
-    except Exception as e:
+    except (OSError, ValueError) as e:  # registry read failure or malformed PagingFiles value
         if not _pagefile_warned_once:
             log.warning(f"could not read pagefile configuration ({e}); pagefile breakdown disabled")
             _pagefile_warned_once = True

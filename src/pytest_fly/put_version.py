@@ -170,7 +170,7 @@ def _importlib_metadata_version(name: str) -> str | None:
         return metadata.version(name)
     except metadata.PackageNotFoundError:
         return None
-    except Exception as e:
+    except (OSError, ValueError, KeyError) as e:  # unreadable/malformed dist-info metadata
         log.debug(f"importlib.metadata lookup failed for {name!r}: {e}")
         return None
 

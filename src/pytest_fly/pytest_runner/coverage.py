@@ -10,7 +10,7 @@ import io
 from pathlib import Path
 
 from coverage import Coverage
-from coverage.exceptions import DataError, NoDataError
+from coverage.exceptions import CoverageException, DataError, NoDataError
 from hashy import get_string_sha256
 
 from ..file_util import find_most_recent_file, sanitize_test_name
@@ -19,6 +19,11 @@ from ..logger import get_logger
 log = get_logger()
 
 _coverage_summary_file_name = "coverage.txt"
+
+# Exception types that loading/reporting a coverage data file can plausibly raise —
+# coverage's own exception hierarchy plus file I/O and malformed-data errors. Shared with
+# the GUI's CoverageTracker so all coverage-read guards agree.
+COVERAGE_READ_ERRORS = (CoverageException, OSError, ValueError)
 
 
 def _get_combined_directory(coverage_parent_directory: Path) -> Path:
@@ -185,7 +190,7 @@ def compute_per_test_coverage(data_dir: Path, test_names: list[str]) -> dict[str
                 executed += len(lines)
                 all_file_lines.setdefault(f, set()).update(lines)
             per_test_lines[test_name] = executed
-        except Exception as e:
+        except COVERAGE_READ_ERRORS as e:
             log.info(f"per-test coverage load for {test_name} failed: {e}")
 
     total_lines = sum(len(lines) for lines in all_file_lines.values())

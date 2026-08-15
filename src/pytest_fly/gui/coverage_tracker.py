@@ -14,7 +14,7 @@ from coverage import Coverage
 from ..file_util import sanitize_test_name
 from ..interfaces import PytestRunnerState
 from ..logger import get_logger
-from ..pytest_runner.coverage import calculate_coverage
+from ..pytest_runner.coverage import COVERAGE_READ_ERRORS, calculate_coverage
 from ..tick_data import TickData
 
 log = get_logger()
@@ -70,7 +70,7 @@ class CoverageTracker:
                     if not self._coverage_history and tick.current_run_start is not None:
                         self._coverage_history.append((tick.current_run_start, coverage_pct))
                     self._coverage_history.append((time.time(), coverage_pct))
-            except Exception as e:
+            except COVERAGE_READ_ERRORS as e:
                 log.warning(f"coverage calculation failed: {e}")
 
             # Recompute per-test coverage for ALL completed tests since the denominator
@@ -87,7 +87,7 @@ class CoverageTracker:
                             data = cov.get_data()
                             executed = sum(len(data.lines(f) or []) for f in data.measured_files())
                             self._per_test_coverage[test_name] = executed / self._total_lines
-                        except Exception as e:
+                        except COVERAGE_READ_ERRORS as e:
                             log.info(f"per-test coverage for {test_name} failed: {e}")
 
     def apply_to_tick(self, tick: TickData) -> None:

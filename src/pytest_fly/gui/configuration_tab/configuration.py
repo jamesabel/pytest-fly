@@ -470,16 +470,13 @@ class Configuration(QWidget):
         results_dir_row.addWidget(self.test_results_db_dir_browse)
         layout.addLayout(results_dir_row)
 
-        # Liveness / recovery group — stall watchdog and admission gates. Lives in the right
-        # column (see the two-column content layout above) so the tall set of options uses the
-        # available horizontal room instead of overflowing vertically.
+        # Liveness / recovery group — the stall watchdog. Lives in the right column (see the
+        # two-column content layout above) so the tall set of options uses the available
+        # horizontal room instead of overflowing vertically.
         # See docs/pytest-fly-liveness-recovery-spec.md.
         liveness_group = QGroupBox("Liveness / Recovery")
         liveness_group.setToolTip(
-            "Detect and recover from wedged runs, and throttle runaway process spawning.\n"
-            "The stall watchdog is advisory only (a banner); it never kills a test on its own\n"
-            "unless automatic escalation is explicitly enabled. The admission gates are off by\n"
-            "default and only defer dispatching new tests — they never cap how long a test runs."
+            "Detect and recover from wedged runs. The stall watchdog is advisory only (a banner);\nit never kills a test on its own unless automatic escalation is explicitly enabled."
         )
         liveness_layout = QVBoxLayout()
         liveness_group.setLayout(liveness_layout)
@@ -553,7 +550,24 @@ class Configuration(QWidget):
             ),
         )
 
-        self.process_count_gate_enabled_checkbox = QCheckBox("Process-count Admission Gate (default: off)")
+        right_column.addWidget(liveness_group)
+
+        # Admission gates group — dispatch throttles, in their own labeled box. Distinct from
+        # Liveness / Recovery (recovering a wedged run) and from the Resource Guard (stopping a
+        # run): the gates only *pace* a healthy run by deferring the start of new tests.
+        gates_group = QGroupBox("Admission Gates")
+        gates_group.setToolTip(
+            "Throttle when new tests are dispatched. Before starting another test, pytest-fly\n"
+            "waits while any enabled gate is over its limit (all enabled gates must allow a test\n"
+            "before it starts).\n\n"
+            "Gates only defer starting new tests — they never pause or cap a running test — and\n"
+            "at least one test always runs so the suite can't deadlock behind a gate. All gates\n"
+            "are off by default."
+        )
+        gates_layout = QVBoxLayout()
+        gates_group.setLayout(gates_layout)
+
+        self.process_count_gate_enabled_checkbox = QCheckBox("Process-count Gate (default: off)")
         self.process_count_gate_enabled_checkbox.setToolTip(
             "Throttles runaway process spawning. Before starting another test, pytest-fly waits while\n"
             "the total number of processes in its tree — every test process plus anything those tests\n"
@@ -563,10 +577,10 @@ class Configuration(QWidget):
         )
         self.process_count_gate_enabled_checkbox.setChecked(to_bool_strict(pref.process_count_gate_enabled))
         self.process_count_gate_enabled_checkbox.stateChanged.connect(self.update_process_count_gate_enabled)
-        liveness_layout.addWidget(self.process_count_gate_enabled_checkbox)
+        gates_layout.addWidget(self.process_count_gate_enabled_checkbox)
 
         self.max_descendant_processes_lineedit = _add_labeled_lineedit(
-            liveness_layout,
+            gates_layout,
             f"Max Descendant Processes ({max_descendant_processes_default} default)",
             str(pref.max_descendant_processes),
             QIntValidator(),
@@ -580,7 +594,7 @@ class Configuration(QWidget):
             ),
         )
 
-        self.commit_gate_enabled_checkbox = QCheckBox("Commit-charge Admission Gate (default: off)")
+        self.commit_gate_enabled_checkbox = QCheckBox("Commit-charge Gate (default: off)")
         self.commit_gate_enabled_checkbox.setToolTip(
             "Throttles dispatch by memory commitment rather than process count. Before starting another\n"
             "test, pytest-fly waits while system commit charge (RAM + page file currently committed)\n"
@@ -591,10 +605,10 @@ class Configuration(QWidget):
         )
         self.commit_gate_enabled_checkbox.setChecked(to_bool_strict(pref.commit_gate_enabled))
         self.commit_gate_enabled_checkbox.stateChanged.connect(self.update_commit_gate_enabled)
-        liveness_layout.addWidget(self.commit_gate_enabled_checkbox)
+        gates_layout.addWidget(self.commit_gate_enabled_checkbox)
 
         self.commit_gate_threshold_lineedit = _add_labeled_lineedit(
-            liveness_layout,
+            gates_layout,
             f"Commit Gate Threshold (0.0-1.0, {commit_gate_threshold_default} default)",
             str(pref.commit_gate_threshold),
             QDoubleValidator(),
@@ -602,11 +616,11 @@ class Configuration(QWidget):
             tooltip=(
                 "The fraction of the system commit limit (0.0–1.0) at or above which the commit-charge\n"
                 "gate defers starting new tests. For example, 0.90 means 'hold off once commit charge\n"
-                "reaches 90% of the limit.' Only used when the Commit-charge Admission Gate is enabled."
+                "reaches 90% of the limit.' Only used when the Commit-charge Gate is enabled."
             ),
         )
 
-        self.cpu_gate_enabled_checkbox = QCheckBox("CPU Admission Gate (default: off)")
+        self.cpu_gate_enabled_checkbox = QCheckBox("CPU Gate (default: off)")
         self.cpu_gate_enabled_checkbox.setToolTip(
             "Throttles dispatch by system-wide CPU utilization. Before starting another test,\n"
             "pytest-fly waits while total CPU usage (from all processes on the machine, not just\n"
@@ -618,10 +632,10 @@ class Configuration(QWidget):
         )
         self.cpu_gate_enabled_checkbox.setChecked(to_bool_strict(pref.cpu_gate_enabled))
         self.cpu_gate_enabled_checkbox.stateChanged.connect(self.update_cpu_gate_enabled)
-        liveness_layout.addWidget(self.cpu_gate_enabled_checkbox)
+        gates_layout.addWidget(self.cpu_gate_enabled_checkbox)
 
         self.cpu_gate_threshold_lineedit = _add_labeled_lineedit(
-            liveness_layout,
+            gates_layout,
             f"CPU Gate Threshold (0.0-1.0, {cpu_gate_threshold_default} default)",
             str(pref.cpu_gate_threshold),
             QDoubleValidator(),
@@ -629,11 +643,11 @@ class Configuration(QWidget):
             tooltip=(
                 "The fraction of total system CPU (0.0–1.0) at or above which the CPU gate defers\n"
                 "starting new tests. For example, 0.90 means 'hold off while the whole machine is over\n"
-                "90% busy.' Only used when the CPU Admission Gate is enabled."
+                "90% busy.' Only used when the CPU Gate is enabled."
             ),
         )
 
-        right_column.addWidget(liveness_group)
+        right_column.addWidget(gates_group)
 
         # Resource guard group — background low-resource monitor that automatically soft-stops
         # the run. Kept separate from Liveness / Recovery: that group is about a *wedged* run,

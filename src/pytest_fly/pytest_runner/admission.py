@@ -97,11 +97,19 @@ class AdmissionGate:
 
     def checks_pass(self) -> bool:
         """Return ``True`` when every enabled gate allows dispatch (logical AND)."""
+        return not self.failing_gates()
+
+    def failing_gates(self) -> list[str]:
+        """Return the names of the enabled gates currently over budget (empty when dispatch is admitted)."""
         cfg = self.config
-        process_ok = not cfg.process_count_gate_enabled or self._process_count_ok()
-        commit_ok = not cfg.commit_gate_enabled or self._commit_ok()
-        cpu_ok = not cfg.cpu_gate_enabled or self._cpu_ok()
-        return process_ok and commit_ok and cpu_ok
+        failing = []
+        if cfg.process_count_gate_enabled and not self._process_count_ok():
+            failing.append("process-count")
+        if cfg.commit_gate_enabled and not self._commit_ok():
+            failing.append("commit")
+        if cfg.cpu_gate_enabled and not self._cpu_ok():
+            failing.append("cpu")
+        return failing
 
     def _process_count_ok(self) -> bool:
         """Return ``True`` if the controller's descendant tree is below the ceiling (fail-open)."""

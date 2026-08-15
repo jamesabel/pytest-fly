@@ -623,7 +623,7 @@ class _TestRunner(Thread):
             # Part C: throttle BEFORE acquiring a coordinator slot. A worker that has
             # dequeued but not yet acquired holds nothing, so deferring here can never
             # starve a singleton or deadlock when every worker is waiting.
-            if not self._await_admission(should_abort):
+            if not self._await_admission(should_abort, test):
                 self._handle_not_acquired(scheduled_test, test)
                 break
 
@@ -663,7 +663,7 @@ class _TestRunner(Thread):
         elif self._soft_stop_event.is_set() or self._retire_event.is_set():
             self.pytest_test_queue.put(scheduled_test)
 
-    def _await_admission(self, should_abort) -> bool:
+    def _await_admission(self, should_abort, test: str = "") -> bool:
         """Defer dispatching the next test while an enabled admission gate is over budget (Part C).
 
         The per-gate checks (AND-composed, fail-open) live in :class:`AdmissionGate`; this
@@ -671,17 +671,33 @@ class _TestRunner(Thread):
         is in flight) overrides the gates so a single heavy test can never deadlock the
         suite, and the defer is poll-interruptible via *should_abort*.
 
+        Each defer episode is logged once at its start (with the over-budget gates), and
+        once at its end (admitted, min-1 override, or aborted).
+
+        :param should_abort: Predicate polled between gate checks; ``True`` ends the defer.
+        :param test: Test node id being dispatched — log context only.
         :return: ``True`` if admitted, ``False`` if *should_abort* went true while deferring.
         """
         gate = self._admission_gate
         if not gate.any_enabled():
             return True
+        defer_start = None
         while not should_abort():
-            if gate.checks_pass():
+            failing = gate.failing_gates()
+            if not failing:
+                if defer_start is not None:
+                    log.info(f'admission gate: admitted "{test}" after deferring {time.monotonic() - defer_start:.0f}s')
                 return True
             if self._coordinator.active_slot_count() == 0:
-                return True  # min-1: nothing in flight, always make forward progress
+                # min-1: nothing in flight, always make forward progress
+                log.info(f'admission gate: over budget ({", ".join(failing)}) but nothing in flight — admitting "{test}" for forward progress')
+                return True
+            if defer_start is None:
+                defer_start = time.monotonic()
+                log.info(f'admission gate: deferring dispatch of "{test}" — over budget: {", ".join(failing)}')
             self._stop_event.wait(self.update_rate)  # interruptible defer
+        if defer_start is not None:
+            log.info(f'admission gate: defer of "{test}" ended by stop/soft-stop/retire after {time.monotonic() - defer_start:.0f}s')
         return False
 
     def stop(self):

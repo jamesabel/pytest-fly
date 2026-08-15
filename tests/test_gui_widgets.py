@@ -306,6 +306,12 @@ def test_fly_app_main_window_constructs(app):
         assert window._coverage_tracker is not None
         assert window._system_monitor.is_alive()
 
+        # Window title carries the application version (e.g. "pytest-fly 0.7.1").
+        from pytest_fly.project_info import get_project_info
+
+        assert window.windowTitle() == f"pytest-fly {get_project_info().version}"
+        assert get_project_info().version[0].isdigit()
+
         window._update_tick()
     finally:
         window.timer.stop()

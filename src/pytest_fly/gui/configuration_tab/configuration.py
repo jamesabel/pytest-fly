@@ -468,7 +468,9 @@ class Configuration(QWidget):
 
         self.auto_force_stop_on_stall_checkbox = _add_pref_checkbox(
             liveness_layout,
-            "Auto Force-stop & Reset on Stall (default: off)",
+            # "&&" renders a literal ampersand — a single "&" in a checkbox label is a Qt
+            # keyboard-mnemonic marker and displays as an underlined "R" instead.
+            "Auto Force-stop && Reset on Stall (default: off)",
             pref.auto_force_stop_on_stall,
             self.update_auto_force_stop_on_stall,
             tooltip=(

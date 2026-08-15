@@ -28,6 +28,7 @@ from ..db import PytestProcessInfoDB, PytestProcessInfoReader
 from ..interfaces import PyTestFlyExitCode, PytestRunnerState
 from ..logger import EVENT_EXTRA, get_logger
 from ..preferences import get_pref
+from ..project_info import get_project_info
 from ..pytest_runner.run_state import TERMINAL_STATES
 from ..pytest_runner.system_monitor import SystemMonitor, SystemMonitorSample
 from ..tick_data import build_tick_data
@@ -83,7 +84,7 @@ class FlyAppMainWindow(QMainWindow):
             screen_height = screen_geometry.height()
             self.setGeometry(QRect(int(padding * screen_width), int(padding * screen_height), int((1.0 - 2 * padding) * screen_width), int((1.0 - 2 * padding) * screen_height)))
 
-        self.setWindowTitle(application_name)
+        self.setWindowTitle(f"{application_name} {get_project_info().version}")
 
         icon_path = Path(__file__).parent / "icons" / "app_icon.ico"
         if icon_path.exists():

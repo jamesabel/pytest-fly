@@ -24,14 +24,13 @@ never triggers a stop, matching the admission gates and the stall watchdog.
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
-from threading import Event, Lock, Thread
 
 from ..logger import get_logger
 from .commit_memory import commit_charge_and_limit
+from .const import BYTES_PER_GB
+from .monitor_thread import MonitorThread
 
 log = get_logger()
-
-_BYTES_PER_GB = 1024.0 * 1024.0 * 1024.0
 
 # Consecutive over-threshold samples required before the guard fires. Commit charge can
 # spike transiently (e.g. while a subprocess forks), so a single bad sample is not
@@ -66,13 +65,13 @@ class ResourceGuardInfo:
     commit_fraction: float | None = None  # latest commit charge as a fraction of the limit (0.0-1.0), None when unavailable
 
 
-class ResourceGuard(Thread):
+class ResourceGuard(MonitorThread):
     """Background thread that soft-stops the run when the system is low on resources.
 
-    Follows the stall-watchdog shape: a daemon thread that ticks at ``sample_interval``,
-    publishes a :class:`ResourceGuardInfo` under a lock, and self-terminates when the run
-    finishes.  The samplers are injectable so tests can drive :meth:`tick` with synthetic
-    readings, host-independently.
+    The daemon tick loop, stop signal, and fail-open error policy come from
+    :class:`MonitorThread`; this class only evaluates the two resource signals and
+    publishes a :class:`ResourceGuardInfo`.  The samplers are injectable so tests can
+    drive :meth:`tick` with synthetic readings, host-independently.
     """
 
     def __init__(
@@ -98,38 +97,23 @@ class ResourceGuard(Thread):
         :param commit_sampler: Callable returning the system commit charge as a fraction
             of the commit limit (0.0-1.0), or ``None`` when unavailable.
         """
-        super().__init__(daemon=True)
+        super().__init__(is_running_fn, sample_interval)
         self.run_guid = run_guid
         self.disk_path = disk_path
         self.config = config
-        self._is_running_fn = is_running_fn
         self._soft_stop_fn = soft_stop_fn
-        self._sample_interval = max(sample_interval, 0.1)
         self._disk_free_sampler = disk_free_sampler or self._default_disk_free_sampler
         self._commit_sampler = commit_sampler or self._default_commit_sampler
 
-        self._stop_event = Event()
-        self._state_lock = Lock()
         self._info = ResourceGuardInfo()
         self._consecutive_breaches = 0
         self._triggered = False
         self._reason = ""
 
-    def stop(self) -> None:
-        """Signal the guard loop to exit after the current sample."""
-        self._stop_event.set()
-
     def get_info(self) -> ResourceGuardInfo:
         """Return the most recently published :class:`ResourceGuardInfo`."""
         with self._state_lock:
             return self._info
-
-    def run(self) -> None:
-        while not self._stop_event.is_set():
-            self.tick()
-            if not self._is_running_fn():
-                break  # run finished — workers all drained
-            self._stop_event.wait(self._sample_interval)
 
     def tick(self) -> None:
         """Evaluate both resource signals once and publish a fresh :class:`ResourceGuardInfo`."""
@@ -159,7 +143,7 @@ class ResourceGuard(Thread):
     def _default_disk_free_sampler(self) -> float | None:
         """Free space in GB on the drive holding ``disk_path``, or ``None`` on error (fail-open)."""
         try:
-            return shutil.disk_usage(self.disk_path).free / _BYTES_PER_GB
+            return shutil.disk_usage(self.disk_path).free / BYTES_PER_GB
         except (OSError, ValueError):
             return None
 

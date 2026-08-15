@@ -1,6 +1,7 @@
 """Failed tests pane — lists test names that have failed (or been terminated) in the current run, with clipboard copy and click-to-inspect support."""
 
 from PySide6.QtCore import Signal
+from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import QGroupBox, QHBoxLayout, QListWidget, QListWidgetItem, QPushButton, QSizePolicy, QVBoxLayout
 
 from ...interfaces import PytestRunnerState
@@ -32,6 +33,7 @@ class FailedTestsWindow(QGroupBox):
 
         self._list_widget = QListWidget(self)
         self._list_widget.setSelectionMode(QListWidget.SelectionMode.SingleSelection)
+        self._list_widget.setToolTip("Click a failed test to pin its captured output into the Live Output pane; click it again to unpin.")
         # Drive the toggle from the full click (mouse release) only — not from selection
         # changes (which fire on mouse press), so a click is a complete on/off toggle
         # rather than "pinned only while the button is held".
@@ -40,6 +42,7 @@ class FailedTestsWindow(QGroupBox):
 
         button_layout = QHBoxLayout()
         self._copy_button = QPushButton("Copy to Clipboard")
+        self._copy_button.setToolTip("Copy the failed test names (one per line) to the clipboard.")
         self._copy_button.setEnabled(False)
         self._copy_button.clicked.connect(self._copy_to_clipboard)
         button_layout.addWidget(self._copy_button)
@@ -85,8 +88,5 @@ class FailedTestsWindow(QGroupBox):
 
     def _copy_to_clipboard(self):
         """Copy the failed test names to the system clipboard."""
-        from PySide6.QtWidgets import QApplication
-
         if self._failed_names:
-            clipboard = QApplication.clipboard()
-            clipboard.setText("\n".join(self._failed_names))
+            QGuiApplication.clipboard().setText("\n".join(self._failed_names))

@@ -7,7 +7,6 @@ from pathlib import Path
 
 from pytest_fly.db import PytestProcessInfoDB
 from pytest_fly.gui.about_tab.about import About
-from pytest_fly.gui.about_tab.project_info import get_project_info
 from pytest_fly.gui.configuration_tab.configuration import Configuration
 from pytest_fly.gui.coverage_tab import CoverageTab
 from pytest_fly.gui.graph_tab.graph_tab import GraphTab
@@ -21,10 +20,11 @@ from pytest_fly.gui.run_tab.parallelism_control_box import ParallelismControlBox
 from pytest_fly.gui.run_tab.run_mode_control_box import RunModeControlBox
 from pytest_fly.gui.run_tab.run_tab import RunTab
 from pytest_fly.gui.run_tab.status_window import StatusWindow
-from pytest_fly.gui.run_tab.view_coverage import ViewCoverage
 from pytest_fly.gui.table_tab.table_tab import Columns, TableTab
+from pytest_fly.gui.view_coverage import ViewCoverage
 from pytest_fly.guid import generate_uuid
 from pytest_fly.interfaces import PyTestFlyExitCode, PytestProcessInfo, PytestRunnerState, ScheduledTest
+from pytest_fly.project_info import get_project_info
 from pytest_fly.pytest_runner.pytest_runner import PytestRunner, PytestRunState
 
 from .paths import get_temp_dir

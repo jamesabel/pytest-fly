@@ -11,6 +11,10 @@ from uuid6 import uuid7
 def generate_uuid() -> str:
     """
     Generate a UUIDv7 (time-ordered, timestamp-encoded).
+
+    Time-ordering is load-bearing: run GUIDs sort lexicographically in creation order,
+    which :meth:`pytest_fly.db.PytestProcessInfoDB.query` relies on to select the most
+    recent run via ``MAX(run_guid)``.
     """
     u = str(uuid7())
     return u

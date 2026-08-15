@@ -4,9 +4,19 @@ import time
 
 from PySide6.QtWidgets import QGroupBox, QLabel, QProgressBar, QSizePolicy, QVBoxLayout
 
-from ...gui.gui_util import PlainTextWidget, count_test_states, format_runtime, get_font
 from ...interfaces import PytestRunnerState
 from ...tick_data import TickData
+from ..gui_util import PlainTextWidget, count_test_states, first_start_timestamp, format_runtime, get_font, set_banner
+
+
+def _put_header_lines(tick: TickData) -> list[str]:
+    """Program-under-test header lines for the status text, or ``[]`` when unknown."""
+    if tick.put_version_info is None:
+        return []
+    put_line = f"PUT: {tick.put_version_info.short_label()}"
+    if tick.put_version_info.git_dirty:
+        put_line += "  [uncommitted changes]"
+    return [put_line, ""]
 
 
 class StatusWindow(QGroupBox):
@@ -59,12 +69,7 @@ class StatusWindow(QGroupBox):
 
         if len(tick.infos_by_name) > 0:
             total_tests = len(tick.infos_by_name)
-            lines = []
-            if tick.put_version_info is not None:
-                put_line = f"PUT: {tick.put_version_info.short_label()}"
-                if tick.put_version_info.git_dirty:
-                    put_line += "  [uncommitted changes]"
-                lines.extend([put_line, ""])
+            lines = _put_header_lines(tick)
             lines.extend([f"{total_tests} tests", ""])
 
             # get current pass rate
@@ -129,12 +134,7 @@ class StatusWindow(QGroupBox):
                     else:
                         lines.append("Estimated finish: unknown")
         else:
-            lines = []
-            if tick.put_version_info is not None:
-                put_line = f"PUT: {tick.put_version_info.short_label()}"
-                if tick.put_version_info.git_dirty:
-                    put_line += "  [uncommitted changes]"
-                lines.extend([put_line, ""])
+            lines = _put_header_lines(tick)
             lines.append("No test run yet — press Run to start.")
 
             self.progress_bar.setValue(0)
@@ -153,10 +153,10 @@ class StatusWindow(QGroupBox):
             stuck = getattr(stall_info, "stuck_tests", [])
             idle = getattr(stall_info, "idle_pids", [])
             seconds = getattr(stall_info, "seconds_since_progress", 0.0)
-            text = f"⚠ Run appears stalled — {len(stuck)} test(s) not progressing for {format_runtime(seconds)}, {len(idle)} in-flight process(es) idle.\nUse Force Stop to recover."
-            self.stall_banner_label.setText(text)
-            self.stall_banner_label.setStyleSheet("color: #b25400; font-weight: bold;")
-            self.stall_banner_label.setVisible(True)
+            set_banner(
+                self.stall_banner_label,
+                f"⚠ Run appears stalled — {len(stuck)} test(s) not progressing for {format_runtime(seconds)}, {len(idle)} in-flight process(es) idle.\nUse Force Stop to recover.",
+            )
             return
 
         guard_info = tick.resource_guard_info
@@ -166,16 +166,12 @@ class StatusWindow(QGroupBox):
                 text = f"⚠ Low system resources — {reason}.\nStopping: running tests will finish, queued tests will not start. Click Cancel Stop to override."
             else:
                 text = f"⚠ Low system resources triggered an automatic stop — {reason}."
-            self.stall_banner_label.setText(text)
-            self.stall_banner_label.setStyleSheet("color: #b25400; font-weight: bold;")
-            self.stall_banner_label.setVisible(True)
+            set_banner(self.stall_banner_label, text)
             return
 
         if tick.run_complete_stuck:
             n = len(tick.run_complete_stuck)
-            self.stall_banner_label.setText(f"Run finished — {n} test(s) stuck/skipped (never reached a terminal state).")
-            self.stall_banner_label.setStyleSheet("color: #b25400;")
-            self.stall_banner_label.setVisible(True)
+            set_banner(self.stall_banner_label, f"Run finished — {n} test(s) stuck/skipped (never reached a terminal state).", bold=False)
             return
 
         self.stall_banner_label.setVisible(False)
@@ -200,7 +196,7 @@ class StatusWindow(QGroupBox):
                 continue
             any_estimated = True
             infos = tick.infos_by_name.get(test_name, [])
-            started_at = next((i.time_stamp for i in infos if i.pid is not None), None)
+            started_at = first_start_timestamp(infos)
             if started_at is not None:
                 remaining = max(0.0, prior - (now - started_at))
                 max_remaining = max(max_remaining, remaining)
@@ -221,7 +217,7 @@ class StatusWindow(QGroupBox):
                 remaining_seconds += prior
             elif state == PytestRunnerState.RUNNING:
                 infos = tick.infos_by_name.get(test_name, [])
-                started_at = next((i.time_stamp for i in infos if i.pid is not None), None)
+                started_at = first_start_timestamp(infos)
                 if started_at is not None:
                     remaining_seconds += max(0.0, prior - (now - started_at))
         return remaining_seconds

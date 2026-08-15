@@ -1,9 +1,9 @@
-"""Tests for :mod:`pytest_fly.gui.about_tab.project_info`."""
+"""Tests for :mod:`pytest_fly.project_info`."""
 
 from importlib import metadata
 
-from pytest_fly.gui.about_tab import project_info
-from pytest_fly.gui.about_tab.project_info import (
+from pytest_fly import project_info
+from pytest_fly.project_info import (
     ProjectInfo,
     _from_installed_metadata,
     _from_pyproject,

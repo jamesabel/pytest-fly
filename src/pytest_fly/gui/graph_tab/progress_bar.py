@@ -10,12 +10,11 @@ from PySide6.QtGui import QBrush, QGuiApplication, QPainter, QPen
 from PySide6.QtWidgets import QMenu, QToolTip, QWidget
 from typeguard import typechecked
 
-from ...colors import GRID_LINE_COLOR
+from ...colors import BAR_COLORS, GRID_LINE_COLOR
 from ...interfaces import PytestProcessInfo, PytestRunnerState
 from ...logger import get_logger
-from ...preferences import get_pref
-from ...pytest_runner.pytest_runner import PytestRunState
-from ..gui_util import get_font, get_text_dimensions, tool_tip_limiter, window_text_color
+from ...pytest_runner.run_state import PytestRunState
+from ..gui_util import apply_graph_font, get_text_dimensions, tool_tip_limiter, window_text_color
 from .time_axis import TimeAxisMapping, compute_grid_ticks
 
 log = get_logger()
@@ -38,7 +37,7 @@ class PytestProgressBar(QWidget):
 
         super().__init__()
         self.bar_margin = 1
-        self._font_size = self._apply_graph_font()
+        self._font_size = apply_graph_font(self)
         self.one_character_dimensions = get_text_dimensions("X", size=self._font_size)
 
         self.status_list = status_list
@@ -69,19 +68,13 @@ class PytestProgressBar(QWidget):
 
         self.update_pytest_process_info(status_list, min_time_stamp, max_time_stamp, run_state, is_singleton)
 
-    def _apply_graph_font(self) -> int:
-        """Read the user's graph-font-size preference, apply it to this widget, and return the size."""
-        size = get_pref().graph_font_size
-        self.setFont(get_font(size=size))
-        return size
-
     def update_pytest_process_info(self, status_list: list[PytestProcessInfo], min_time_stamp: float, max_time_stamp: float, run_state: PytestRunState, is_singleton: bool = False):
         """
         Update the bar's data and schedule a repaint — but only if the data
         actually changed or the test is still running (its bar grows over time).
         """
         # Re-read the graph font size so pref changes propagate on the next tick.
-        new_font_size = self._apply_graph_font()
+        new_font_size = apply_graph_font(self)
         font_changed = new_font_size != self._font_size
         self._font_size = new_font_size
 
@@ -154,7 +147,7 @@ class PytestProgressBar(QWidget):
             outer_rect = self.rect()
             mapping = TimeAxisMapping(min_ts=self.min_time_stamp, max_ts=self.max_time_stamp, width_pixels=outer_rect.width())
 
-            bar_color = pytest_run_state.get_qt_bar_color()
+            bar_color = BAR_COLORS[pytest_run_state.get_state()]
 
             if pytest_run_state.get_state() not in (PytestRunnerState.QUEUED, PytestRunnerState.STOPPED) and start_running_time is not None and end_time >= self.min_time_stamp:
                 x1 = mapping.ts_to_x(start_running_time) + self.bar_margin

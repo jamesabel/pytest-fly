@@ -22,7 +22,7 @@ from ...preferences import ParallelismControl, duration_to_seconds, get_ordering
 from ...put_version import detect_put_version
 from ...pytest_runner.coverage import compute_per_test_coverage
 from ...pytest_runner.ordering import OrderingContext, apply_ordering_aspects
-from ...pytest_runner.pytest_runner import PytestRunner, _AdmissionGateConfig, _StallConfig
+from ...pytest_runner.pytest_runner import AdmissionGateConfig, PytestRunner, StallConfig
 from ...pytest_runner.resource_guard import ResourceGuardConfig
 from ...pytest_runner.test_list import GetTests
 from ..target_path_dialog import ensure_valid_target_project_path
@@ -293,7 +293,7 @@ class ControlWindow(QGroupBox):
 
         put_label = self.put_version_info.short_label() if self.put_version_info else ""
         put_fp = self.put_version_info.fingerprint() if self.put_version_info else ""
-        gate_config = _AdmissionGateConfig(
+        gate_config = AdmissionGateConfig(
             process_count_gate_enabled=pref.process_count_gate_enabled,
             max_descendant_processes=pref.max_descendant_processes,
             commit_gate_enabled=pref.commit_gate_enabled,
@@ -301,7 +301,7 @@ class ControlWindow(QGroupBox):
             cpu_gate_enabled=pref.cpu_gate_enabled,
             cpu_gate_threshold=pref.cpu_gate_threshold,
         )
-        stall_config = _StallConfig(
+        stall_config = StallConfig(
             enabled=pref.stall_detection_enabled,
             warn_seconds=duration_to_seconds(pref.stall_warn_value, pref.stall_warn_unit),
             cpu_active_epsilon=pref.cpu_active_epsilon,

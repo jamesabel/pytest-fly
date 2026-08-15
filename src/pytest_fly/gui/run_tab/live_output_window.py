@@ -10,7 +10,7 @@ from typeguard import typechecked
 from ...interfaces import PytestRunnerState
 from ...pytest_runner.live_output import read_live_output
 from ...tick_data import TickData
-from ..gui_util import format_runtime, resolve_test_output
+from ..gui_util import first_start_timestamp, format_runtime, resolve_test_output
 
 _NO_TESTS_RUNNING_PLACEHOLDER = "(no tests running)"
 _MAX_LINE_BLOCKS = 5000  # QPlainTextEdit max line count — bounds memory on very chatty tests
@@ -43,12 +43,14 @@ class LiveOutputWindow(QGroupBox):
         top_row = QHBoxLayout()
         self._test_selector = QComboBox()
         self._test_selector.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self._test_selector.setToolTip("Choose which currently-running test's output to stream. Clicking a failed test in the Failed Tests list pins its captured output here instead.")
         self._test_selector.addItem(_NO_TESTS_RUNNING_PLACEHOLDER)
         self._test_selector.setEnabled(False)
         self._test_selector.currentIndexChanged.connect(self._on_selector_changed)
         top_row.addWidget(self._test_selector)
 
         self._follow_tail_checkbox = QCheckBox("Follow tail")
+        self._follow_tail_checkbox.setToolTip("Keep the view scrolled to the newest output. Scrolling up turns this off automatically; re-check to resume following.")
         self._follow_tail_checkbox.setChecked(True)
         top_row.addWidget(self._follow_tail_checkbox)
         layout.addLayout(top_row)
@@ -185,11 +187,7 @@ class LiveOutputWindow(QGroupBox):
 
     def _update_status(self, tick: TickData) -> None:
         """Update elapsed time, last-successful-run, and the progress bar (100% = last successful runtime)."""
-        start_time: float | None = None
-        for info in tick.infos_by_name.get(self._selected_name, []):
-            if info.pid is not None:
-                start_time = info.time_stamp
-                break
+        start_time = first_start_timestamp(tick.infos_by_name.get(self._selected_name) or [])
         elapsed = time.time() - start_time if start_time is not None else None
 
         last_pass = tick.last_pass_data.get(self._selected_name)

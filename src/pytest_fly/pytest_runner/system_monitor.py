@@ -16,6 +16,8 @@ from typeguard import typechecked
 
 from ..logger import configure_child_logger
 from .commit_memory import commit_charge_and_limit
+from .const import BYTES_PER_GB as _BYTES_PER_GB
+from .const import BYTES_PER_MB as _BYTES_PER_MB
 
 
 @dataclass(frozen=True)
@@ -36,10 +38,6 @@ class SystemMonitorSample:
     commit_used_gb: float = 0.0  # GiB of commit charge currently in use
     commit_total_gb: float = 0.0  # GiB commit limit (RAM + pagefile)
     commit_percent: float = 0.0  # 0.0 - 100.0 (commit_used / commit_limit)
-
-
-_BYTES_PER_MB = 1024.0 * 1024.0
-_BYTES_PER_GB = 1024.0 * 1024.0 * 1024.0
 
 
 class SystemMonitor(Process):

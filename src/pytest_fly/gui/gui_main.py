@@ -8,11 +8,10 @@ GUI tabs.
 """
 
 import time
-from dataclasses import replace
 from pathlib import Path
 from queue import Empty
 
-from PySide6.QtCore import QByteArray, QCoreApplication, QRect, QTimer
+from PySide6.QtCore import QCoreApplication, QRect, QTimer
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QApplication,
@@ -25,18 +24,17 @@ from typeguard import typechecked
 
 from ..__version__ import application_name
 from ..db import PytestProcessInfoDB
-from ..interfaces import PutVersionInfo, PyTestFlyExitCode, PytestRunnerState
+from ..interfaces import PyTestFlyExitCode, PytestRunnerState
 from ..logger import get_logger
 from ..preferences import get_pref
-from ..pytest_runner.pytest_runner import PytestRunState
 from ..pytest_runner.system_monitor import SystemMonitor, SystemMonitorSample
-from ..tick_data import TickData
+from ..tick_data import build_tick_data
 from .about_tab.about import About
 from .configuration_tab.configuration import Configuration
 from .coverage_tab import CoverageTab
 from .coverage_tracker import CoverageTracker
 from .graph_tab import GraphTab
-from .gui_util import PhaseTimer, compute_average_parallelism, compute_time_window, get_font, get_text_dimensions, group_process_infos_by_name
+from .gui_util import PhaseTimer, get_font, get_text_dimensions, qt_state_from_hex, qt_state_to_hex
 from .run_tab import RunTab
 from .table_tab import TableTab
 from .target_path_dialog import ensure_valid_target_project_path
@@ -44,83 +42,8 @@ from .target_path_dialog import ensure_valid_target_project_path
 log = get_logger()
 
 
-def build_tick_data(
-    process_infos: list,
-    prior_durations: dict[str, float] | None = None,
-    num_processes: int = 1,
-    current_run_start: float | None = None,
-    singleton_names: set[str] | None = None,
-    put_version_info: PutVersionInfo | None = None,
-) -> TickData:
-    """
-    Build a :class:`TickData` bundle from a flat list of process info records.
-
-    Performs grouping, time-window computation, and run-state construction
-    once so that all tabs can share the pre-computed results.
-
-    ``infos_by_name`` and ``run_states`` are ordered alphabetically by test name
-    with singleton tests last, so all tabs that iterate these dicts render in
-    the same order (matching the runner's execution order).
-
-    :param process_infos: Flat list of :class:`PytestProcessInfo` objects from the DB.
-    :param prior_durations: Optional mapping of test name to prior run duration (seconds), used for ETA.
-    :param num_processes: Number of parallel worker processes (used for ETA wall-clock estimation).
-    :param current_run_start: Wall-clock timestamp captured when the Run button was pressed, used
-        as the graph time-axis origin.  Passed in explicitly because RESUME mode copies prior-run
-        records (including their original QUEUED records with ``exit_code == NONE``), so the origin
-        cannot be derived reliably from DB records alone.
-    :param singleton_names: Node ids of tests marked ``@pytest.mark.singleton``; these are sorted
-        last in the output dicts to match the runner's end-of-queue placement.
-    :return: A fully populated :class:`TickData` instance.
-    """
-    singletons = singleton_names if singleton_names is not None else set()
-
-    # RESUME mode copies prior-run records for already-passed tests into the current run so
-    # they appear in every GUI tab.  Those copies keep their genuine historical timestamps in
-    # the DB (so query_last_pass / the "Last Pass Start" column report real wall-clock times),
-    # but the Progress Graph and Run-tab status use current_run_start as their time-axis origin,
-    # so historical records would fall off the left edge.  Shift the carried-over records (those
-    # predating the run's start) onto the current run's timeline here, at render time, preserving
-    # their relative spacing and leaving the DB untouched.  Durations are delta-invariant, so the
-    # table's Runtime column is unaffected.
-    if current_run_start is not None:
-        earliest_carried = min((info.time_stamp for info in process_infos if info.time_stamp < current_run_start), default=None)
-        if earliest_carried is not None:
-            delta = current_run_start - earliest_carried
-            process_infos = [replace(info, time_stamp=info.time_stamp + delta) if info.time_stamp < current_run_start else info for info in process_infos]
-
-    grouped = group_process_infos_by_name(process_infos)
-    ordered_names = sorted(grouped, key=lambda n: (n in singletons, n))
-    infos_by_name = {name: grouped[name] for name in ordered_names}
-    run_states = {name: PytestRunState(infos_by_name[name]) for name in ordered_names}
-    min_ts, max_ts = compute_time_window(process_infos)
-    min_ts_s, max_ts_s = compute_time_window(process_infos, require_pid=True)
-
-    # While any test is running, anchor the time-axis right edge to wall-clock now.
-    # Otherwise max_ts is frozen at the latest STARTED record's timestamp, so running-test
-    # bars (whose right edge is time.time()) overflow far past the chart and get clipped.
-    if max_ts is not None and any(rs.get_state() == PytestRunnerState.RUNNING for rs in run_states.values()):
-        max_ts = max(max_ts, time.time())
-
-    return TickData(
-        process_infos=process_infos,
-        infos_by_name=infos_by_name,
-        run_states=run_states,
-        min_time_stamp=min_ts,
-        max_time_stamp=max_ts,
-        min_time_stamp_started=min_ts_s,
-        max_time_stamp_started=max_ts_s,
-        prior_durations=prior_durations if prior_durations is not None else {},
-        num_processes=num_processes,
-        average_parallelism=compute_average_parallelism(infos_by_name),
-        current_run_start=current_run_start,
-        singleton_names=singletons,
-        put_version_info=put_version_info,
-    )
-
-
 class FlyAppMainWindow(QMainWindow):
-    """Top-level application window containing the five main tabs."""
+    """Top-level application window containing the six main tabs."""
 
     def __init__(self, data_dir: Path):
         self.data_dir = data_dir
@@ -147,7 +70,8 @@ class FlyAppMainWindow(QMainWindow):
         # client area while frameGeometry includes the frame, so that pairing drifted the window
         # by the frame thickness on every reopen.
         pref = get_pref()
-        restored = bool(pref.window_geometry) and self.restoreGeometry(QByteArray.fromHex(pref.window_geometry.encode("ascii")))
+        saved_geometry = qt_state_from_hex(pref.window_geometry)
+        restored = saved_geometry is not None and self.restoreGeometry(saved_geometry)
         if not restored:
             # First run (or unreadable geometry): size to a padded fraction of the primary screen.
             screen_geometry = QApplication.primaryScreen().availableGeometry()
@@ -233,7 +157,7 @@ class FlyAppMainWindow(QMainWindow):
         # Save window geometry via Qt's own serialization (frame, size, and maximized state), so
         # restoreGeometry() on next launch returns to the exact prior placement. Matches the hex
         # persistence used for the Run-tab splitters.
-        pref.window_geometry = self.saveGeometry().toHex().data().decode("ascii")
+        pref.window_geometry = qt_state_to_hex(self.saveGeometry())
 
         if pytest_runner is not None and pytest_runner.is_running():
             pytest_runner.stop()

@@ -47,4 +47,11 @@ DISK_WRITE_COLOR = QColor(148, 0, 211)  # dark violet
 NET_SENT_COLOR = QColor(34, 139, 34)  # forest green
 NET_RECV_COLOR = QColor(64, 224, 208)  # turquoise
 COMMIT_LINE_COLOR = QColor(199, 21, 133)  # medium violet red — the Windows commit-charge wall
-COMMIT_WARN_COLOR = QColor("red")  # commit charge over the warning threshold
+
+# Shared accent colors for warning/error text so banners, chart accents, and inline HTML
+# spans all agree (previously #b25400 was hard-coded in several widgets while the commit
+# chart used pure red for the same "warning" meaning).
+WARNING_ACCENT = QColor("#b25400")  # amber — warnings and degraded states
+ERROR_ACCENT = QColor("#b22222")  # firebrick — validation errors
+
+COMMIT_WARN_COLOR = WARNING_ACCENT  # commit charge over the warning threshold

@@ -13,12 +13,10 @@ from coverage import Coverage
 from coverage.exceptions import DataError, NoDataError
 from hashy import get_string_sha256
 
-from pytest_fly.__version__ import application_name
-
 from ..file_util import find_most_recent_file, sanitize_test_name
 from ..logger import get_logger
 
-log = get_logger(application_name)
+log = get_logger()
 
 _coverage_summary_file_name = "coverage.txt"
 
@@ -69,6 +67,16 @@ def read_most_recent_coverage_summary_file(coverage_parent_directory: Path) -> f
 
 
 class PytestFlyCoverage(Coverage):
+    """:class:`coverage.Coverage` preconfigured for pytest-fly's per-test subprocesses.
+
+    ``timid=True`` uses the slower trace function that survives the tracing tricks other
+    tools (debuggers, pytest plugins) play; ``concurrency=["thread", "multiprocessing"]``
+    covers code the test runs on worker threads or spawned processes; and
+    ``check_preimported=True`` records modules imported before coverage started (the test
+    process imports pytest-fly machinery first). The ``couldnt-parse`` warning is
+    suppressed — generated/temporary sources without matching files are expected.
+    """
+
     def __init__(self, data_file: Path, **kwargs) -> None:
         super().__init__(data_file, timid=True, concurrency=["thread", "multiprocessing"], check_preimported=True, **kwargs)
         # avoid: "CoverageWarning: Couldn't parse '...': No source for code: '...'. (couldnt-parse)"

@@ -4,18 +4,19 @@ Coverage tab — displays a step-function line chart of combined code coverage o
 
 from pathlib import Path
 
+from coverage.exceptions import CoverageException
 from PySide6.QtCore import QPointF, Qt
 from PySide6.QtGui import QBrush, QPainter, QPen, QPolygonF
-from PySide6.QtWidgets import QGroupBox, QHBoxLayout, QPushButton, QSizePolicy, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QGroupBox, QHBoxLayout, QMessageBox, QPushButton, QSizePolicy, QVBoxLayout, QWidget
 
 from ...colors import COVERAGE_FILL_COLOR, COVERAGE_LINE_COLOR, GRID_LINE_COLOR
 from ...interfaces import PytestRunnerState
 from ...logger import get_logger
 from ...pytest_runner.coverage import calculate_coverage
 from ...tick_data import TickData
-from ..graph_tab.time_axis import TimeAxisMapping, compute_grid_ticks
+from ..graph_tab.time_axis import Y_GRID_PCTS, TimeAxisMapping, compute_grid_ticks
 from ..gui_util import count_test_states, get_text_dimensions, window_text_color
-from ..run_tab.view_coverage import ViewCoverage
+from ..view_coverage import ViewCoverage
 
 log = get_logger()
 
@@ -23,9 +24,6 @@ log = get_logger()
 # the live tracker's "current" identifier so clicking the button never races with the
 # periodic coverage recalculation writing to the same combined data file.
 _HTML_REPORT_IDENTIFIER = "html_report"
-
-# Horizontal grid lines at these percentages
-_Y_GRID_PCTS = [0.25, 0.50, 0.75, 1.00]
 
 
 class _CoverageChart(QWidget):
@@ -71,12 +69,12 @@ class _CoverageChart(QWidget):
 
         # Draw Y-axis labels and horizontal grid lines
         painter.setPen(QPen(GRID_LINE_COLOR, 1))
-        for pct in _Y_GRID_PCTS:
+        for pct in Y_GRID_PCTS:
             y = margin_top + int(chart_h * (1.0 - pct))
             painter.drawLine(margin_left, y, w, y)
 
         painter.setPen(QPen(text_color, 1))
-        for pct in _Y_GRID_PCTS:
+        for pct in Y_GRID_PCTS:
             y = margin_top + int(chart_h * (1.0 - pct))
             label = f"{int(pct * 100)}%"
             label_w = get_text_dimensions(label).width()
@@ -181,16 +179,24 @@ class CoverageTab(QGroupBox):
         layout.addWidget(self.chart, stretch=1)
 
     def _on_view_report(self) -> None:
-        """Generate a fresh HTML coverage report from the current data and open it."""
+        """Generate a fresh HTML coverage report from the current data and open it.
+
+        Failures are shown to the user (a warning dialog), not just logged — previously a
+        failed generation silently opened a stale report, and a missing report opened nothing.
+        """
         if self._data_dir is None:
             return
         try:
             calculate_coverage(_HTML_REPORT_IDENTIFIER, self._data_dir, write_report=True)
-        except Exception as e:
+        except (OSError, ValueError, CoverageException) as e:
             log.warning(f"HTML coverage report generation failed: {e}")
-        ViewCoverage(self._data_dir).view()
+            QMessageBox.warning(self, "Coverage report", f"Could not generate the HTML coverage report:\n{e}")
+            return
+        if not ViewCoverage(self._data_dir).view():
+            QMessageBox.warning(self, "Coverage report", "No HTML coverage report was found to open.")
 
     def update_tick(self, tick: TickData) -> None:
+        """Refresh the coverage chart and the report button from pre-computed tick data."""
         # Compute status indicator from run states
         if tick.run_states:
             total = len(tick.run_states)

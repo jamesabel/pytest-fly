@@ -47,6 +47,7 @@ def test_view_report_generates_html_and_opens_viewer(app, monkeypatch):
 
         def view(self):
             calls["viewed"] = True
+            return True  # report found and opened — no warning dialog
 
     monkeypatch.setattr(coverage_tab_module, "calculate_coverage", _fake_calculate)
     monkeypatch.setattr(coverage_tab_module, "ViewCoverage", _FakeViewer)
@@ -64,10 +65,14 @@ def test_view_report_generates_html_and_opens_viewer(app, monkeypatch):
 
 
 def test_view_report_graceful_with_no_coverage_data(app, monkeypatch):
-    """With no coverage data on disk the handler must not raise and must not open a browser."""
+    """With no coverage data on disk the handler warns the user (no browser, no exception)."""
     opened = []
+    warnings = []
     monkeypatch.setattr(webbrowser, "open", lambda uri: opened.append(uri))
+    # The missing-report path now tells the user via a (modal) warning dialog — stub it out.
+    monkeypatch.setattr(coverage_tab_module.QMessageBox, "warning", lambda *args: warnings.append(args))
     with TemporaryDirectory() as tmp:
         tab = CoverageTab(Path(tmp))
         tab._on_view_report()  # empty data dir -> no report produced
     assert opened == []
+    assert len(warnings) == 1  # the user is told there was no report to open

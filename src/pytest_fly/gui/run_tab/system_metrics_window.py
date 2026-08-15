@@ -1,6 +1,7 @@
 """
-Run-tab system-performance widget — stacked charts of system-wide CPU, memory,
-disk I/O, and network I/O sampled by :class:`SystemMonitor` in a separate process.
+Run-tab system-performance widget — a grid of charts of system-wide CPU, memory,
+commit charge, disk I/O, network I/O, and test activity, sampled by
+:class:`SystemMonitor` in a separate process.
 
 The widget keeps a time-pruned ring buffer of :class:`SystemMonitorSample` records
 and repaints from that buffer.  Sampling runs in a subprocess (owned by the main
@@ -22,20 +23,30 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import QGridLayout, QGroupBox, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QWidget
 
-from ...colors import COMMIT_LINE_COLOR, COMMIT_WARN_COLOR, CPU_LINE_COLOR, DISK_READ_COLOR, DISK_WRITE_COLOR, GRID_LINE_COLOR, MEMORY_LINE_COLOR, NET_RECV_COLOR, NET_SENT_COLOR
+from ...colors import (
+    COMMIT_LINE_COLOR,
+    COMMIT_WARN_COLOR,
+    CPU_LINE_COLOR,
+    DISK_READ_COLOR,
+    DISK_WRITE_COLOR,
+    GRID_LINE_COLOR,
+    MEMORY_LINE_COLOR,
+    NET_RECV_COLOR,
+    NET_SENT_COLOR,
+    WARNING_ACCENT,
+)
 from ...interfaces import PytestRunnerState
 from ...preferences import get_pref
 from ...pytest_runner.commit_memory import PageFileInfo, commit_warning_active, pagefile_breakdown
 from ...pytest_runner.system_monitor import SystemMonitorSample
 from ...tick_data import TickData
-from ..graph_tab.time_axis import TimeAxisMapping, compute_grid_ticks, format_elapsed_label
+from ..graph_tab.time_axis import Y_GRID_PCTS, TimeAxisMapping, compute_grid_ticks, format_elapsed_label
 from ..gui_util import get_text_dimensions, window_text_color
 
 # Activity-chart line colors: tests that are running vs. those sampled idle (near-zero CPU).
 ACTIVITY_RUNNING_COLOR = QColor("#2e7d32")  # green
-ACTIVITY_IDLE_COLOR = QColor("#b25400")  # amber (matches the warning accent)
+ACTIVITY_IDLE_COLOR = WARNING_ACCENT  # amber (the shared warning accent)
 
-_Y_GRID_PCTS = [0.25, 0.50, 0.75, 1.00]
 _MIN_CHART_HEIGHT = 70  # pixels — each sub-chart minimum
 
 
@@ -130,9 +141,9 @@ class _MetricChart(QWidget):
         a small max otherwise round to duplicates (e.g. ``y_max == 1`` → 0, 0, 1, 1).
         """
         if not self._integer_y:
-            return [y_max * pct for pct in _Y_GRID_PCTS]
+            return [y_max * pct for pct in Y_GRID_PCTS]
         top = max(int(round(y_max)), 1)
-        step = max(1, math.ceil(top / len(_Y_GRID_PCTS)))
+        step = max(1, math.ceil(top / len(Y_GRID_PCTS)))
         # Build from the top down so the highest tick is always y_max, then present ascending.
         return [float(value) for value in range(top, 0, -step)][::-1]
 
@@ -248,7 +259,7 @@ class _MetricChart(QWidget):
 
 
 class SystemMetricsWindow(QGroupBox):
-    """Container panel with four stacked sub-charts (CPU, Memory, Disk, Network)."""
+    """Container panel with six sub-charts in a grid (CPU, Memory, Commit, Disk, Network, Activity)."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -373,7 +384,7 @@ class SystemMetricsWindow(QGroupBox):
         status_layout.addWidget(self._commit_reset_button, 0)
         status_layout.addStretch(1)
         layout.addWidget(self._commit_status_widget, 3, 0, 1, 2)
-        self._commit_status_label.setText(self._build_commit_status_text())
+        self._refresh_commit_status()
 
         layout.setRowStretch(0, 1)
         layout.setRowStretch(1, 1)
@@ -423,7 +434,7 @@ class SystemMetricsWindow(QGroupBox):
         if latest is not None and commit_warning_active(latest.commit_percent, latest.commit_total_gb, get_pref().commit_warning_threshold):
             self._commit_warning_latched = True
         commit_warn = self._commit_warning_latched
-        self._commit_status_label.setText(self._build_commit_status_text())
+        self._refresh_commit_status()
 
         self._cpu_chart.update_data(samples_list, min_ts, max_ts)
         self._memory_chart.update_data(samples_list, min_ts, max_ts)
@@ -455,6 +466,10 @@ class SystemMetricsWindow(QGroupBox):
             self._commit_peak_total_gb = 0.0
         self._pagefiles = pagefile_breakdown()
         self._commit_chart.clear_warn()
+        self._refresh_commit_status()
+
+    def _refresh_commit_status(self) -> None:
+        """Rebuild and display the commit-status line (peak, pagefiles, latched warning)."""
         self._commit_status_label.setText(self._build_commit_status_text())
 
     def _build_commit_status_text(self) -> str:
@@ -473,9 +488,9 @@ class SystemMetricsWindow(QGroupBox):
                 f"⚠ System commit charge near limit ({latest.commit_used_gb:.1f}/{latest.commit_total_gb:.1f} GB, {latest.commit_percent:.0f}%)"
                 " — risk of paging-file failures / crashed workers."
             )
-            # Warning orange (matches the Configuration-tab restart notice and the Commit chart accent).
+            # The shared warning accent (matches the status banners and the Commit chart accent).
             # Kept on the same line as the status so the whole strip stays a single row.
-            return f'<span style="color: #b25400;">{warning}</span>&nbsp;&nbsp;·&nbsp;&nbsp;{status}'
+            return f'<span style="color: {WARNING_ACCENT.name()};">{warning}</span>&nbsp;&nbsp;·&nbsp;&nbsp;{status}'
         return status
 
     def _pagefile_summary(self) -> str:

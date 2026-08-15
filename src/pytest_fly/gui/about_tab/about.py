@@ -7,13 +7,13 @@ import humanize
 from PySide6.QtCore import QObject, QThread, Signal
 from PySide6.QtWidgets import QSizePolicy, QVBoxLayout, QWidget
 
-from pytest_fly.__version__ import application_name
-from pytest_fly.gui.about_tab.project_info import get_project_info
-from pytest_fly.gui.gui_util import PlainTextWidget
-from pytest_fly.logger import get_log_directory
-from pytest_fly.platform.platform_info import get_performance_core_count, get_platform_info
-from pytest_fly.preferences import get_active_put_path, get_preferences_db_path
-from pytest_fly.put_version import detect_put_version
+from ...__version__ import application_name
+from ...logger import get_log_directory
+from ...platform.platform_info import get_performance_core_count, get_platform_info
+from ...preferences import get_active_put_path, get_preferences_db_path
+from ...project_info import get_project_info
+from ...put_version import detect_put_version
+from ..gui_util import PlainTextWidget
 
 # Preferred display order for Program Under Test fields; any fields not listed
 # here are appended in dataclass declaration order.
@@ -35,6 +35,7 @@ class AboutDataWorker(QObject):
         self._data_dir = data_dir
 
     def run(self):
+        """Gather project, platform, and path info (slow: PUT detection runs git) and emit ``data_ready``."""
         text_lines = []
 
         fly_info = get_project_info()

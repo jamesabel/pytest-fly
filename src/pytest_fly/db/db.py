@@ -6,7 +6,6 @@ and derives the table schema automatically from the dataclass fields.
 """
 
 import sqlite3
-import time
 from dataclasses import asdict
 from enum import IntEnum, StrEnum
 from pathlib import Path
@@ -15,7 +14,7 @@ from msqlite import MSQLite
 from typeguard import typechecked
 
 from ..__version__ import application_name
-from ..interfaces import PyTestFlyExitCode, PytestProcessInfo
+from ..interfaces import PyTestFlyExitCode, PytestProcessInfo, is_terminal_exit_code, status_record
 from ..logger import get_logger
 
 log = get_logger()
@@ -124,6 +123,10 @@ class PytestProcessInfoDB(MSQLite):
         """
         Query the pytest process info from the database.
 
+        ``run_guid=None`` returns only the most recent run, selected as the
+        lexicographically greatest GUID — valid because run GUIDs are UUIDv7
+        (time-ordered; see :func:`pytest_fly.guid.generate_uuid`).
+
         :param run_guid: the run GUID to filter on, or None to get the most recent.
         :return: the pytest process infos
         """
@@ -168,19 +171,9 @@ class PytestProcessInfoDB(MSQLite):
         if not infos:
             return False
         latest = max(infos, key=lambda info: info.time_stamp)
-        if latest.exit_code != PyTestFlyExitCode.NONE:
+        if is_terminal_exit_code(latest.exit_code):
             return False  # already terminal — a real result must not be overwritten
-        info = PytestProcessInfo(
-            latest.run_guid,
-            test_name,
-            None,
-            PyTestFlyExitCode.TERMINATED,
-            None,
-            time_stamp=time.time(),
-            put_version=latest.put_version,
-            put_fingerprint=latest.put_fingerprint,
-        )
-        self.write(info)
+        self.write(status_record(latest.run_guid, test_name, PyTestFlyExitCode.TERMINATED, latest.put_version, latest.put_fingerprint))
         return True
 
     def query_last_pass(self) -> dict[str, tuple[float, float]]:

@@ -6,6 +6,7 @@ Defines the fundamental types used by the runner, database, and GUI layers:
 :class:`RunMode`, :class:`OrderingAspect`, and :class:`PyTestFlyExitCode`.
 """
 
+import time
 from dataclasses import dataclass
 from enum import IntEnum, StrEnum
 from functools import cache
@@ -100,12 +101,29 @@ class PyTestFlyExitCode(IntEnum):
 
 @cache
 def int_exit_code_to_pytest_fly_exit_code(int_exit_code: int) -> PyTestFlyExitCode:
+    """Map a raw integer exit code to its :class:`PyTestFlyExitCode` member.
+
+    The assert is acceptable here: every integer that reaches this function comes from
+    a :class:`PyTestFlyExitCode` written by this application (via the DB), so a miss is
+    a programming error, not a runtime condition to handle.
+    """
     found = None
     for exit_code in PyTestFlyExitCode:
         if exit_code.value == int_exit_code:
             found = exit_code
     assert found is not None
     return found
+
+
+def is_terminal_exit_code(exit_code: PyTestFlyExitCode | ExitCode | int) -> bool:
+    """Return ``True`` when *exit_code* marks a finished test.
+
+    ``NONE`` is the only non-terminal code — it is the sentinel carried by QUEUED and
+    RUNNING records. Every other code (pytest's own results plus TERMINATED / STOPPED)
+    is terminal. This is the single definition of "terminal" at the exit-code level;
+    the state-level twin is ``run_state.TERMINAL_STATES``, derived from the same rule.
+    """
+    return exit_code != PyTestFlyExitCode.NONE
 
 
 @dataclass(frozen=True)
@@ -175,3 +193,13 @@ class PytestProcessInfo:
     put_version: str | None = None  # program-under-test short label (e.g. "pytest-fly 0.3.19 (abc1234)")
     put_fingerprint: str | None = None  # program-under-test fingerprint for RunMode.CHECK comparison
     commit_bytes: int | None = None  # peak commit charge of the test's process subtree, in bytes (Windows: pagefile / "Commit Size")
+
+
+def status_record(run_guid: str, name: str, exit_code: PyTestFlyExitCode | ExitCode, put_version: str | None = "", put_fingerprint: str | None = "") -> PytestProcessInfo:
+    """Return a pid-less, output-less :class:`PytestProcessInfo` marking a state transition.
+
+    Used for the QUEUED / STOPPED / TERMINATED bookkeeping writes, where only the state
+    (exit code) changes and there is no process or captured output to attach. Timestamped
+    with the current wall-clock time.
+    """
+    return PytestProcessInfo(run_guid, name, None, exit_code, None, time_stamp=time.time(), put_version=put_version, put_fingerprint=put_fingerprint)

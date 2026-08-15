@@ -43,28 +43,34 @@ pip install -r requirements-dev.txt
 ## Architecture
 
 ### Entry point
-`src/pytest_fly/__main__.py` → `main.py` initializes the Balsa logger and launches the Qt app.
+`src/pytest_fly/__main__.py` → `main.py` initializes the stdlib-based logger (`logger.py`) and launches the Qt app.
 
 ### GUI layer (`src/pytest_fly/gui/`)
-- `gui_main.py` — `FlyAppMainWindow`: 5-tab Qt window with a periodic timer (default 3 s) that pulls updates from the runner and refreshes all tabs.
-- Tabs: `run_tab/` (start/pause controls), `table_tab/` (per-test status grid), `graph_tab/` (time-based progress chart), `configuration_tab/` (parallelism & thresholds), `about_tab/`.
+- `gui_main.py` — `FlyAppMainWindow`: 6-tab Qt window with a periodic timer (default 3 s) that pulls updates from the runner and refreshes all tabs.
+- Tabs: `run_tab/` (run/stop controls, status, system metrics, failed tests, live output), `graph_tab/` (time-based progress chart), `table_tab/` (per-test status grid), `coverage_tab/` (coverage-over-time chart), `configuration_tab/` (parallelism, thresholds, gates), `about_tab/`.
 
 ### Core runner (`src/pytest_fly/pytest_runner/`)
-- `pytest_runner.py` — `PytestRunner` (thread): orchestrates worker threads, schedules tests, handles run modes.
+- `pytest_runner.py` — `PytestRunner` (thread): orchestrates worker threads, schedules tests, handles run modes; hosts the stall watchdog and the admission gates (process-count / commit-charge / CPU).
+- `run_state.py` — classifies DB records into display states (`PytestRunState`, `state_of`, `latest_states`).
+- `singleton_coordinator.py` — `SingletonCoordinator`: serializes `@pytest.mark.singleton` tests against all workers.
+- `monitor_thread.py` — `MonitorThread`: shared daemon-loop base for the stall watchdog and resource guard.
+- `resource_guard.py` — `ResourceGuard`: opt-in low-resource (disk / commit space) automatic soft stop.
 - `pytest_process.py` — `PytestProcess`: spawns one `pytest` subprocess per test module, attaches a `ProcessMonitor`.
 - `test_list.py` — `GetTests` process: discovers tests via `pytest --collect-only`.
-- `process_monitor.py` — `ProcessMonitor` subprocess: samples CPU/memory of the test process tree.
-- `utilization.py` — computes system utilization; drives adaptive parallelism.
+- `process_monitor.py` — `ProcessMonitor` subprocess: samples CPU/memory of the test process tree; `SubtreeCpuSampler` (shared persistent-handle CPU sampling).
+- `system_monitor.py` — `SystemMonitor` subprocess: system-wide CPU/memory/commit/disk/network sampling for the Run tab charts.
+- `commit_memory.py` — Windows commit-charge readers and psutil subtree helpers.
 - `coverage.py` — merges per-process coverage data.
+- `ordering.py` — applies the user's test-ordering aspects; `live_output.py` — per-test live-output file paths.
 
 ### Persistence
 - `db/db.py` — thin wrapper around **msqlite** (thread-safe SQLite). Stores `PytestProcessInfo` records (status, timing, resource usage) — the foundation for RESUME mode.
 - `preferences.py` — persists user settings (window geometry, parallelism count, utilization thresholds, run mode) via the **pref** library.
 
 ### Key data structures (`interfaces.py`)
-- `PytestProcessInfo` — attrs dataclass for a single test module run (status, duration, CPU, memory, pass/fail counts).
+- `PytestProcessInfo` — frozen stdlib dataclass for a single test module run (status, timing, CPU, memory, commit).
 - `ScheduledTest` — an ordered item in the execution queue.
-- `PytestRunnerState` — enum: IDLE / RUNNING / PAUSED / DONE.
+- `PytestRunnerState` — enum: QUEUED / RUNNING / PASS / FAIL / TERMINATED / STOPPED.
 - `RunMode` — enum: RESTART / RESUME / CHECK.
 
 ### Parallelism model
@@ -80,7 +86,7 @@ Tests are parallelised **at the module level**. All functions inside a module ru
 | Preferences | pref |
 | File watching | watchdog |
 | Resource monitoring | psutil |
-| Data classes | attrs |
+| Data classes | stdlib dataclasses (attrs for preferences) |
 | Linting/Formatting | ruff (len=192) |
 | Type checking | ty |
 | Build | hatchling |

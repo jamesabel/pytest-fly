@@ -3,7 +3,9 @@
 from dataclasses import asdict
 from pathlib import Path
 
-import humanize
+# Submodule import instead of the humanize package root — see gui_util.py: the root's PEP 810
+# lazy re-exports fail to reify on Python 3.15.0b2 under pytest.
+from humanize.filesize import naturalsize
 from PySide6.QtCore import QObject, QThread, Signal
 from PySide6.QtWidgets import QSizePolicy, QVBoxLayout, QWidget
 
@@ -68,7 +70,7 @@ class AboutDataWorker(QObject):
         for key, value in get_platform_info().items():
             key_string = " ".join([s.capitalize() for s in key.split("_")]).replace("Cpu", "CPU")
             if any([descriptor in key.lower() for descriptor in ["cache", "memory"]]):
-                text_lines.append(f"{key_string}: {humanize.naturalsize(value) if isinstance(value, (int, float)) else value}")
+                text_lines.append(f"{key_string}: {naturalsize(value) if isinstance(value, (int, float)) else value}")
             elif "freq" in key:
                 text_lines.append(f"{key_string}: {value / 1000.0} GHz")
             else:

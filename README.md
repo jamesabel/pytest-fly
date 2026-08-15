@@ -7,9 +7,8 @@
 [![License](https://img.shields.io/pypi/l/pytest-fly)](https://github.com/jamesabel/pytest-fly/blob/master/LICENSE)
 
 
-# `pytest-fly`: PyTest for System Tests
-
-Aids the development, debug, and execution of complex code bases and test suites.
+**PyTest for System Tests** — aids the development, debug, and execution of complex code bases
+and test suites.
 
 ## Installation
 
@@ -19,34 +18,54 @@ Install `pytest-fly` via `pip` from `PyPI`:
 pip install pytest-fly
 ```
 
+Requires Python 3.12+ (tested through the 3.15 pre-release). Run the app with:
+
+```
+python -m pytest_fly
+```
+
 ## Features
 
-- Real-time monitoring of test execution in a GUI with six tabs:
-  - **Run** — run/stop controls (**Stop** waits for the running tests to finish and, while
-    pending, becomes **Cancel Stop** so the stop can be called off and the queued tests keep
-    running; **Force Stop** terminates immediately), parallelism and run-mode selectors (Restart or Resume; Resume
-    behaves as Check unless the Configuration tab's *Resume Without Program Check* is set), and
-    several panels: a Status panel (completion percentage, pass rate, per-state counts, elapsed
-    time, average parallelism, coverage, and estimated time remaining), a System Performance
-    panel (live CPU, memory, commit-charge, disk I/O, and network I/O charts, with memory and
-    commit charge shown as used/total GB alongside percent; the commit-charge warning latches when
-    the charge crosses the configured threshold — showing both the absolute GB and percent — and
-    stays until dismissed with its **Clear** button), a
-    Failed Tests panel with clipboard copy, a Live Output panel streaming pytest output from the
-    running tests with elapsed time, last successful run duration, and a progress bar tracking
-    progress against the last successful run, and program-under-test version/dirty-git indicators
+- Real-time monitoring of test execution in a GUI with seven tabs:
+  - **Run** — run controls and live panels:
+    - Controls: **Run**, **Stop** (waits for the running tests to finish and, while pending,
+      becomes **Cancel Stop** so the stop can be called off and the queued tests keep running),
+      and **Force Stop** (terminates immediately), plus parallelism and run-mode selectors
+      (Restart or Resume; Resume behaves as Check unless the Configuration tab's
+      *Resume Without Program Check* is set)
+    - Status panel: completion percentage, pass rate, per-state counts, elapsed time, average
+      parallelism, coverage, and estimated time remaining
+    - System Performance panel: live CPU, memory, commit-charge, disk I/O, and network I/O
+      charts, with memory and commit charge shown as used/total GB alongside percent; the
+      commit-charge warning latches when the charge crosses the configured threshold and stays
+      until dismissed with its **Clear** button
+    - Failed Tests panel with clipboard copy — clicking a failed test pins its captured output
+      in the Live Output panel
+    - Live Output panel: streams pytest output from a selectable running test, with elapsed
+      time, last successful run duration, and a progress bar tracking against the last
+      successful run
+    - Program-under-test version and dirty-git indicators
   - **Graph** — time-based progress chart showing each test module as a horizontal bar
   - **Table** — per-test status grid with elapsed time, peak CPU, memory usage, and individual coverage
   - **Coverage** — line chart of combined code coverage over time with covered/total line counts
+  - **Log** — live application event log, each line date/time-prefixed. The default view shows
+    only notable run events (admission-gate deferrals, resource-guard and stall-watchdog
+    triggers, force stops) plus all warnings; a **Verbose** checkbox shows every log line.
+    The Verbose and Follow-tail selections persist across sessions, and the retained line
+    count is configurable
   - **Configuration** — Resume-vs-Check toggle, a reorderable test-ordering aspect list, process
     count, refresh rate, utilization thresholds, tooltip line limit, system-metrics chart window,
-    Progress Graph font size, target project path (applies on the next run),
-    test-results DB directory, a Resource Guard group (low-resource automatic soft stop with
+    Progress Graph font size, Log tab line limit, target project path (applies on the next run),
+    test-results DB directory, a Liveness / Recovery group (stall watchdog with optional
+    automatic force-stop), an Admission Gates group (process-count / commit-charge / CPU
+    dispatch throttles), a Resource Guard group (low-resource automatic soft stop with
     free-disk and commit-space thresholds), an Expert group (verbose logging, UI performance
     logging), and a Restore Defaults button that resets every setting on the tab (with
     confirmation)
   - **About** — system and project information
-- Parallel test execution at the module level with configurable process count.
+- Parallel test execution at the module level with a configurable process count — changes to the
+count apply immediately, even mid-run (the worker pool grows or shrinks without restarting the
+suite).
 - Three run modes — **Restart** (rerun all tests), **Resume** (skip already-passed tests and
   only re-run failed or unrun tests), and **Check** (resume if the program under test has not
   changed, otherwise restart).
@@ -54,6 +73,16 @@ pip install pytest-fly
 be canceled (**Cancel Stop**) at any point until the last running test finishes, resuming the
 remaining queued tests without losing any progress.
 - Per-process resource monitoring — tracks peak CPU and memory usage for each test module.
+- Admission gates (opt-in) — dispatch throttles that pace a healthy run: before starting another
+test, pytest-fly waits while any enabled gate is over its limit — total process count in its
+tree, system commit charge, or system-wide CPU utilization. Gates only defer *starting* new
+tests (they never pause or cap a running test), and at least one test always runs so the suite
+cannot deadlock behind a gate. Gate activity is logged to the Log tab.
+- Stall detection — a read-only watchdog flags a *wedged* run (no test starts or finishes AND no
+in-flight test uses any CPU for the configured window) with an advisory banner; a genuinely
+working test never trips it, no matter how long it runs. **Force Stop** recovers a wedged run
+without killing pytest-fly itself, and automatic force-stop-and-reset can be enabled for
+unattended runs.
 - Resource guard (opt-in) — monitors system resources in the background during a run and
 automatically soft-stops the suite when the system runs low on free disk space (on the drive
 holding the pytest-fly data directory) or commit space (RAM + page file, AKA paging/swap space).
@@ -74,7 +103,7 @@ results follow the project rather than the user.
 with `--target <path>` at startup or from the Configuration tab's *Target Project Path* field, and
 takes effect on the next run (no relaunch). See [Choosing Which Tests Run](#choosing-which-tests-run).
 
-# Screenshots
+## Screenshots
 
 ### Basic Demo
 
@@ -95,6 +124,10 @@ takes effect on the next run (no relaunch). See [Choosing Which Tests Run](#choo
 ### Coverage
 
 ![Coverage tab](https://raw.githubusercontent.com/jamesabel/pytest-fly/master/docs/images/coverage.png)
+
+### Log
+
+![Log tab](https://raw.githubusercontent.com/jamesabel/pytest-fly/master/docs/images/log.png)
 
 ### Configuration
 
@@ -170,7 +203,7 @@ working — only the *collection scope* narrows to the chosen path.
 > collect_ignore_glob = ["fly_demo/*"]
 > ```
 
-# What's Up With The Name?
+## What's Up With The Name?
 
 Originally this was going to be a "watcher", so it's like a "fly on the wall".  As it turns out, it became a runner
 to provide the desired control and observability. "Fly" can mean:

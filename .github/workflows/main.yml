@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ['3.12']
+        python-version: ['3.12', '3.15']
     steps:
       - uses: actions/checkout@v5
 
@@ -28,9 +28,12 @@ jobs:
           allow-prereleases: true
 
       - name: Install dependencies
+        # PySide6 6.11 caps requires-python at <3.15, but its abi3 wheels run fine on 3.15
+        # (verified: the full suite passes on 3.15.0b2). Ignore the cap on the 3.15
+        # pre-release job until a PySide6 release declares 3.15 support.
         run: |
           pip install coverage pytest pytest-qt
-          pip install -e .
+          pip install ${{ matrix.python-version == '3.15' && '--ignore-requires-python' || '' }} -e .
 
       - name: Run tests with coverage
         env:

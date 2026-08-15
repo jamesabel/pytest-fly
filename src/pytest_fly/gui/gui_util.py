@@ -10,7 +10,10 @@ from datetime import timedelta
 from functools import lru_cache
 from pathlib import Path
 
-import humanize
+# Import from the defining submodule, not the humanize package root: humanize 4.16 makes its
+# root re-exports PEP 810 lazy imports, and on Python 3.15.0b2 the placeholder fails to reify
+# under pytest ("'lazy_import' object is not callable"). The submodule import is unaffected.
+from humanize.time import precisedelta
 from PySide6.QtCore import QByteArray, QSize
 from PySide6.QtGui import QBrush, QColor, QFont, QFontMetrics, QPalette
 from PySide6.QtWidgets import QLabel, QPlainTextEdit, QSizePolicy, QSplitter, QTableWidgetItem, QWidget
@@ -173,7 +176,7 @@ def format_runtime(seconds: float) -> str:
     :param seconds: Duration in seconds.
     :return: Formatted string (e.g. ``"3 seconds"``, ``"2 minutes and 15 seconds"``).
     """
-    return humanize.precisedelta(timedelta(seconds=seconds))
+    return precisedelta(timedelta(seconds=seconds))
 
 
 def window_text_color(widget: QWidget) -> QColor:

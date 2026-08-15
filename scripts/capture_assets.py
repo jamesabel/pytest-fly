@@ -15,6 +15,7 @@ Outputs:
     docs/images/graph.png
     docs/images/table.png
     docs/images/coverage.png
+    docs/images/log.png
     docs/images/configuration.png
     docs/images/about.png
     docs/images/run_animation.gif
@@ -36,6 +37,7 @@ from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from demo.demo import generate_tests  # noqa: E402
 from pytest_fly.gui.gui_main import FlyAppMainWindow  # noqa: E402
+from pytest_fly.logger import init_parent_logger  # noqa: E402
 from pytest_fly.paths import init_workspace  # noqa: E402
 
 WINDOW_SIZE = (1700, 900)
@@ -46,7 +48,7 @@ TAB_SETTLE_DELAY_MS = 400
 POST_RUN_SETTLE_DELAY_MS = 1500
 RUN_TRIGGER_DELAY_MS = 800
 
-TAB_FILENAMES = ["run", "graph", "table", "coverage", "configuration", "about"]
+TAB_FILENAMES = ["run", "graph", "table", "coverage", "log", "configuration", "about"]
 
 
 def qpixmap_to_pil(pixmap: QPixmap) -> Image.Image:
@@ -175,6 +177,16 @@ def main():
     # Bind the workspace to the demo dir — prefs/logs live in its .pytest-fly/ and the PUT
     # defaults to it, so there's nothing to restore on exit.
     init_workspace(fly_demo_dir)
+
+    # Mirror main.py's startup: without this the root logger stays at WARNING, INFO records
+    # never reach the GUI log handler, and the Log tab screenshot comes out empty.
+    init_parent_logger(verbose=False)
+
+    # The Log tab's default view shows only notable events (admission gate, resource guard, ...)
+    # and a plain demo run has none — enable Verbose so the screenshot shows a populated log.
+    from pytest_fly.preferences import get_pref  # noqa: E402,PLC0415  (import after workspace binding)
+
+    get_pref().log_tab_verbose = True
 
     app = QApplication.instance() or QApplication([])
     window = FlyAppMainWindow(data_dir)

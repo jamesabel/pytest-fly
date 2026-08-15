@@ -10,16 +10,22 @@ directory.
 """
 
 import logging
+from collections import deque
 from logging import Formatter, Logger
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
+from threading import Lock
 
 from pytest_fly.__version__ import application_name
 from pytest_fly.paths import get_log_dir
 
 _LOG_FORMAT = "%(asctime)s %(process)d %(name)s %(levelname)s %(message)s"
+# GUI Log tab format — same date/time prefix as the file log, but no PID/logger name
+# (every captured record comes from this process's application logger).
+_GUI_LOG_FORMAT = "%(asctime)s %(levelname)s %(message)s"
 _MAX_BYTES = 10 * 1024 * 1024
 _BACKUP_COUNT = 5
+_GUI_LOG_MAX_RECORDS = 10_000  # bound on buffered-but-not-yet-drained GUI log lines
 
 _log_directory: Path | None = None
 
@@ -106,3 +112,51 @@ def get_log_directory() -> Path | None:
 def get_logger(name: str = application_name) -> Logger:
     """Return a stdlib logger by name."""
     return logging.getLogger(name)
+
+
+class GuiLogHandler(logging.Handler):
+    """Buffers formatted log records for display in the GUI Log tab.
+
+    Records may be emitted from any thread (worker threads, monitor threads); the GUI
+    thread calls :meth:`drain` on its refresh tick to collect the new lines.  The buffer
+    is bounded so a chatty logger can never grow memory without bound if the GUI stops
+    draining.
+    """
+
+    def __init__(self, level: int = logging.INFO) -> None:
+        super().__init__(level)
+        self.setFormatter(Formatter(_GUI_LOG_FORMAT))
+        self._buffer_lock = Lock()
+        self._buffer: deque[str] = deque(maxlen=_GUI_LOG_MAX_RECORDS)
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            line = self.format(record)
+        except (ValueError, TypeError):
+            return  # malformed record — never let the log view take down logging
+        with self._buffer_lock:
+            self._buffer.append(line)
+
+    def drain(self) -> list[str]:
+        """Return all buffered lines (oldest first) and clear the buffer."""
+        with self._buffer_lock:
+            lines = list(self._buffer)
+            self._buffer.clear()
+        return lines
+
+
+def install_gui_log_handler() -> GuiLogHandler:
+    """Attach a fresh :class:`GuiLogHandler` to the application logger and return it.
+
+    Attached to the application logger (not root) so the Log tab shows pytest-fly's own
+    events without third-party library noise.  Any previously installed instance is
+    removed first, so repeated installation (e.g. widget re-creation in tests) never
+    stacks handlers.
+    """
+    app_logger = get_logger()
+    for handler in list(app_logger.handlers):
+        if isinstance(handler, GuiLogHandler):
+            app_logger.removeHandler(handler)
+    handler = GuiLogHandler()
+    app_logger.addHandler(handler)
+    return handler

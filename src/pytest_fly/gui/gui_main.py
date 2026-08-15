@@ -35,6 +35,7 @@ from .coverage_tab import CoverageTab
 from .coverage_tracker import CoverageTracker
 from .graph_tab import GraphTab
 from .gui_util import PhaseTimer, get_font, get_text_dimensions, qt_state_from_hex, qt_state_to_hex
+from .log_tab import LogTab
 from .run_tab import RunTab
 from .table_tab import TableTab
 from .target_path_dialog import ensure_valid_target_project_path
@@ -43,7 +44,7 @@ log = get_logger()
 
 
 class FlyAppMainWindow(QMainWindow):
-    """Top-level application window containing the six main tabs."""
+    """Top-level application window containing the seven main tabs."""
 
     def __init__(self, data_dir: Path):
         self.data_dir = data_dir
@@ -97,12 +98,14 @@ class FlyAppMainWindow(QMainWindow):
         self.graph_tab = GraphTab()
         self.table_tab = TableTab(self.data_dir)
         self.coverage_tab = CoverageTab(self.data_dir)
+        self.log_tab = LogTab()
         self.configuration = Configuration()
         self.about = About(self, self.data_dir)
         self.tab_widget.addTab(self.run_tab, "Run")
         self.tab_widget.addTab(self.graph_tab, "Graph")
         self.tab_widget.addTab(self.table_tab, "Table")
         self.tab_widget.addTab(self.coverage_tab, "Coverage")
+        self.tab_widget.addTab(self.log_tab, "Log")
         self.tab_widget.addTab(self.configuration, "Configuration")
         self.tab_widget.addTab(self.about, "About")
 
@@ -264,6 +267,8 @@ class FlyAppMainWindow(QMainWindow):
             self.run_tab.update_tick(tick)
         with timer.time("cov_tab"):
             self.coverage_tab.update_tick(tick)
+        with timer.time("log_tab"):
+            self.log_tab.update_tick()
 
         total_ms = (time.perf_counter() - tick_start) * 1000.0
         n_completed = sum(1 for rs in tick.run_states.values() if rs.get_state() in (PytestRunnerState.PASS, PytestRunnerState.FAIL))

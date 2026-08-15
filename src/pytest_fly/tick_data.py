@@ -51,6 +51,9 @@ class TickData:
     # Part D user-facing completion (force-stopped, or every test terminal), derived from this
     # tick's records so button-state logic needs no extra DB queries. None when no runner exists.
     user_complete: bool | None = None
+    # True while background run preparation (PUT detection, test discovery, RESUME copying) is
+    # in flight — the Status panel shows "please wait" instead of the idle press-Run prompt.
+    run_prep_active: bool = False
 
     @property
     def effective_min_time_stamp(self) -> float | None:

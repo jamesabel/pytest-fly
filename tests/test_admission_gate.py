@@ -185,7 +185,7 @@ def test_cpu_gate_composes_as_and(monkeypatch):
 
 
 def test_failing_gates_report_measured_value_and_threshold(monkeypatch):
-    """Each over-budget gate description carries the measured value and the threshold that fired."""
+    """Each at-capacity gate description carries the measured value and the threshold that fired."""
     monkeypatch.setattr(admission, "subtree_process_count", lambda pid: 12)
     monkeypatch.setattr(admission, "commit_charge_and_limit", lambda: (93, 100))
     monkeypatch.setattr(admission, "system_cpu_fraction", lambda: 0.955)
@@ -200,7 +200,7 @@ def test_failing_gates_report_measured_value_and_threshold(monkeypatch):
         ),
         controller_pid=os.getpid(),
     )
-    assert gate.failing_gates() == ["process-count (12 >= 10)", "commit (93.0% >= 90%)", "cpu (95.5% >= 90%)"]
+    assert gate.failing_gates() == ["process-count (12 of max 10)", "commit (93.0%, threshold 90%)", "cpu (95.5%, threshold 90%)"]
 
 
 def test_system_cpu_fraction_primes_then_reads(monkeypatch):

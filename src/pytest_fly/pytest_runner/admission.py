@@ -100,8 +100,8 @@ class AdmissionGate:
         return not self.failing_gates()
 
     def failing_gates(self) -> list[str]:
-        """Return a description of each enabled gate currently over budget, as
-        ``name (measured >= threshold)`` (empty when dispatch is admitted)."""
+        """Return a description of each enabled gate currently at capacity, carrying the
+        measured value and the threshold that fired (empty when dispatch is admitted)."""
         cfg = self.config
         failing = []
         if cfg.process_count_gate_enabled and (process_count_failure := self._process_count_failure()) is not None:
@@ -113,7 +113,7 @@ class AdmissionGate:
         return failing
 
     def _process_count_failure(self) -> str | None:
-        """Return an over-budget description if the controller's descendant tree has reached the ceiling, else ``None`` (fail-open)."""
+        """Return an at-capacity description if the controller's descendant tree has reached the ceiling, else ``None`` (fail-open)."""
         if self.controller_pid is None:
             return None
         count = subtree_process_count(self.controller_pid)
@@ -121,10 +121,10 @@ class AdmissionGate:
             return None
         if count < self.config.max_descendant_processes:
             return None
-        return f"process-count ({count} >= {self.config.max_descendant_processes})"
+        return f"process-count ({count} of max {self.config.max_descendant_processes})"
 
     def _commit_failure(self) -> str | None:
-        """Return an over-budget description if system commit charge has reached the gate threshold, else ``None`` (fail-open)."""
+        """Return an at-capacity description if system commit charge has reached the gate threshold, else ``None`` (fail-open)."""
         commit = commit_charge_and_limit()
         if commit is None:
             return None  # signal unavailable -> admit
@@ -134,16 +134,16 @@ class AdmissionGate:
         fraction = commit_total / commit_limit
         if fraction < self.config.commit_gate_threshold:
             return None
-        return f"commit ({fraction:.1%} >= {self.config.commit_gate_threshold * 100:g}%)"
+        return f"commit ({fraction:.1%}, threshold {self.config.commit_gate_threshold * 100:g}%)"
 
     def _cpu_failure(self) -> str | None:
-        """Return an over-budget description if system-wide CPU utilization has reached the gate threshold, else ``None`` (fail-open)."""
+        """Return an at-capacity description if system-wide CPU utilization has reached the gate threshold, else ``None`` (fail-open)."""
         cpu = system_cpu_fraction()
         if cpu is None:
             return None  # unprimed / unavailable -> admit
         if cpu < self.config.cpu_gate_threshold:
             return None
-        return f"cpu ({cpu:.1%} >= {self.config.cpu_gate_threshold * 100:g}%)"
+        return f"cpu ({cpu:.1%}, threshold {self.config.cpu_gate_threshold * 100:g}%)"
 
 
 # Backward-compatible alias for the pre-extraction private name.

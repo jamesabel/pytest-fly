@@ -522,9 +522,10 @@ class Configuration(QWidget):
             pref.process_count_gate_enabled,
             self.update_process_count_gate_enabled,
             tooltip=(
-                "Throttles runaway process spawning. Before starting another test, pytest-fly waits while\n"
-                "the total number of processes in its tree — every test process plus anything those tests\n"
-                "spawn (subprocesses, multiprocessing pools) — is at or above 'Max Descendant Processes'.\n\n"
+                "Throttles runaway process spawning. Once the total number of processes in pytest-fly's\n"
+                "tree — every test process plus anything those tests spawn (subprocesses, multiprocessing\n"
+                "pools) — has grown to 'Max Descendant Processes', new tests wait for the count to drop\n"
+                "before starting, so the tree never exceeds that maximum.\n\n"
                 "Only defers starting new tests; it never caps how long a running test takes, and at least\n"
                 "one test always runs so the suite can't deadlock behind the gate. Off by default."
             ),
@@ -538,8 +539,8 @@ class Configuration(QWidget):
             self.update_max_descendant_processes,
             char_width=7,
             tooltip=(
-                "The ceiling for the process-count admission gate: pytest-fly defers starting new tests\n"
-                "while its whole process tree is at or above this many processes.\n\n"
+                "The most processes pytest-fly's whole tree is allowed to hold: a tree of exactly this\n"
+                "many is fine — new tests just wait until the count drops below it before starting.\n\n"
                 "Counts grandchildren that tests spawn themselves, not just the test workers. The\n"
                 "default scales with your CPU core count."
             ),

@@ -666,14 +666,14 @@ class _TestRunner(Thread):
             self.pytest_test_queue.put(scheduled_test)
 
     def _await_admission(self, should_abort, test: str = "") -> bool:
-        """Defer dispatching the next test while an enabled admission gate is over budget (Part C).
+        """Defer dispatching the next test while an enabled admission gate is at capacity (Part C).
 
         The per-gate checks (AND-composed, fail-open) live in :class:`AdmissionGate`; this
         loop owns the timing: the min-1 forward-progress guarantee (admit whenever nothing
         is in flight) overrides the gates so a single heavy test can never deadlock the
         suite, and the defer is poll-interruptible via *should_abort*.
 
-        Each defer episode is logged once at its start (with the over-budget gates), and
+        Each defer episode is logged once at its start (with the at-capacity gates), and
         once at its end (admitted, min-1 override, or aborted).
 
         :param should_abort: Predicate polled between gate checks; ``True`` ends the defer.
@@ -692,11 +692,11 @@ class _TestRunner(Thread):
                 return True
             if self._coordinator.active_slot_count() == 0:
                 # min-1: nothing in flight, always make forward progress
-                log.info(f'admission gate: over budget ({", ".join(failing)}) but nothing in flight — admitting "{test}" for forward progress', extra=EVENT_EXTRA)
+                log.info(f'admission gate: at capacity ({", ".join(failing)}) but nothing in flight — admitting "{test}" for forward progress', extra=EVENT_EXTRA)
                 return True
             if defer_start is None:
                 defer_start = time.monotonic()
-                log.info(f'admission gate: deferring dispatch of "{test}" — over budget: {", ".join(failing)}', extra=EVENT_EXTRA)
+                log.info(f'admission gate: deferring dispatch of "{test}" — at capacity: {", ".join(failing)}', extra=EVENT_EXTRA)
             self._stop_event.wait(self.update_rate)  # interruptible defer
         if defer_start is not None:
             log.info(f'admission gate: defer of "{test}" ended by stop/soft-stop/retire after {time.monotonic() - defer_start:.0f}s', extra=EVENT_EXTRA)

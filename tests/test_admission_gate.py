@@ -184,6 +184,25 @@ def test_cpu_gate_composes_as_and(monkeypatch):
     assert runner._await_admission(should_abort) is False
 
 
+def test_failing_gates_report_measured_value_and_threshold(monkeypatch):
+    """Each over-budget gate description carries the measured value and the threshold that fired."""
+    monkeypatch.setattr(admission, "subtree_process_count", lambda pid: 12)
+    monkeypatch.setattr(admission, "commit_charge_and_limit", lambda: (93, 100))
+    monkeypatch.setattr(admission, "system_cpu_fraction", lambda: 0.955)
+    gate = admission.AdmissionGate(
+        AdmissionGateConfig(
+            process_count_gate_enabled=True,
+            max_descendant_processes=10,
+            commit_gate_enabled=True,
+            commit_gate_threshold=0.90,
+            cpu_gate_enabled=True,
+            cpu_gate_threshold=0.90,
+        ),
+        controller_pid=os.getpid(),
+    )
+    assert gate.failing_gates() == ["process-count (12 >= 10)", "commit (93.0% >= 90%)", "cpu (95.5% >= 90%)"]
+
+
 def test_system_cpu_fraction_primes_then_reads(monkeypatch):
     """The real sampler returns None on the priming call, then an in-range fraction."""
     monkeypatch.setattr(admission, "_cpu_sample_primed", False)

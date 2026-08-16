@@ -100,42 +100,50 @@ class AdmissionGate:
         return not self.failing_gates()
 
     def failing_gates(self) -> list[str]:
-        """Return the names of the enabled gates currently over budget (empty when dispatch is admitted)."""
+        """Return a description of each enabled gate currently over budget, as
+        ``name (measured >= threshold)`` (empty when dispatch is admitted)."""
         cfg = self.config
         failing = []
-        if cfg.process_count_gate_enabled and not self._process_count_ok():
-            failing.append("process-count")
-        if cfg.commit_gate_enabled and not self._commit_ok():
-            failing.append("commit")
-        if cfg.cpu_gate_enabled and not self._cpu_ok():
-            failing.append("cpu")
+        if cfg.process_count_gate_enabled and (process_count_failure := self._process_count_failure()) is not None:
+            failing.append(process_count_failure)
+        if cfg.commit_gate_enabled and (commit_failure := self._commit_failure()) is not None:
+            failing.append(commit_failure)
+        if cfg.cpu_gate_enabled and (cpu_failure := self._cpu_failure()) is not None:
+            failing.append(cpu_failure)
         return failing
 
-    def _process_count_ok(self) -> bool:
-        """Return ``True`` if the controller's descendant tree is below the ceiling (fail-open)."""
+    def _process_count_failure(self) -> str | None:
+        """Return an over-budget description if the controller's descendant tree has reached the ceiling, else ``None`` (fail-open)."""
         if self.controller_pid is None:
-            return True
+            return None
         count = subtree_process_count(self.controller_pid)
         if count <= 0:  # fail-open: tree could not be read
-            return True
-        return count < self.config.max_descendant_processes
+            return None
+        if count < self.config.max_descendant_processes:
+            return None
+        return f"process-count ({count} >= {self.config.max_descendant_processes})"
 
-    def _commit_ok(self) -> bool:
-        """Return ``True`` if system commit charge is below the gate threshold (fail-open)."""
+    def _commit_failure(self) -> str | None:
+        """Return an over-budget description if system commit charge has reached the gate threshold, else ``None`` (fail-open)."""
         commit = commit_charge_and_limit()
         if commit is None:
-            return True  # signal unavailable -> admit
+            return None  # signal unavailable -> admit
         commit_total, commit_limit = commit
         if commit_limit <= 0:
-            return True
-        return (commit_total / commit_limit) < self.config.commit_gate_threshold
+            return None
+        fraction = commit_total / commit_limit
+        if fraction < self.config.commit_gate_threshold:
+            return None
+        return f"commit ({fraction:.1%} >= {self.config.commit_gate_threshold * 100:g}%)"
 
-    def _cpu_ok(self) -> bool:
-        """Return ``True`` if system-wide CPU utilization is below the gate threshold (fail-open)."""
+    def _cpu_failure(self) -> str | None:
+        """Return an over-budget description if system-wide CPU utilization has reached the gate threshold, else ``None`` (fail-open)."""
         cpu = system_cpu_fraction()
         if cpu is None:
-            return True  # unprimed / unavailable -> admit
-        return cpu < self.config.cpu_gate_threshold
+            return None  # unprimed / unavailable -> admit
+        if cpu < self.config.cpu_gate_threshold:
+            return None
+        return f"cpu ({cpu:.1%} >= {self.config.cpu_gate_threshold * 100:g}%)"
 
 
 # Backward-compatible alias for the pre-extraction private name.

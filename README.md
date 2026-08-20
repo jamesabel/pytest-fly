@@ -49,7 +49,8 @@ python -m pytest_fly
   - **Table** — per-test status grid with elapsed time, peak CPU, memory usage, and individual coverage
   - **Coverage** — line chart of combined code coverage over time with covered/total line counts
   - **History** — summaries of recent runs, most recent first: start time, duration, completion
-    status, pass/fail statistics, and each run's failed tests as expandable rows. The number of
+    status, pass/fail statistics, and each run's failed tests as expandable rows. Rows can be
+    multi-selected and copied to the clipboard (Ctrl+C or right-click → Copy). The number of
     runs shown is configurable
   - **Log** — live application event log, each line date/time-prefixed. The default view shows
     only notable run events (admission-gate deferrals, resource-guard and stall-watchdog

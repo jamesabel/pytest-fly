@@ -45,6 +45,7 @@ from pytest_fly.preferences import (
     get_active_put_path,
     get_pref,
     graph_font_size_default,
+    history_run_limit_default,
     log_tab_line_limit_default,
     max_descendant_processes_default,
     process_count_gate_enabled_default,
@@ -71,6 +72,7 @@ minimum_tooltip_line_limit = 1
 minimum_chart_window_minutes = 0.5
 minimum_graph_font_size = 6
 minimum_log_tab_line_limit = 100
+minimum_history_run_limit = 1
 
 
 def _add_labeled_lineedit(
@@ -361,6 +363,19 @@ class Configuration(QWidget):
             self.update_log_tab_line_limit,
             char_width=7,
             tooltip="Maximum log lines retained and displayed in the Log tab (bounds memory over a long\nsession). The oldest lines are dropped first. Applies on the next refresh tick.",
+        )
+
+        layout.addWidget(QLabel(""))  # space
+
+        history_run_limit_label = f"History Run Limit (min {minimum_history_run_limit}, {history_run_limit_default} default)"
+        self.history_run_limit_lineedit = _add_labeled_lineedit(
+            layout,
+            history_run_limit_label,
+            str(pref.history_run_limit),
+            QIntValidator(),
+            self.update_history_run_limit,
+            char_width=6,
+            tooltip="Number of recent test runs summarized in the History tab. Applies on the next refresh tick.",
         )
 
         layout.addWidget(QLabel(""))  # space
@@ -864,6 +879,10 @@ class Configuration(QWidget):
         """Persist the Log tab line limit (clamped to *minimum_log_tab_line_limit*)."""
         self._set_int_pref("log_tab_line_limit", value, minimum=minimum_log_tab_line_limit)
 
+    def update_history_run_limit(self, value: str):
+        """Persist the History tab run limit (clamped to *minimum_history_run_limit*)."""
+        self._set_int_pref("history_run_limit", value, minimum=minimum_history_run_limit)
+
     def restore_defaults(self):
         """Ask for confirmation, then reset every Configuration-tab setting to its default."""
         response = QMessageBox.question(
@@ -914,6 +933,7 @@ class Configuration(QWidget):
             ("chart_window_minutes", self.chart_window_minutes_lineedit, chart_window_minutes_default),
             ("graph_font_size", self.graph_font_size_lineedit, graph_font_size_default),
             ("log_tab_line_limit", self.log_tab_line_limit_lineedit, log_tab_line_limit_default),
+            ("history_run_limit", self.history_run_limit_lineedit, history_run_limit_default),
             ("cpu_active_epsilon", self.cpu_active_epsilon_lineedit, cpu_active_epsilon_default),
             ("max_descendant_processes", self.max_descendant_processes_lineedit, max_descendant_processes_default),
             ("commit_gate_threshold", self.commit_gate_threshold_lineedit, commit_gate_threshold_default),

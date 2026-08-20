@@ -31,6 +31,7 @@ tooltip_line_limit_default = 40  # max lines shown in pytest-output tooltips bef
 chart_window_minutes_default = 5.0  # width of the system-metrics chart time window on the Run tab, in minutes
 graph_font_size_default = 10  # point size of the font used in the Progress Graph tab
 log_tab_line_limit_default = 10_000  # max lines retained/displayed in the Log tab — bounds memory over a long session
+history_run_limit_default = 10  # number of recent runs summarized in the History tab
 
 # Time-duration units offered for the stall timeouts. Stored as a (value, unit) pair so the
 # user can express a timeout in whichever unit reads best; converted to seconds for the runner.
@@ -157,6 +158,8 @@ class FlyPreferences(Pref):
     log_tab_verbose: bool = attrib(default=False)
     log_tab_follow_tail: bool = attrib(default=True)  # keep the Log tab scrolled to the newest line
     log_tab_line_limit: int = attrib(default=log_tab_line_limit_default)  # max lines retained/displayed in the Log tab
+
+    history_run_limit: int = attrib(default=history_run_limit_default)  # number of recent runs summarized in the History tab
 
     # Wall-clock start of the most recent run; the Progress Graph time-axis origin, restored on
     # restart so RESUME-carried records still shift onto the run timeline (0.0 = none).

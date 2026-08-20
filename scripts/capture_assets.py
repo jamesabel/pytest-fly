@@ -15,6 +15,7 @@ Outputs:
     docs/images/graph.png
     docs/images/table.png
     docs/images/coverage.png
+    docs/images/history.png
     docs/images/log.png
     docs/images/configuration.png
     docs/images/about.png
@@ -48,7 +49,7 @@ TAB_SETTLE_DELAY_MS = 400
 POST_RUN_SETTLE_DELAY_MS = 1500
 RUN_TRIGGER_DELAY_MS = 800
 
-TAB_FILENAMES = ["run", "graph", "table", "coverage", "log", "configuration", "about"]
+TAB_FILENAMES = ["run", "graph", "table", "coverage", "history", "log", "configuration", "about"]
 
 
 def qpixmap_to_pil(pixmap: QPixmap) -> Image.Image:

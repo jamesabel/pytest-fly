@@ -38,6 +38,7 @@ from .coverage_tab import CoverageTab
 from .coverage_tracker import CoverageTracker
 from .graph_tab import GraphTab
 from .gui_util import PhaseTimer, get_font, get_text_dimensions, qt_state_from_hex, qt_state_to_hex
+from .history_tab import HistoryTab
 from .log_tab import LogTab
 from .run_tab import RunTab
 from .table_tab import TableTab
@@ -47,7 +48,7 @@ log = get_logger()
 
 
 class FlyAppMainWindow(QMainWindow):
-    """Top-level application window containing the seven main tabs."""
+    """Top-level application window containing the eight main tabs."""
 
     def __init__(self, data_dir: Path):
         self.data_dir = data_dir
@@ -101,6 +102,7 @@ class FlyAppMainWindow(QMainWindow):
         self.graph_tab = GraphTab()
         self.table_tab = TableTab(self.data_dir)
         self.coverage_tab = CoverageTab(self.data_dir)
+        self.history_tab = HistoryTab()
         self.log_tab = LogTab()
         self.configuration = Configuration()
         self.about = About(self, self.data_dir)
@@ -108,6 +110,7 @@ class FlyAppMainWindow(QMainWindow):
         self.tab_widget.addTab(self.graph_tab, "Graph")
         self.tab_widget.addTab(self.table_tab, "Table")
         self.tab_widget.addTab(self.coverage_tab, "Coverage")
+        self.tab_widget.addTab(self.history_tab, "History")
         self.tab_widget.addTab(self.log_tab, "Log")
         self.tab_widget.addTab(self.configuration, "Configuration")
         self.tab_widget.addTab(self.about, "About")
@@ -279,6 +282,9 @@ class FlyAppMainWindow(QMainWindow):
                     self._last_pass_cache_run_guid = run_guid
                     self._last_pass_cache_pass_count = pass_count
                 last_pass_data = self._last_pass_cache
+            with timer.time("db_history"):
+                # No-op unless the DB content (or the configured run limit) changed since the last tick.
+                self.history_tab.update_tick(db)
 
         control = self.run_tab.control_window
         with timer.time("build"):

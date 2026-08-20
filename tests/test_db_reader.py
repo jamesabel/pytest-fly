@@ -25,6 +25,8 @@ def test_reader_missing_db_fails_open():
         assert reader.query_outputs("some-guid", ["tests/test_a.py"]) == {}
         assert reader.query_last_pass() == {}
         assert reader.query_ever_run_names() == set()
+        assert reader.query_recent_runs(5) == []
+        assert reader.query_change_token() == (0, 0)
 
 
 def test_reader_query_omits_output_by_default():
@@ -93,6 +95,36 @@ def test_reader_matches_writer_for_last_pass_and_ever_run():
         assert reader.query_ever_run_names() == writer_ever_run
     assert "tests/test_a.py" in writer_last_pass
     assert writer_ever_run == {"tests/test_a.py"}
+
+
+def test_reader_query_recent_runs_limit_and_ordering():
+    """Only the N most recent runs are returned (UUIDv7-ordered GUIDs), output omitted."""
+    data_dir = get_temp_dir("reader_recent_runs")
+    now = time.time()
+    with PytestProcessInfoDB(data_dir) as db:
+        for run_index in range(3):
+            db.write(_record(f"run-{run_index}", "tests/test_a.py", PyTestFlyExitCode.OK, f"output {run_index}", now + run_index))
+
+    with PytestProcessInfoReader(data_dir) as reader:
+        infos = reader.query_recent_runs(2)
+        assert {info.run_guid for info in infos} == {"run-1", "run-2"}
+        assert all(info.output is None for info in infos)
+        assert len(reader.query_recent_runs(10)) == 3  # limit larger than the run count is fine
+
+
+def test_reader_change_token_tracks_writes():
+    data_dir = get_temp_dir("reader_change_token")
+    now = time.time()
+    with PytestProcessInfoDB(data_dir) as db:
+        db.write(_record("run-1", "tests/test_a.py", PyTestFlyExitCode.OK, "out", now))
+    with PytestProcessInfoReader(data_dir) as reader:
+        token_before = reader.query_change_token()
+        assert reader.query_change_token() == token_before  # stable when nothing was written
+
+    with PytestProcessInfoDB(data_dir) as db:
+        db.write(_record("run-1", "tests/test_b.py", PyTestFlyExitCode.OK, "out", now + 1))
+    with PytestProcessInfoReader(data_dir) as reader:
+        assert reader.query_change_token() != token_before
 
 
 def test_reader_does_not_create_db_file():

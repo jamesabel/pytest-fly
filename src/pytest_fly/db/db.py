@@ -145,6 +145,20 @@ def _query_last_pass(execute_fn: _ExecuteFn) -> dict[str, tuple[float, float]]:
     return result
 
 
+def _query_recent_run_guids(execute_fn: _ExecuteFn, limit: int) -> list[str]:
+    """Return the *limit* most recent run GUIDs, newest first.
+
+    Recency ordering relies on run GUIDs being UUIDv7 (time-ordered; see
+    :func:`pytest_fly.guid.generate_uuid`), the same rule ``run_guid=None`` queries use.
+    """
+    statement = f"SELECT DISTINCT run_guid FROM {_TABLE_NAME} ORDER BY run_guid DESC LIMIT ?"
+    try:
+        return [row[0] for row in execute_fn(statement, [limit])]
+    except sqlite3.OperationalError as e:
+        log.debug(f"query_recent_run_guids failed (table may not exist yet): {e}")
+        return []
+
+
 def _query_ever_run_names(execute_fn: _ExecuteFn) -> set[str]:
     """Return the set of test node_ids that have ever been run, across all runs and PUT versions.
 
@@ -374,3 +388,30 @@ class PytestProcessInfoReader:
     def query_ever_run_names(self) -> set[str]:
         """Return the set of test node_ids that have ever been run, across all runs and PUT versions."""
         return _query_ever_run_names(self._execute)
+
+    def query_recent_runs(self, limit: int) -> list[PytestProcessInfo]:
+        """Return the records of the *limit* most recent runs, with the ``output`` column omitted.
+
+        Used by the History tab; group the result by ``run_guid`` for per-run views.
+
+        :param limit: Maximum number of distinct runs to include.
+        :return: The runs' records (``output=None``); empty when there are no runs yet.
+        """
+        result: list[PytestProcessInfo] = []
+        for run_guid in _query_recent_run_guids(self._execute, limit):
+            result.extend(_query_records(self._execute, self._columns, run_guid, include_output=False))
+        return result
+
+    def query_change_token(self) -> tuple[int, int]:
+        """Return a cheap ``(row_count, max_rowid)`` token that changes whenever the table's content changes.
+
+        Lets per-tick consumers (the History tab) skip re-querying and rebuilding when
+        nothing was written since the previous tick.  ``COUNT(*)`` runs off an index scan and
+        ``MAX(rowid)`` is an O(log n) b-tree seek, so this stays cheap even with large output
+        blobs in the table.
+        """
+        rows = self._execute(f"SELECT COUNT(*), MAX(rowid) FROM {_TABLE_NAME}")
+        if not rows:
+            return (0, 0)
+        count, max_rowid = rows[0]
+        return (count or 0, max_rowid or 0)

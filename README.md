@@ -26,7 +26,7 @@ python -m pytest_fly
 
 ## Features
 
-- Real-time monitoring of test execution in a GUI with seven tabs:
+- Real-time monitoring of test execution in a GUI with eight tabs:
   - **Run** — run controls and live panels:
     - Controls: **Run**, **Stop** (waits for the running tests to finish and, while pending,
       becomes **Cancel Stop** so the stop can be called off and the queued tests keep running),
@@ -48,6 +48,9 @@ python -m pytest_fly
   - **Graph** — time-based progress chart showing each test module as a horizontal bar
   - **Table** — per-test status grid with elapsed time, peak CPU, memory usage, and individual coverage
   - **Coverage** — line chart of combined code coverage over time with covered/total line counts
+  - **History** — summaries of recent runs, most recent first: start time, duration, completion
+    status, pass/fail statistics, and each run's failed tests as expandable rows. The number of
+    runs shown is configurable
   - **Log** — live application event log, each line date/time-prefixed. The default view shows
     only notable run events (admission-gate deferrals, resource-guard and stall-watchdog
     triggers, force stops) plus all warnings; a **Verbose** checkbox shows every log line.
@@ -55,7 +58,7 @@ python -m pytest_fly
     count is configurable
   - **Configuration** — Resume-vs-Check toggle, a reorderable test-ordering aspect list, process
     count, refresh rate, utilization thresholds, tooltip line limit, system-metrics chart window,
-    Progress Graph font size, Log tab line limit, target project path (applies on the next run),
+    Progress Graph font size, Log tab line limit, History run limit, target project path (applies on the next run),
     test-results DB directory, a Liveness / Recovery group (stall watchdog with optional
     automatic force-stop), an Admission Gates group (process-count / commit-charge / CPU
     dispatch throttles), a Resource Guard group (low-resource automatic soft stop with
@@ -124,6 +127,10 @@ takes effect on the next run (no relaunch). See [Choosing Which Tests Run](#choo
 ### Coverage
 
 ![Coverage tab](https://raw.githubusercontent.com/jamesabel/pytest-fly/master/docs/images/coverage.png)
+
+### History
+
+![History tab](https://raw.githubusercontent.com/jamesabel/pytest-fly/master/docs/images/history.png)
 
 ### Log
 

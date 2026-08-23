@@ -6,9 +6,10 @@ parallelism, refresh rate, and utilization thresholds.
 from collections.abc import Callable
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QDoubleValidator, QIntValidator, QValidator
 from PySide6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QComboBox,
     QFileDialog,
@@ -30,7 +31,18 @@ from pytest_fly.gui.gui_util import get_text_dimensions
 from pytest_fly.interfaces import RunMode
 from pytest_fly.logger import get_logger
 from pytest_fly.paths import get_default_data_dir
+from pytest_fly.platform import is_windows
 from pytest_fly.platform.platform_info import get_performance_core_count
+from pytest_fly.platform.wer import (
+    DEFAULT_IMAGE_NAME,
+    DUMP_TYPE_FULL,
+    DUMP_TYPE_MINIDUMP,
+    apply_wer_local_dumps_elevated,
+    default_wer_dump_folder,
+    read_wer_local_dumps,
+    remove_wer_local_dumps_elevated,
+    wer_configure_command,
+)
 from pytest_fly.preferences import (
     TIME_UNITS,
     auto_force_stop_on_stall_default,
@@ -38,10 +50,13 @@ from pytest_fly.preferences import (
     commit_gate_enabled_default,
     commit_gate_threshold_default,
     commit_warning_threshold_default,
+    coverage_refresh_seconds_default,
+    coverage_timeout_seconds_default,
     cpu_active_epsilon_default,
     cpu_gate_enabled_default,
     cpu_gate_threshold_default,
     duration_to_seconds,
+    faulthandler_enabled_default,
     get_active_put_path,
     get_pref,
     graph_font_size_default,
@@ -62,6 +77,8 @@ from pytest_fly.preferences import (
     tooltip_line_limit_default,
     utilization_high_threshold_default,
     utilization_low_threshold_default,
+    wer_dump_count_default,
+    wer_dump_type_default,
 )
 from pytest_fly.project_info import get_project_info
 
@@ -73,6 +90,9 @@ minimum_chart_window_minutes = 0.5
 minimum_graph_font_size = 6
 minimum_log_tab_line_limit = 100
 minimum_history_run_limit = 1
+minimum_coverage_timeout_seconds = 10.0
+minimum_wer_dump_count = 1
+_wer_dump_type_names = {DUMP_TYPE_MINIDUMP: "Minidump (stacks + modules, a few MB)", DUMP_TYPE_FULL: "Full (includes heap, can be many GB)"}
 
 
 def _add_labeled_lineedit(
@@ -284,6 +304,35 @@ class Configuration(QWidget):
             QDoubleValidator(),
             self.update_refresh_rate,
             tooltip="How often the GUI refreshes from the results database. Lower is smoother but uses more CPU.",
+        )
+
+        layout.addWidget(QLabel(""))  # space
+
+        self.coverage_refresh_seconds_lineedit = _add_labeled_lineedit(
+            layout,
+            f"Coverage Refresh (seconds, {_format_number(coverage_refresh_seconds_default)} default, 0 = every completion)",
+            _format_number(pref.coverage_refresh_seconds),
+            QDoubleValidator(),
+            self.update_coverage_refresh_seconds,
+            char_width=6,
+            tooltip=(
+                "How often combined coverage is recomputed during a run. Aggregation re-parses the\n"
+                "whole program under test, so lower values cost real CPU. A final recalculation always\n"
+                "runs once the last test completes."
+            ),
+        )
+
+        self.coverage_timeout_seconds_lineedit = _add_labeled_lineedit(
+            layout,
+            f"Coverage Timeout (seconds, min {_format_number(minimum_coverage_timeout_seconds)}, {_format_number(coverage_timeout_seconds_default)} default)",
+            _format_number(pref.coverage_timeout_seconds),
+            QDoubleValidator(),
+            self.update_coverage_timeout_seconds,
+            char_width=6,
+            tooltip=(
+                "Coverage aggregation runs in a separate process; one that runs longer than this is terminated\n"
+                "and the previous coverage values are kept. A full report over a large project can be slow."
+            ),
         )
 
         layout.addWidget(QLabel(""))  # space
@@ -679,6 +728,8 @@ class Configuration(QWidget):
 
         right_column.addWidget(resource_guard_group)
 
+        right_column.addWidget(self._build_crash_diagnostics_group(pref))
+
         # Expert group — settings most users should not need to change. Lives at the bottom of
         # the right column (last position, to de-emphasize) rather than the left column, which
         # is the taller of the two and drives the tab's overall height.
@@ -701,6 +752,173 @@ class Configuration(QWidget):
 
         right_column.addWidget(expert_group)
         right_column.addStretch()
+
+    def _build_crash_diagnostics_group(self, pref) -> QGroupBox:
+        """Crash Diagnostics group: faulthandler (all platforms) and WER LocalDumps (Windows only).
+
+        WER configuration lives under HKLM and is machine-wide for every ``python.exe``, so it is
+        only ever *offered* — applied through a UAC prompt, or copied for the user's own elevated
+        shell — and the displayed state is always re-read from the registry, never assumed.
+        """
+        group = QGroupBox("Crash Diagnostics")
+        group.setToolTip("What gets left behind when a pytest-fly process dies from a native fault (access violation, abort, ...).")
+        group_layout = QVBoxLayout()
+        group.setLayout(group_layout)
+
+        self.faulthandler_enabled_checkbox = _add_pref_checkbox(
+            group_layout,
+            "Python Fault Handler (default: on)",
+            pref.faulthandler_enabled,
+            self.update_faulthandler_enabled,
+            tooltip=(
+                "Write every thread's Python stack to .pytest-fly/logs/faulthandler-<pid>.log when a\n"
+                "pytest-fly process dies from a fatal signal. Cheap; leave on. Any dump from a previous\n"
+                "session is reported in the Log tab at the next launch. Applies at the next launch."
+            ),
+        )
+
+        self.wer_status_label: QLabel | None = None
+        if not is_windows():
+            return group
+
+        group_layout.addWidget(QLabel(""))  # space
+        group_layout.addWidget(QLabel("Windows crash dumps (WER LocalDumps)"))
+        self.wer_status_label = QLabel("")
+        self.wer_status_label.setWordWrap(True)
+        group_layout.addWidget(self.wer_status_label)
+
+        folder_label = QLabel("Dump Folder (empty = workspace default)")
+        folder_label.setToolTip(f"Where Windows writes crash dumps. Empty uses {default_wer_dump_folder()}.")
+        group_layout.addWidget(folder_label)
+        self.wer_dump_folder_lineedit = QLineEdit()
+        self.wer_dump_folder_lineedit.setText(pref.wer_dump_folder)
+        self.wer_dump_folder_lineedit.setPlaceholderText(str(default_wer_dump_folder()))
+        self.wer_dump_folder_lineedit.textChanged.connect(self.update_wer_dump_folder)
+        group_layout.addWidget(self.wer_dump_folder_lineedit)
+
+        group_layout.addWidget(QLabel("Dump Type"))
+        self.wer_dump_type_combo = QComboBox()
+        for dump_type, name in _wer_dump_type_names.items():
+            self.wer_dump_type_combo.addItem(name, dump_type)
+        self.wer_dump_type_combo.setCurrentIndex(max(0, self.wer_dump_type_combo.findData(pref.wer_dump_type)))
+        self.wer_dump_type_combo.setToolTip(
+            "A minidump carries thread stacks, registers, and the module list — enough to identify the\n"
+            "faulting native frame. A full dump also carries the heap (needed to walk Python frames out\n"
+            "of the dump), but for a large run that is many GB per crash. The Python fault handler above\n"
+            "already provides the Python frames, so minidump is the recommended default."
+        )
+        self.wer_dump_type_combo.currentIndexChanged.connect(self.update_wer_dump_type)
+        group_layout.addWidget(self.wer_dump_type_combo)
+
+        self.wer_dump_count_lineedit = _add_labeled_lineedit(
+            group_layout,
+            f"Dump Count ({wer_dump_count_default} default)",
+            str(pref.wer_dump_count),
+            QIntValidator(),
+            self.update_wer_dump_count,
+            tooltip="How many dumps Windows keeps before evicting the oldest.",
+        )
+
+        button_row = QHBoxLayout()
+        button_row.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        configure_button = QPushButton("Configure (requires admin)...")
+        configure_button.setToolTip("Apply the settings above to the registry via a Windows UAC prompt, then re-read the result.")
+        configure_button.clicked.connect(self._on_wer_configure)
+        button_row.addWidget(configure_button)
+        remove_button = QPushButton("Remove...")
+        remove_button.setToolTip("Delete the LocalDumps entry for python.exe via a Windows UAC prompt (Windows goes back to discarding dumps).")
+        remove_button.clicked.connect(self._on_wer_remove)
+        button_row.addWidget(remove_button)
+        copy_button = QPushButton("Copy command")
+        copy_button.setToolTip("Copy the PowerShell command to the clipboard, to paste into your own elevated shell instead of accepting a UAC prompt from a GUI app.")
+        copy_button.clicked.connect(self._on_wer_copy_command)
+        button_row.addWidget(copy_button)
+        group_layout.addLayout(button_row)
+
+        caution = QLabel("This is a machine-wide Windows setting for all python.exe processes, not just pytest-fly.")
+        caution.setWordWrap(True)
+        group_layout.addWidget(caution)
+
+        self._refresh_wer_status()
+        return group
+
+    def _refresh_wer_status(self) -> None:
+        """Re-read the registry and show the live LocalDumps state."""
+        if self.wer_status_label is not None:
+            self.wer_status_label.setText(read_wer_local_dumps(DEFAULT_IMAGE_NAME).describe())
+
+    def _wer_settings(self) -> tuple[Path, int, int]:
+        """The (folder, count, type) triple from preferences, with the workspace default folder applied."""
+        pref = get_pref()
+        folder = Path(pref.wer_dump_folder) if pref.wer_dump_folder else default_wer_dump_folder()
+        return folder, pref.wer_dump_count, pref.wer_dump_type
+
+    def _on_wer_configure(self) -> None:
+        """Offer the elevated write; the status is driven by a registry re-read, never by the launch result."""
+        folder, count, dump_type = self._wer_settings()
+        command = wer_configure_command(DEFAULT_IMAGE_NAME, folder, count, dump_type)
+        response = QMessageBox.question(
+            self,
+            "Configure Windows crash dumps",
+            f"Windows will prompt for administrator approval to write this machine-wide setting for ALL python.exe processes:\n\n{command}\n\nContinue?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if response != QMessageBox.StandardButton.Yes:
+            return
+        if not apply_wer_local_dumps_elevated(DEFAULT_IMAGE_NAME, folder, count, dump_type):
+            QMessageBox.warning(self, "Configure Windows crash dumps", "The elevated command was not launched (administrator approval declined?).")
+        # The write happens in another process; poll the registry briefly so the label catches up.
+        self._schedule_wer_status_refresh()
+
+    def _on_wer_remove(self) -> None:
+        """Offer the elevated delete of the LocalDumps subkey."""
+        response = QMessageBox.question(
+            self,
+            "Remove Windows crash dump setting",
+            f"Windows will prompt for administrator approval to delete the LocalDumps entry for {DEFAULT_IMAGE_NAME}. Continue?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if response != QMessageBox.StandardButton.Yes:
+            return
+        if not remove_wer_local_dumps_elevated(DEFAULT_IMAGE_NAME):
+            QMessageBox.warning(self, "Remove Windows crash dump setting", "The elevated command was not launched (administrator approval declined?).")
+        self._schedule_wer_status_refresh()
+
+    def _schedule_wer_status_refresh(self, attempts: int = 10, interval_ms: int = 1000) -> None:
+        """Re-read the registry a few times over the next seconds — the elevated write is asynchronous."""
+        for n in range(1, attempts + 1):
+            QTimer.singleShot(n * interval_ms, self._refresh_wer_status)
+
+    def _on_wer_copy_command(self) -> None:
+        """Put the configure command on the clipboard for the user's own elevated shell."""
+        folder, count, dump_type = self._wer_settings()
+        QApplication.clipboard().setText(wer_configure_command(DEFAULT_IMAGE_NAME, folder, count, dump_type))
+
+    def update_faulthandler_enabled(self):
+        """Persist the faulthandler checkbox state."""
+        self._set_bool_pref("faulthandler_enabled", self.faulthandler_enabled_checkbox)
+
+    def update_wer_dump_folder(self, value: str):
+        """Persist the WER dump folder (empty = workspace default)."""
+        get_pref().wer_dump_folder = value.strip()
+
+    def update_wer_dump_type(self, index: int):
+        """Persist the WER dump type chosen in the combo."""
+        get_pref().wer_dump_type = int(self.wer_dump_type_combo.itemData(index))
+
+    def update_wer_dump_count(self, value: str):
+        """Persist the WER dump count (minimum 1)."""
+        self._set_int_pref("wer_dump_count", value, minimum=minimum_wer_dump_count)
+
+    def update_coverage_refresh_seconds(self, value: str):
+        """Persist the coverage refresh interval (0 = recalculate after every completion)."""
+        self._set_float_pref("coverage_refresh_seconds", value, minimum=0.0)
+
+    def update_coverage_timeout_seconds(self, value: str):
+        """Persist the coverage aggregation timeout (clamped to *minimum_coverage_timeout_seconds*)."""
+        self._set_float_pref("coverage_timeout_seconds", value, minimum=minimum_coverage_timeout_seconds)
 
     # ------------------------------------------------------------------
     # Preference-persistence helpers — shared by all the update_* slots below
@@ -913,6 +1131,7 @@ class Configuration(QWidget):
             ("commit_gate_enabled", self.commit_gate_enabled_checkbox, commit_gate_enabled_default),
             ("cpu_gate_enabled", self.cpu_gate_enabled_checkbox, cpu_gate_enabled_default),
             ("resource_guard_enabled", self.resource_guard_enabled_checkbox, resource_guard_enabled_default),
+            ("faulthandler_enabled", self.faulthandler_enabled_checkbox, faulthandler_enabled_default),
             ("verbose", self.verbose_checkbox, False),
             ("perf_logging", self.perf_logging_checkbox, False),
         ]
@@ -934,6 +1153,8 @@ class Configuration(QWidget):
             ("graph_font_size", self.graph_font_size_lineedit, graph_font_size_default),
             ("log_tab_line_limit", self.log_tab_line_limit_lineedit, log_tab_line_limit_default),
             ("history_run_limit", self.history_run_limit_lineedit, history_run_limit_default),
+            ("coverage_refresh_seconds", self.coverage_refresh_seconds_lineedit, coverage_refresh_seconds_default),
+            ("coverage_timeout_seconds", self.coverage_timeout_seconds_lineedit, coverage_timeout_seconds_default),
             ("cpu_active_epsilon", self.cpu_active_epsilon_lineedit, cpu_active_epsilon_default),
             ("max_descendant_processes", self.max_descendant_processes_lineedit, max_descendant_processes_default),
             ("commit_gate_threshold", self.commit_gate_threshold_lineedit, commit_gate_threshold_default),
@@ -944,6 +1165,15 @@ class Configuration(QWidget):
         for pref_name, lineedit, default in field_defaults:
             setattr(pref, pref_name, default)
             lineedit.setText(_format_number(default))
+
+        # WER settings (Windows-only widgets).
+        pref.wer_dump_folder = ""
+        pref.wer_dump_type = wer_dump_type_default
+        pref.wer_dump_count = wer_dump_count_default
+        if self.wer_status_label is not None:
+            self.wer_dump_folder_lineedit.setText("")
+            self.wer_dump_type_combo.setCurrentIndex(max(0, self.wer_dump_type_combo.findData(wer_dump_type_default)))
+            self.wer_dump_count_lineedit.setText(str(wer_dump_count_default))
 
         # Stall windows: value + unit pairs.
         pref.stall_warn_value = stall_warn_value_default

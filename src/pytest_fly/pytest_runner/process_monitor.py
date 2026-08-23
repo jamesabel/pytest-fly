@@ -12,6 +12,7 @@ from psutil import NoSuchProcess
 from psutil import Process as PsutilProcess
 from typeguard import typechecked
 
+from ..faults import enable_faulthandler
 from ..logger import configure_child_logger
 from .commit_memory import subtree_commit
 
@@ -116,6 +117,7 @@ class ProcessMonitor(Process):
     def run(self):
         """Sample CPU and memory at ``_update_rate`` intervals until stop is requested."""
         configure_child_logger(f"process_monitor-{self._pid}.log")
+        enable_faulthandler()  # reads PYTEST_FLY_FAULTHANDLER from the inherited environment
 
         psutil_process = PsutilProcess(self._pid)
 

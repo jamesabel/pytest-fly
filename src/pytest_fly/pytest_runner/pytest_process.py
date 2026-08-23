@@ -19,6 +19,7 @@ from coverage import Coverage
 from typeguard import typechecked
 
 from ..db import PytestProcessInfoDB
+from ..faults import enable_faulthandler, faulthandler_enabled_by_env
 from ..file_util import sanitize_test_name
 from ..interfaces import PyTestFlyExitCode, PytestProcessInfo, int_exit_code_to_pytest_fly_exit_code
 from ..logger import configure_child_logger, get_logger
@@ -251,6 +252,7 @@ class PytestProcess(Process):
     def run(self) -> None:
 
         configure_child_logger(f"{sanitize_test_name(self.name)}.log")
+        enable_faulthandler()  # reads PYTEST_FLY_FAULTHANDLER from the inherited environment
 
         # start the process monitor to monitor things like CPU and memory usage
         self._process_monitor_process = ProcessMonitor(self.run_guid, self.name, self.pid, self.update_rate)
@@ -292,7 +294,15 @@ class PytestProcess(Process):
                 try:
                     # -rA: show full short test summary (all outcomes, untruncated assertion messages)
                     # -s: disable pytest capture so stdout/stderr stream live to the log file
-                    pytest_exit_code = pytest.main([self.name, "-rA", "-s"])
+                    pytest_args = [self.name, "-rA", "-s"]
+                    if faulthandler_enabled_by_env():
+                        # pytest's own faulthandler plugin re-points the handler at its copy of
+                        # stderr (the live-output file here) for the duration of the session,
+                        # which would split a crash dump across two files. Keep this process's
+                        # faulthandler-<pid>.log authoritative so the post-crash sweep finds it.
+                        # Costs pytest's faulthandler_timeout feature, which pytest-fly does not use.
+                        pytest_args.extend(["-p", "no:faulthandler"])
+                    pytest_exit_code = pytest.main(pytest_args)
                     exit_code = int_exit_code_to_pytest_fly_exit_code(pytest_exit_code)
                 except Exception:  # deliberate broad catch — see comment
                     # pytest.main executes arbitrary user/plugin code, so no exception

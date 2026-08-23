@@ -132,13 +132,12 @@ def calculate_coverage(test_identifier: str, coverage_parent_directory: Path, wr
         cov.combine(coverage_files_as_strings, keep=True)
         cov.save()
 
-        # Get percentage from total-only report
-        total_buffer = io.StringIO()
-        coverage_value = cov.report(ignore_errors=True, output_format="total", file=total_buffer) / 100.0
-
-        # Get statement counts from the full text report
+        # One report pass: the return value is the total percentage (for every output format),
+        # and the text body carries the per-file rows we parse the TOTAL line out of.
+        # coverage.report() re-parses every source file in the PUT, so a second call purely to
+        # read the percentage would double the most expensive step here.
         report_buffer = io.StringIO()
-        cov.report(ignore_errors=True, file=report_buffer)
+        coverage_value = cov.report(ignore_errors=True, file=report_buffer) / 100.0
         total_statements, missing = _parse_report_totals(report_buffer.getvalue())
         covered_statements = total_statements - missing
 

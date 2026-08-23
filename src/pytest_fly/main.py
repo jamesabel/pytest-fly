@@ -5,9 +5,11 @@ import multiprocessing
 from pathlib import Path
 
 from .__version__ import application_name
+from .faults import enable_faulthandler, report_previous_crashes
 from .gui import fly_main
 from .logger import get_logger, init_parent_logger
 from .paths import get_default_data_dir, get_workspace_dir, init_workspace
+from .platform.wer import report_previous_crash_dumps
 from .preferences import get_active_put_path, get_pref, set_active_put_path
 from .project_info import get_project_info
 from .put_version import detect_put_version
@@ -58,6 +60,14 @@ def app_main(argv: list[str] | None = None):
     init_parent_logger(verbose=pref.verbose)
     log.info(f"workspace: {get_workspace_dir()}")
     log.info(f"program under test path: {put_path}")
+
+    # Arm fatal-signal diagnostics before anything else runs, then surface whatever an earlier
+    # session left behind — a native crash otherwise leaves no user-visible trace at all.
+    dump_path = enable_faulthandler(export_to_children=True, requested=pref.faulthandler_enabled)
+    if dump_path is not None:
+        log.info(f"faulthandler armed: {dump_path}")
+    report_previous_crashes()
+    report_previous_crash_dumps()
 
     project_info = get_project_info()
     log.info(f"{project_info.application_name} version {project_info.version}")

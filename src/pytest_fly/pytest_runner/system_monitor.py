@@ -14,6 +14,7 @@ from multiprocessing import Event, Process, Queue
 import psutil
 from typeguard import typechecked
 
+from ..faults import enable_faulthandler
 from ..logger import configure_child_logger
 from .commit_memory import commit_charge_and_limit
 from .const import BYTES_PER_GB as _BYTES_PER_GB
@@ -57,6 +58,7 @@ class SystemMonitor(Process):
     def run(self):
         """Sample resources at ``_update_rate`` intervals until stop is requested."""
         configure_child_logger("system_monitor.log")
+        enable_faulthandler()  # reads PYTEST_FLY_FAULTHANDLER from the inherited environment
         psutil.cpu_percent(interval=None)  # prime psutil's CPU counter; ignore the first 0.0
 
         prev_disk = psutil.disk_io_counters()

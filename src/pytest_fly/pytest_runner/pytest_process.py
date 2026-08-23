@@ -16,6 +16,7 @@ from typing import TextIO
 import psutil
 import pytest
 from coverage import Coverage
+from coverage.exceptions import CoverageException
 from typeguard import typechecked
 
 from ..db import PytestProcessInfoDB
@@ -316,12 +317,23 @@ class PytestProcess(Process):
                     except (ValueError, OSError):
                         pass  # live_file may be closed if the test redirected/closed stderr
 
-                coverage.stop()
-                coverage.save()
-                coverage_file_path.unlink(missing_ok=True)
-                shutil.move(coverage_temp_file_path, coverage_file_path)
+                try:
+                    coverage.stop()
+                    coverage.save()
+                    coverage_file_path.unlink(missing_ok=True)
+                    shutil.move(coverage_temp_file_path, coverage_file_path)
+                except (OSError, CoverageException) as e:
+                    # In RESUME mode the prior run's file for this test exists and the coverage
+                    # aggregator child may have it open, so the unlink can raise WinError 32; a
+                    # full disk fails coverage.save() the same way. Coverage data for this test
+                    # is lost, but the result record below must still be written - an unguarded
+                    # raise here left the test permanently "Running" with no record.
+                    log.warning(f"could not finalize coverage data for {self.name}: {e}")
 
-        output: str = live_path.read_text(encoding="utf-8", errors="replace")
+        try:
+            output: str = live_path.read_text(encoding="utf-8", errors="replace")
+        except OSError as e:
+            output = f"(could not read live output {live_path}: {e})"
 
         # Tests may have registered StreamHandlers pointing to live_file (now closed).
         # Remove them so subsequent log calls don't raise ValueError.

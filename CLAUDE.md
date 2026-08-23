@@ -51,14 +51,14 @@ pip install -r requirements-dev.txt
 - Tabs: `run_tab/` (run/stop controls, status, system metrics, failed tests, live output), `graph_tab/` (time-based progress chart), `table_tab/` (per-test status grid), `coverage_tab/` (coverage-over-time chart), `history_tab/` (recent-run summaries — run times, pass/fail statistics, failed-test lists; multi-select rows copy to the clipboard; run count set by the History Run Limit preference), `log_tab/` (live application event log — admission-gate, resource-guard, and stall-watchdog events, each line date/time-prefixed; default view shows tagged `EVENT_EXTRA` events + warnings, Verbose shows all INFO+), `configuration_tab/` (parallelism, thresholds, gates), `about_tab/`.
 
 ### Core runner (`src/pytest_fly/pytest_runner/`)
-- `pytest_runner.py` — `PytestRunner` (thread): orchestrates worker threads, schedules tests, handles run modes.
+- `pytest_runner.py` — `PytestRunner` (thread): orchestrates worker threads, schedules tests, handles run modes. Hardened failure paths: a `PytestProcess.start()` failure records TERMINATED and backs off (escalating, stop-interruptible); an unclean child exit (non-zero exit code, e.g. native crash) gets a backstop TERMINATED record via `mark_test_terminated_if_stale`; `set_number_of_processes` refuses a stopping/stopped runner; a worker's `process` reference is cleared between tests (no stale-name force-stops / stale-PID tree-kills).
 - `stall_watchdog.py` — `StallWatchdog`: read-only wedged-run detection with opt-in auto force-stop.
 - `admission.py` — `AdmissionGate` + `AdmissionGateConfig`: dispatch throttles (process-count / commit-charge / CPU).
 - `run_state.py` — classifies DB records into display states (`PytestRunState`, `state_of`, `latest_states`).
 - `singleton_coordinator.py` — `SingletonCoordinator`: serializes `@pytest.mark.singleton` tests against all workers.
 - `monitor_thread.py` — `MonitorThread`: shared daemon-loop base for the stall watchdog and resource guard.
 - `resource_guard.py` — `ResourceGuard`: opt-in low-resource (disk / commit space) automatic soft stop.
-- `pytest_process.py` — `PytestProcess`: spawns one `pytest` subprocess per test module, attaches a `ProcessMonitor`.
+- `pytest_process.py` — `PytestProcess`: spawns one `pytest` subprocess per test module, attaches a `ProcessMonitor` (a daemon child, so it can never block the test process's exit). Coverage finalization and live-output reads are guarded so the final result record is still written when they fail.
 - `test_list.py` — `GetTests` process: discovers tests via `pytest --collect-only`.
 - `process_monitor.py` — `ProcessMonitor` subprocess: samples CPU/memory of the test process tree; `SubtreeCpuSampler` (shared persistent-handle CPU sampling).
 - `system_monitor.py` — `SystemMonitor` subprocess: system-wide CPU/memory/commit/disk/network sampling for the Run tab charts.

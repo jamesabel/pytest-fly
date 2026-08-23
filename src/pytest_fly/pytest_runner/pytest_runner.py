@@ -16,6 +16,7 @@ admission gates, Part D = the DB-backed run-completion view.
 import os
 import time
 from pathlib import Path
+from pickle import PicklingError
 from queue import Empty, Queue
 from threading import Event, Lock, Thread
 from typing import Optional
@@ -112,10 +113,20 @@ class PytestRunner(Thread):
         """
 
         test_queue = Queue()
-        with PytestProcessInfoDB(self.data_dir) as db:
-            for test in self.tests:
-                test_queue.put(test)
-                db.write(status_record(self.run_guid, test.node_id, PyTestFlyExitCode.NONE, self.put_version, self.put_fingerprint))  # queued
+        try:
+            with PytestProcessInfoDB(self.data_dir) as db:
+                for test in self.tests:
+                    test_queue.put(test)
+                    db.write(status_record(self.run_guid, test.node_id, PyTestFlyExitCode.NONE, self.put_version, self.put_fingerprint))  # queued
+        except FAIL_OPEN_ERRORS as e:
+            # A raise here previously killed the runner thread before _started_event was set,
+            # so join(None) blocked forever and the pool was never spun up nor wound down.
+            log.error(f"could not enqueue tests / write QUEUED records — aborting run ({self.run_guid=}): {e}", exc_info=True)
+            with self._pool_lock:
+                self._test_queue = test_queue
+                self._queue_finalized = True
+                self._started_event.set()
+            return
 
         coordinator = SingletonCoordinator()
 
@@ -170,7 +181,12 @@ class PytestRunner(Thread):
                 self._test_runners = {tid: r for tid, r in self._test_runners.items() if r.is_alive()}
                 if not self._test_runners:
                     if self._soft_stop_event.is_set() and not self._force_stopped:
-                        self._mark_queued_tests_stopped()
+                        try:
+                            self._mark_queued_tests_stopped()
+                        except FAIL_OPEN_ERRORS as e:
+                            # Finalization must not kill the runner thread — _queue_finalized
+                            # below is what lets join()/Run-button recovery proceed.
+                            log.warning(f"could not mark remaining queued tests STOPPED ({self.run_guid=}): {e}", exc_info=True)
                     self._queue_finalized = True
                     break
                 if not (self._soft_stop_event.is_set() or self._stop_requested) and not self._test_queue.empty():
@@ -216,6 +232,14 @@ class PytestRunner(Thread):
             return
         with self._pool_lock:
             self.number_of_processes = number_of_processes
+            if self._stop_requested or self._force_stopped or self._queue_finalized:
+                # The run is stopping or already wound down: never spawn fresh workers into it.
+                # is_running() stays True for seconds during wind-down and the GUI reconciles the
+                # count on every tick, so without this guard a Processes change during that window
+                # started a second pool running the old run's queue. A pending *soft* stop is not
+                # a reason to refuse — it can still be canceled, and its new workers just exit.
+                log.info(f"worker pool resize to {number_of_processes} ignored — run is stopping ({self.run_guid=})")
+                return
             if not self._started_event.is_set():
                 # run() has not spawned the pool yet; it will use the updated count.
                 return
@@ -522,8 +546,20 @@ class _TestRunner(Thread):
         else:
             log.info(f'process tree for test "{proc_name}" terminated ({self.run_guid=})')
 
-        with PytestProcessInfoDB(self.data_dir) as db:
-            db.write(status_record(self.run_guid, test, PyTestFlyExitCode.TERMINATED, self.put_version, self.put_fingerprint))
+        self._write_terminated_record(test)
+
+    def _write_terminated_record(self, test: str) -> None:
+        """Write a TERMINATED record for *test*. Fail-open: a DB error is logged, never raised.
+
+        Callers are the worker thread's stop/failure paths — an unhandled ``sqlite3`` error
+        here would kill the worker thread and leave the dequeued test without a terminal
+        record (permanently "Running"/"Queued" in every view).
+        """
+        try:
+            with PytestProcessInfoDB(self.data_dir) as db:
+                db.write(status_record(self.run_guid, test, PyTestFlyExitCode.TERMINATED, self.put_version, self.put_fingerprint))
+        except FAIL_OPEN_ERRORS as e:
+            log.warning(f'could not record TERMINATED for "{test}" ({self.run_guid=}): {e}')
 
     def _handle_stop_request(self, test: str) -> None:
         """
@@ -542,7 +578,11 @@ class _TestRunner(Thread):
             proc_name = None
 
         if proc is None:
-            log.info(f"{proc=},cannot terminate or kill ({self.run_guid=})")
+            # Between tests: nothing has been started for *test*, so there is no process to
+            # kill — but the dequeued test still needs a terminal record or its latest record
+            # stays QUEUED forever after the run is gone.
+            log.info(f'no in-flight process to terminate for "{test}" ({self.run_guid=})')
+            self._write_terminated_record(test)
         else:
             self._terminate_process(proc, proc_name, test)
 
@@ -550,8 +590,15 @@ class _TestRunner(Thread):
     # Test execution
     # ------------------------------------------------------------------
 
-    def _run_single_test(self, test: str):
-        """Run a single test process.  Caller owns the coordinator slot."""
+    def _run_single_test(self, test: str) -> bool:
+        """Run a single test process.  Caller owns the coordinator slot.
+
+        :return: ``False`` when the test process could not be *started* (typically resource
+            exhaustion — ``CreateProcess`` fails with WinError 1455 at commit exhaustion, the
+            exact condition the resource guard watches for). A TERMINATED record is written so
+            the test still reaches a terminal state, and the caller backs off before the next
+            dequeue instead of churning. ``True`` for every path where the process ran.
+        """
 
         # Rolling snapshot of the test's descendant tree as {(pid, create_time)}.
         # Captured while the test is still alive because once PytestProcess exits
@@ -561,7 +608,15 @@ class _TestRunner(Thread):
         try:
             self.process = PytestProcess(self.run_guid, test, self.data_dir, self.update_rate, self.put_version, self.put_fingerprint)
             log.info(f'Starting process for test "{test}" ({self.run_guid=})')
-            self.process.start()
+            try:
+                self.process.start()
+            except (OSError, RuntimeError, ValueError, PicklingError) as e:
+                # An unguarded raise here killed the worker thread: the dequeued test kept no
+                # terminal record, and the supervision loop respawned a replacement every second
+                # that died the same way, draining the queue into lost tests.
+                log.warning(f'could not start process for test "{test}" ({self.run_guid=}): {e}', extra=EVENT_EXTRA)
+                self._write_terminated_record(test)
+                return False
 
             while self.process.is_alive():
                 if self._stop_event.is_set() or self._force_stop_current_event.is_set():
@@ -577,6 +632,8 @@ class _TestRunner(Thread):
                 log.warning(f'process for test "{self.process.name}" did not terminate ({self.run_guid=})')
             else:
                 log.info(f'process for test "{self.process.name}" completed ({self.run_guid=})')
+                self._ensure_terminal_record_after_unclean_exit(test)
+            return True
         finally:
             # Part A: reap any descendants left behind by a test that finished on its
             # own. Skip the stop branch — _terminate_process already tree-killed there —
@@ -586,6 +643,35 @@ class _TestRunner(Thread):
             if not stopped and self.process is not None and not self.process.is_alive():
                 reap_pids(descendant_snapshot)
             self._force_stop_current_event.clear()
+            # The worker is between tests from here on. Clearing the reference means
+            # force_stop_test can no longer match this worker by a *stale* process name
+            # (which killed the worker's NEXT test), and a hard stop while awaiting
+            # admission can no longer tree-kill this dead - possibly recycled - PID.
+            self.process = None
+
+    def _ensure_terminal_record_after_unclean_exit(self, test: str) -> None:
+        """Backstop for a test child that died without writing its result record.
+
+        A zero exit code means ``PytestProcess.run()`` returned normally and wrote the final
+        record itself (pytest pass/fail lands in that record, not in the process exit code).
+        Any other exit code means the child was killed, crashed natively, or died on an
+        unhandled error before the final write — previously that test sat "Running" forever,
+        and the stall watchdog cannot flag a dead PID. ``mark_test_terminated_if_stale`` only
+        writes when the latest record is still non-terminal, so a real result is never
+        overwritten. Fail-open: a DB error here is logged, not raised.
+        """
+        if self._stop_event.is_set() or self._force_stop_current_event.is_set():
+            return  # the stop path writes its own TERMINATED record
+        proc = self.process
+        if proc is None or proc.exitcode in (0, None):
+            return
+        log.warning(f'test process for "{test}" exited uncleanly (exit code {proc.exitcode}) ({self.run_guid=})', extra=EVENT_EXTRA)
+        try:
+            with PytestProcessInfoDB(self.data_dir) as db:
+                if db.mark_test_terminated_if_stale(self.run_guid, test):
+                    log.warning(f'recorded TERMINATED for "{test}" — its process died before writing a result ({self.run_guid=})', extra=EVENT_EXTRA)
+        except FAIL_OPEN_ERRORS as e:
+            log.warning(f'could not backstop terminal record for "{test}" ({self.run_guid=}): {e}')
 
     def _refresh_descendant_snapshot(self, snapshot: set[tuple[int, float]]) -> None:
         """Union the test process's current descendants into *snapshot* as ``(pid, create_time)``.
@@ -613,6 +699,7 @@ class _TestRunner(Thread):
         def should_abort() -> bool:
             return self._stop_event.is_set() or self._soft_stop_event.is_set() or self._retire_event.is_set()
 
+        consecutive_start_failures = 0
         while not should_abort():
             try:
                 scheduled_test = self.pytest_test_queue.get(False)
@@ -641,12 +728,23 @@ class _TestRunner(Thread):
             try:
                 if is_singleton:
                     log.info(f'Running singleton test "{test}" ({self.run_guid=})')
-                self._run_single_test(test)
+                started = self._run_single_test(test)
             finally:
                 if is_singleton:
                     self._coordinator.release_singleton()
                 else:
                     self._coordinator.release_normal()
+
+            if started:
+                consecutive_start_failures = 0
+            else:
+                # Escalating, stop-interruptible backoff: under persistent resource
+                # exhaustion each dequeue would otherwise fail within milliseconds and
+                # drain the whole queue into TERMINATED in seconds.
+                consecutive_start_failures += 1
+                delay = min(30.0, max(self.update_rate, 0.5) * (2 ** min(consecutive_start_failures - 1, 6)))
+                log.warning(f"backing off {delay:.1f}s after {consecutive_start_failures} consecutive process-start failure(s) ({self.run_guid=})", extra=EVENT_EXTRA)
+                self._stop_event.wait(delay)
 
         # On soft stop the worker just exits — it does NOT drain the queue. The queued
         # tests stay schedulable so the soft stop can be canceled; if it isn't, the

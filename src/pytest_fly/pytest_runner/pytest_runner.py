@@ -358,25 +358,27 @@ class PytestRunner(Thread):
         within the timeout. Waits for the pool to be spun up first, so calling right after
         :meth:`start` is safe.
 
-        :param timeout_seconds: Per-thread join timeout, or ``None`` to wait indefinitely.
+        :param timeout_seconds: One shared deadline for the whole join, or ``None`` to wait
+            indefinitely. (This was previously applied per thread, so a wedged pool of N
+            workers could hold a caller — including ``closeEvent`` on the GUI thread — for
+            N × timeout.)
         :return: ``True`` if all workers and the runner thread have exited.
         """
+        deadline = None if timeout_seconds is None else time.monotonic() + timeout_seconds
+
+        def remaining() -> float | None:
+            return None if deadline is None else max(0.0, deadline - time.monotonic())
 
         # in case join is called right after .start(), wait until .run() has started all workers
-        if timeout_seconds is not None:
-            start = time.time()
-            while not self._started_event.is_set() and time.time() - start < timeout_seconds:
-                time.sleep(0.1)
-        else:
-            self._started_event.wait()
+        self._started_event.wait(remaining())
 
         with self._pool_lock:
             test_runners = list(self._test_runners.values())
         for test_runner in test_runners:
-            test_runner.join(timeout_seconds)
+            test_runner.join(remaining())
         # Also join the runner thread itself so soft-stop finalization (marking the
         # remaining queue STOPPED) is complete when join() returns.
-        Thread.join(self, timeout_seconds)
+        Thread.join(self, remaining())
         return all(not test_runner.is_alive() for test_runner in test_runners) and not self.is_alive()
 
     def stop(self):

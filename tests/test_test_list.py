@@ -1,7 +1,9 @@
 """Tests for pytest_runner.test_list.GetTests."""
 
+import time
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from threading import Event
 
 from pytest_fly.interfaces import ScheduledTest
 from pytest_fly.pytest_runner.test_list import GetTests
@@ -60,3 +62,50 @@ def test_get_tests_empty_dir():
         collector.join(60.0)
 
         assert collector.get_tests() == []
+
+
+class _ManyResults(GetTests):
+    """Discovery stand-in that produces far more results than the queue pipe can buffer.
+
+    ~5000 pickled ScheduledTests is well past the ~64 KB pipe buffer, so the child cannot
+    exit until the parent drains — the deadlock GetTests.collect exists to prevent.
+    """
+
+    def run(self) -> None:
+        for n in range(5000):
+            self._scheduled_tests_queue.put(ScheduledTest(f"tests/test_{n:05d}.py", False, None, None))
+
+
+class _NeverFinishes(GetTests):
+    """Discovery stand-in that never completes (wedged collection)."""
+
+    def run(self) -> None:
+        time.sleep(600.0)
+
+
+def test_collect_drains_large_result_sets_without_deadlock():
+    """collect() must drain while the child runs; join-before-drain hung forever at ~500 modules."""
+    collector = _ManyResults()
+    collector.start()
+    start = time.monotonic()
+    tests = collector.collect(Event(), poll_seconds=0.1)
+    elapsed = time.monotonic() - start
+    assert tests is not None
+    assert len(tests) == 5000
+    assert tests == sorted(tests, key=lambda t: t.node_id)
+    assert not collector.is_alive()
+    assert elapsed < 30.0, f"collect took {elapsed:.1f}s"
+
+
+def test_collect_aborts_wedged_discovery():
+    """A set abort event must terminate discovery promptly and return None."""
+    collector = _NeverFinishes()
+    collector.start()
+    abort = Event()
+    abort.set()
+    start = time.monotonic()
+    result = collector.collect(abort, poll_seconds=0.1)
+    elapsed = time.monotonic() - start
+    assert result is None
+    assert not collector.is_alive()
+    assert elapsed < 15.0, f"abort took {elapsed:.1f}s"

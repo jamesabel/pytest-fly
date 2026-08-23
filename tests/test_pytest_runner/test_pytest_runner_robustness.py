@@ -12,6 +12,7 @@ Covers the slice-B hardening:
 """
 
 import os
+import time
 from queue import Queue
 from threading import Event
 
@@ -118,3 +119,27 @@ def test_worker_clears_process_reference_between_tests(app):
 def test_process_monitor_is_daemon():
     """A daemon monitor can never block its parent test process's exit."""
     assert ProcessMonitor("run-guid", "tests/test_x.py", 1234, 1.0).daemon is True
+
+
+def test_join_timeout_is_a_shared_deadline(app):
+    """join(t) must bound the whole call at ~t, not t per worker thread.
+
+    Previously a wedged pool of N workers held the caller — including closeEvent on the
+    GUI thread — for N x t (minutes of "Not Responding" that users end with a kill).
+    """
+    data_dir = get_temp_dir("test_join_shared_deadline")
+    run_guid = generate_uuid()
+
+    long_tests = _scheduled("tests/test_long_operation.py", "tests/test_3_sec_operation.py", "tests/test_sleep.py")
+    runner = PytestRunner(run_guid, long_tests, 3, data_dir, update_rate=0.5)
+    runner.start()
+    assert runner.join(0.1) is False  # wait for the pool to spin up
+
+    start = time.monotonic()
+    finished = runner.join(1.0)
+    elapsed = time.monotonic() - start
+    assert finished is False  # the long tests are still running
+    assert elapsed < 3.0, f"join(1.0) with 3 busy workers took {elapsed:.1f}s — timeout applied per thread, not shared"
+
+    runner.stop()
+    assert runner.join(60.0)

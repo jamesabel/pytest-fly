@@ -18,6 +18,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from threading import Event, Thread
 
+import shiboken6
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QGroupBox, QSizePolicy, QVBoxLayout
 from typeguard import typechecked
@@ -347,7 +348,21 @@ class ControlWindow(QGroupBox):
         except (OSError, RuntimeError, ValueError, sqlite3.OperationalError) as e:
             log.error(f"run preparation failed: {e}", exc_info=True)
         finally:
-            self.run_prep_finished.emit(result)
+            # The window can be destroyed while this daemon thread is still preparing
+            # (closeEvent's bounded abort wait gave up). Emitting on a destroyed QObject
+            # is a use-after-free in C++ if it races the destructor, so check first —
+            # and if nobody is left to adopt the runner, stop it instead of orphaning
+            # its pytest subprocesses.
+            try:
+                if shiboken6.isValid(self):
+                    self.run_prep_finished.emit(result)
+                elif result is not None:
+                    log.warning("run preparation finished after the window was destroyed; stopping the prepared runner")
+                    result.runner.stop()
+            except RuntimeError as e:  # "Signal source has been deleted" — destroyed between check and emit
+                log.warning(f"could not deliver run preparation result: {e}")
+                if result is not None:
+                    result.runner.stop()
 
     def _build_runner(self, config: _RunPrepConfig, prior_runner: PytestRunner | None) -> "_RunPrepResult | None":
         """Prepare a run: discovery, RESUME handling, ordering — and start the runner.
@@ -357,27 +372,28 @@ class ControlWindow(QGroupBox):
         """
         put_version_info = detect_put_version(config.project_root)
         log.info(f"PUT detected: {put_version_info}")
+        if self._run_prep_abort.is_set():
+            return None
 
         get_tests = GetTests(test_dir=config.project_root)
         get_tests.start()
 
-        # Wind down any previous runner while discovery proceeds. Bounded join: a wedged
-        # worker thread must not hang preparation forever (and since this is no longer on
-        # the GUI thread, it cannot freeze the UI either way).
+        # Wind down any previous runner while discovery proceeds. Bounded and abort-aware:
+        # a wedged worker thread must not hang preparation forever, and a closing window
+        # (abort set) must not wait out the full wind-down.
         if prior_runner is not None and prior_runner.is_running():
             prior_runner.stop()
-            if not prior_runner.join(120.0):
+            wind_down_deadline = time.monotonic() + 120.0
+            while prior_runner.is_running() and time.monotonic() < wind_down_deadline and not self._run_prep_abort.is_set():
+                prior_runner.join(1.0)
+            if prior_runner.is_running() and not self._run_prep_abort.is_set():
                 log.warning(f"previous run did not wind down within 120 s; starting the new run anyway ({config.run_guid=})")
 
-        while get_tests.is_alive():
-            get_tests.join(1.0)
-            if self._run_prep_abort.is_set():
-                get_tests.terminate()
-                get_tests.join(5.0)
-                return None
-        get_tests.join()
-
-        tests = get_tests.get_tests()
+        # Drains the discovery queue while waiting (a full queue pipe otherwise deadlocks
+        # the child's exit — see GetTests.collect) and honors the abort event.
+        tests = get_tests.collect(self._run_prep_abort)
+        if tests is None:
+            return None
 
         # Query prior results once (used by RESUME filtering, failed-first ordering, and
         # never-run prioritization). Read-only access; outputs are included because RESUME
@@ -391,6 +407,11 @@ class ControlWindow(QGroupBox):
         effective_mode = config.run_mode
         if config.run_mode == RunMode.CHECK:
             effective_mode = self._resolve_check_mode(prior_results, put_version_info)
+
+        # Last side-effect-free abort point: past here preparation mutates state (deletes
+        # stale coverage data, copies RESUME records into the new run, starts the runner).
+        if self._run_prep_abort.is_set():
+            return None
 
         # Clear stale coverage data before any PytestProcess starts writing into
         # coverage/. Done here (before pytest_runner.start) rather than from a periodic

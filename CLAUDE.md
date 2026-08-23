@@ -59,7 +59,7 @@ pip install -r requirements-dev.txt
 - `monitor_thread.py` — `MonitorThread`: shared daemon-loop base for the stall watchdog and resource guard.
 - `resource_guard.py` — `ResourceGuard`: opt-in low-resource (disk / commit space) automatic soft stop.
 - `pytest_process.py` — `PytestProcess`: spawns one `pytest` subprocess per test module, attaches a `ProcessMonitor` (a daemon child, so it can never block the test process's exit). Coverage finalization and live-output reads are guarded so the final result record is still written when they fail.
-- `test_list.py` — `GetTests` process: discovers tests via `pytest --collect-only`.
+- `test_list.py` — `GetTests` process: discovers tests via `pytest --collect-only`. Callers wait via `collect(abort_event)`, which drains the result queue while the child runs — a join-before-drain deadlocks permanently past ~500 modules (full queue pipe blocks the child's exit).
 - `process_monitor.py` — `ProcessMonitor` subprocess: samples CPU/memory of the test process tree; `SubtreeCpuSampler` (shared persistent-handle CPU sampling).
 - `system_monitor.py` — `SystemMonitor` subprocess: system-wide CPU/memory/commit/disk/network sampling for the Run tab charts.
 - `commit_memory.py` — Windows commit-charge readers and psutil subtree helpers.

@@ -21,13 +21,9 @@ import time
 from pathlib import Path
 from threading import Event, Lock, Thread
 
-from coverage import Coverage
-
-from ..file_util import sanitize_test_name
 from ..interfaces import PytestRunnerState
 from ..logger import get_logger
 from ..preferences import get_pref
-from ..pytest_runner.coverage import COVERAGE_READ_ERRORS
 from ..pytest_runner.coverage_aggregator import aggregate_coverage
 from ..tick_data import TickData
 
@@ -177,30 +173,18 @@ class CoverageTracker:
         previously published values stand and this pass is skipped.
         """
         timeout = self._timeout_seconds if self._timeout_seconds is not None else get_pref().coverage_timeout_seconds
-        result = aggregate_coverage("current", self._data_dir, write_report=False, timeout=timeout)
+        # One child does both the combine/report pass and the per-test executed-line counts, so
+        # no coverage.Coverage object is ever constructed in this (GUI) process.
+        result = aggregate_coverage("current", self._data_dir, write_report=False, timeout=timeout, per_test_names=sorted(completed))
         with self._lock:
             self._last_calculation_time = time.monotonic()  # counts failed attempts too, so a crashing child is not re-spawned every tick
         if result is None:
             return
-        coverage_pct, covered_lines, total_lines = result
+        coverage_pct, covered_lines, total_lines = result.totals
 
-        # Recompute per-test coverage for ALL completed tests since the denominator
+        # Per-test coverage for ALL completed tests is recomputed each pass since the denominator
         # (total_lines) may have changed as new tests discover new source files.
-        per_test_coverage: dict[str, float] = {}
-        if total_lines > 0:
-            coverage_dir = Path(self._data_dir, "coverage")
-            for test_name in completed:
-                safe_name = sanitize_test_name(test_name)
-                cov_file = coverage_dir / f"{safe_name}.coverage"
-                if cov_file.exists():
-                    try:
-                        cov = Coverage(cov_file)
-                        cov.load()
-                        data = cov.get_data()
-                        executed = sum(len(data.lines(f) or []) for f in data.measured_files())
-                        per_test_coverage[test_name] = executed / total_lines
-                    except COVERAGE_READ_ERRORS as e:
-                        log.info(f"per-test coverage for {test_name} failed: {e}")
+        per_test_coverage = result.per_test_fractions(total_lines)
 
         with self._lock:
             if generation != self._generation:

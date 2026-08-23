@@ -29,7 +29,7 @@ from ...logger import get_logger
 from ...preferences import ParallelismControl, duration_to_seconds, get_ordering_aspects_ordered, get_pref
 from ...put_version import detect_put_version
 from ...pytest_runner.admission import AdmissionGateConfig
-from ...pytest_runner.coverage import compute_per_test_coverage
+from ...pytest_runner.coverage_aggregator import aggregate_coverage
 from ...pytest_runner.ordering import OrderingContext, apply_ordering_aspects
 from ...pytest_runner.pytest_runner import PytestRunner
 from ...pytest_runner.resource_guard import ResourceGuardConfig
@@ -60,6 +60,7 @@ class _RunPrepConfig:
     gate_config: AdmissionGateConfig
     stall_config: StallConfig
     resource_guard_config: ResourceGuardConfig
+    coverage_timeout_seconds: float
 
 
 @dataclass
@@ -298,6 +299,7 @@ class ControlWindow(QGroupBox):
                 min_free_disk_gb=pref.resource_guard_min_free_disk_gb,
                 commit_threshold=pref.resource_guard_commit_threshold,
             ),
+            coverage_timeout_seconds=pref.coverage_timeout_seconds,
         )
         self._run_prep_abort.clear()
         self._run_prep_thread = Thread(target=self._prepare_run, args=(config, self.pytest_runner), name="run_prep", daemon=True)
@@ -430,7 +432,11 @@ class ControlWindow(QGroupBox):
         # means "rerun every test," not "forget the durations/failures we know about."
         per_test_cov: dict[str, float] = {}
         if OrderingAspect.COVERAGE_EFFICIENCY in config.enabled_aspects:
-            per_test_cov = compute_per_test_coverage(self.data_dir, [t.node_id for t in tests])
+            # Out of process: constructing coverage.Coverage objects inside the GUI process has
+            # crashed it natively.  A dead or hung child just means no coverage-based ordering
+            # for this run.
+            result = aggregate_coverage("ordering", self.data_dir, write_report=False, timeout=config.coverage_timeout_seconds, per_test_names=[t.node_id for t in tests])
+            per_test_cov = result.per_test_fractions() if result is not None else {}
             # Coverage-efficiency reads duration/coverage off the ScheduledTest
             # itself, so rebuild the list with those fields populated.
             tests = [

@@ -4,6 +4,12 @@ Coverage aggregation and per-test coverage computation.
 Combines individual ``.coverage`` files produced by each :class:`PytestProcess`
 into a unified report and calculates per-test coverage fractions used for
 coverage-efficiency ordering.
+
+Everything here constructs :class:`coverage.Coverage` objects, which has crashed the
+interpreter natively when run on a thread inside the GUI process.  The GUI therefore never
+calls these functions directly — it goes through
+:func:`pytest_fly.pytest_runner.coverage_aggregator.aggregate_coverage`, which runs them in a
+short-lived spawn child.  Direct calls are for that child and for tests.
 """
 
 import io
@@ -155,22 +161,19 @@ def calculate_coverage(test_identifier: str, coverage_parent_directory: Path, wr
     return coverage_value, covered_statements, total_statements
 
 
-def compute_per_test_coverage(data_dir: Path, test_names: list[str]) -> dict[str, float]:
-    """Compute per-test coverage fractions from stored per-test coverage files.
-
-    Loads each test's individual ``.coverage`` file, counts executed lines,
-    and divides by the total lines across all tests to produce a fraction.
+def per_test_executed_lines(data_dir: Path, test_names: list[str]) -> tuple[dict[str, int], int]:
+    """Count executed lines per test from the stored per-test ``.coverage`` files.
 
     :param data_dir: The application data directory containing the ``coverage/`` subdirectory.
     :param test_names: List of test node_ids (e.g. ``"tests/test_foo.py"``).
-    :return: Mapping of test name to coverage fraction (0.0--1.0).  Tests
-             without a coverage file are omitted.
+    :return: ``(executed_lines_by_test, union_executed_lines)`` — the executed line count of
+             every test that has a readable coverage file, and the size of the union of executed
+             lines across all of them (the denominator for coverage-efficiency ordering).
     """
     coverage_dir = Path(data_dir, "coverage")
     if not coverage_dir.exists():
-        return {}
+        return {}, 0
 
-    # Load each test's coverage data and count executed lines
     per_test_lines: dict[str, int] = {}
     all_file_lines: dict[str, set[int]] = {}  # source_file -> set of executed line numbers (union across all tests)
 
@@ -192,8 +195,23 @@ def compute_per_test_coverage(data_dir: Path, test_names: list[str]) -> dict[str
         except COVERAGE_READ_ERRORS as e:
             log.info(f"per-test coverage load for {test_name} failed: {e}")
 
-    total_lines = sum(len(lines) for lines in all_file_lines.values())
-    if total_lines == 0:
-        return {}
+    union_lines = sum(len(lines) for lines in all_file_lines.values())
+    return per_test_lines, union_lines
 
-    return {name: executed / total_lines for name, executed in per_test_lines.items()}
+
+def compute_per_test_coverage(data_dir: Path, test_names: list[str]) -> dict[str, float]:
+    """Compute per-test coverage fractions from stored per-test coverage files.
+
+    Each test's executed line count divided by the union of executed lines across all the
+    given tests.  Runs in-process — see the module docstring; the GUI obtains the same numbers
+    via the aggregator child.
+
+    :param data_dir: The application data directory containing the ``coverage/`` subdirectory.
+    :param test_names: List of test node_ids (e.g. ``"tests/test_foo.py"``).
+    :return: Mapping of test name to coverage fraction (0.0--1.0).  Tests
+             without a coverage file are omitted.
+    """
+    per_test_lines, union_lines = per_test_executed_lines(data_dir, test_names)
+    if union_lines == 0:
+        return {}
+    return {name: executed / union_lines for name, executed in per_test_lines.items()}

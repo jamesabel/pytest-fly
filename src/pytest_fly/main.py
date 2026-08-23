@@ -6,7 +6,6 @@ from pathlib import Path
 
 from .__version__ import application_name
 from .faults import enable_faulthandler, report_previous_crashes
-from .gui import fly_main
 from .logger import get_logger, init_parent_logger
 from .paths import get_default_data_dir, get_workspace_dir, init_workspace
 from .platform.wer import report_previous_crash_dumps
@@ -15,6 +14,22 @@ from .project_info import get_project_info
 from .put_version import detect_put_version
 
 log = get_logger(application_name)
+
+
+def fly_main(data_dir: Path, *, auto_start: bool = False, auto_quit_on_done: bool = False) -> None:
+    """Launch the Qt GUI (lazy wrapper around :func:`pytest_fly.gui.fly_main`).
+
+    pytest-fly's own GUI package is imported here, at call time, rather than at module
+    level: every spawn child (test process, process monitor, system monitor, coverage
+    aggregator, test discovery) re-imports ``pytest_fly.__main__`` and therefore this module,
+    and a module-level ``from .gui import fly_main`` loaded PySide6 and all of pytest-fly's
+    widgets into every one of them — ~0.3 s and tens of MB of commit per child, and
+    pytest-fly's Qt binding resident in the test process before the program under test's own
+    tests (which may use a different Qt binding) ever run.  The PUT's own imports are unaffected.
+    """
+    from .gui import fly_main as gui_fly_main
+
+    gui_fly_main(data_dir, auto_start=auto_start, auto_quit_on_done=auto_quit_on_done)
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:

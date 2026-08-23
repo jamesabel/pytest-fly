@@ -12,7 +12,7 @@ from pytest_fly.file_util import sanitize_test_name
 from pytest_fly.gui.coverage_tracker import CoverageTracker
 from pytest_fly.interfaces import PyTestFlyExitCode, PytestProcessInfo, PytestRunnerState
 from pytest_fly.pytest_runner import coverage_aggregator
-from pytest_fly.pytest_runner.coverage import PytestFlyCoverage, _parse_report_totals, calculate_coverage
+from pytest_fly.pytest_runner.coverage import PytestFlyCoverage, _parse_report_totals, calculate_coverage, compute_per_test_coverage
 from pytest_fly.pytest_runner.coverage_aggregator import CoverageAggregator, aggregate_coverage
 from pytest_fly.pytest_runner.run_state import PytestRunState
 from pytest_fly.tick_data import TickData
@@ -51,12 +51,33 @@ def test_child_returns_same_numbers_as_in_process(tmp_path):
     _write_fixture(tmp_path, "tests/test_one.py", [1, 2])
     in_process = calculate_coverage("current", tmp_path, write_report=False)
     out_of_process = aggregate_coverage("current", tmp_path, write_report=False, timeout=120)
-    assert out_of_process == in_process
-    assert out_of_process[1:] == (2, 4)
+    assert out_of_process is not None
+    assert out_of_process.totals == in_process
+    assert out_of_process.totals[1:] == (2, 4)
+    # No per-test names requested → no per-test pass.
+    assert out_of_process.per_test_executed_lines == {} and out_of_process.union_executed_lines == 0
+
+
+def test_child_returns_per_test_executed_lines(tmp_path):
+    """The same child pass yields per-test counts, so the GUI never constructs a Coverage object itself."""
+    _write_fixture(tmp_path, "tests/test_one.py", [1, 2])
+    _write_fixture(tmp_path, "tests/test_two.py", [2, 3, 4])
+    names = ["tests/test_one.py", "tests/test_two.py", "tests/test_missing.py"]
+    result = aggregate_coverage("current", tmp_path, write_report=False, timeout=120, per_test_names=names)
+    assert result is not None
+    assert result.per_test_executed_lines == {"tests/test_one.py": 2, "tests/test_two.py": 3}
+    assert result.union_executed_lines == 4
+    # Ordering convention: fraction of the union of executed lines.
+    assert result.per_test_fractions() == {"tests/test_one.py": 0.5, "tests/test_two.py": 0.75}
+    assert result.per_test_fractions() == compute_per_test_coverage(tmp_path, names)
+    # Coverage-tab convention: fraction of the report's total statements.
+    assert result.per_test_fractions(result.total_statements) == {"tests/test_one.py": 2 / result.total_statements, "tests/test_two.py": 3 / result.total_statements}
+    assert result.per_test_fractions(0) == {}
 
 
 def test_child_with_no_data_returns_empty_result(tmp_path):
-    assert aggregate_coverage("current", tmp_path, write_report=False, timeout=120) == (None, 0, 0)
+    result = aggregate_coverage("current", tmp_path, write_report=False, timeout=120)
+    assert result is not None and result.totals == (None, 0, 0)
 
 
 class _DyingAggregator(CoverageAggregator):

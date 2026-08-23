@@ -1,6 +1,8 @@
 """Tests for the application bootstrap in :mod:`pytest_fly.main`."""
 
 import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -95,3 +97,15 @@ def test_app_main_put_defaults_to_workspace_when_no_target(tmp_path, monkeypatch
 
     assert main_module.get_active_put_path() == workspace.resolve()
     assert captured["data_dir"] == data_dir.resolve()
+
+
+def test_spawn_child_entry_does_not_import_gui():
+    """Spawn children re-import ``pytest_fly.__main__``; that must not load PySide6 or pytest-fly's GUI.
+
+    A module-level GUI import in main.py put Qt and every tab widget into each test process,
+    process monitor, system monitor, and coverage child (~0.3 s and tens of MB each), and left
+    pytest-fly's Qt binding resident before the program under test's own tests ran.
+    """
+    probe = "import sys, pytest_fly.__main__; print(sorted(m for m in sys.modules if m == 'PySide6' or m.startswith('pytest_fly.gui')))"
+    completed = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True, check=True)
+    assert completed.stdout.strip() == "[]", completed.stdout

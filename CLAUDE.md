@@ -43,7 +43,7 @@ pip install -r requirements-dev.txt
 ## Architecture
 
 ### Entry point
-`src/pytest_fly/__main__.py` → `main.py` initializes the stdlib-based logger (`logger.py`) and launches the Qt app.
+`src/pytest_fly/__main__.py` → `main.py` initializes the stdlib-based logger (`logger.py`) and launches the Qt app. The GUI package is imported lazily inside `main.fly_main` and `pytest_runner/__init__.py` resolves its exports lazily: every spawn child re-imports `__main__`, and must not load PySide6 or the orchestration layer as a side effect (`tests/test_main_app.py::test_spawn_child_entry_does_not_import_gui`).
 
 ### GUI layer (`src/pytest_fly/gui/`)
 - `gui_main.py` — `FlyAppMainWindow`: 8-tab Qt window with a periodic timer (default 3 s) that pulls updates from the runner and refreshes all tabs.
@@ -64,7 +64,7 @@ pip install -r requirements-dev.txt
 - `system_monitor.py` — `SystemMonitor` subprocess: system-wide CPU/memory/commit/disk/network sampling for the Run tab charts.
 - `commit_memory.py` — Windows commit-charge readers and psutil subtree helpers.
 - `coverage.py` — merges per-process coverage data (one `cov.report()` pass yields both the percentage and the TOTAL line).
-- `coverage_aggregator.py` — `CoverageAggregator` spawn child + `aggregate_coverage()`: runs `calculate_coverage()` out of the GUI process (it has crashed the interpreter natively); a dead/hung child is a logged warning, not a crash.
+- `coverage_aggregator.py` — `CoverageAggregator` spawn child + `aggregate_coverage()` → `CoverageResult`: runs `calculate_coverage()` and the per-test executed-line counts out of the GUI process (constructing `coverage.Coverage` in-process has crashed the interpreter natively — the GUI never does it); a dead/hung child is a logged warning, not a crash.
 - `ordering.py` — applies the user's test-ordering aspects; `live_output.py` — per-test live-output file paths.
 
 ### Crash diagnostics

@@ -47,6 +47,7 @@ pip install -r requirements-dev.txt
 
 ### GUI layer (`src/pytest_fly/gui/`)
 - `gui_main.py` — `FlyAppMainWindow`: 8-tab Qt window with a periodic timer (default 3 s) that pulls updates from the runner and refreshes all tabs.
+- `coverage_tracker.py` — `CoverageTracker`: submits coverage recalculation to a worker thread that runs the aggregator child; rate-limited by the Coverage Refresh preference while the run is active, with a final pass once nothing is running.
 - Tabs: `run_tab/` (run/stop controls, status, system metrics, failed tests, live output), `graph_tab/` (time-based progress chart), `table_tab/` (per-test status grid), `coverage_tab/` (coverage-over-time chart), `history_tab/` (recent-run summaries — run times, pass/fail statistics, failed-test lists; multi-select rows copy to the clipboard; run count set by the History Run Limit preference), `log_tab/` (live application event log — admission-gate, resource-guard, and stall-watchdog events, each line date/time-prefixed; default view shows tagged `EVENT_EXTRA` events + warnings, Verbose shows all INFO+), `configuration_tab/` (parallelism, thresholds, gates), `about_tab/`.
 
 ### Core runner (`src/pytest_fly/pytest_runner/`)
@@ -62,8 +63,13 @@ pip install -r requirements-dev.txt
 - `process_monitor.py` — `ProcessMonitor` subprocess: samples CPU/memory of the test process tree; `SubtreeCpuSampler` (shared persistent-handle CPU sampling).
 - `system_monitor.py` — `SystemMonitor` subprocess: system-wide CPU/memory/commit/disk/network sampling for the Run tab charts.
 - `commit_memory.py` — Windows commit-charge readers and psutil subtree helpers.
-- `coverage.py` — merges per-process coverage data.
+- `coverage.py` — merges per-process coverage data (one `cov.report()` pass yields both the percentage and the TOTAL line).
+- `coverage_aggregator.py` — `CoverageAggregator` spawn child + `aggregate_coverage()`: runs `calculate_coverage()` out of the GUI process (it has crashed the interpreter natively); a dead/hung child is a logged warning, not a crash.
 - `ordering.py` — applies the user's test-ordering aspects; `live_output.py` — per-test live-output file paths.
+
+### Crash diagnostics
+- `faults.py` — arms `faulthandler` (parent + every spawn child, via the `PYTEST_FLY_FAULTHANDLER` env var) into `.pytest-fly/logs/faulthandler-<pid>.log`; `report_previous_crashes()` surfaces non-empty dumps at the next launch and archives them as `faulthandler-crash-<pid>-<n>.log`.
+- `platform/wer.py` — Windows Error Reporting LocalDumps: read-only status, the elevated (UAC) configure/remove commands offered from the Configuration tab, and a startup sweep of new `*.dmp` files. Machine-wide for all `python.exe`; never applied silently.
 
 ### Persistence
 - `db/db.py` — stores `PytestProcessInfo` records (status, timing, resource usage) — the foundation for RESUME mode. Two access classes: `PytestProcessInfoDB` (read/write via **msqlite**, whose context manager holds the DB's EXCLUSIVE lock) and `PytestProcessInfoReader` (read-only, lock-free WAL snapshot reads — required for the GUI thread and monitor threads so they never contend with test-process writers).

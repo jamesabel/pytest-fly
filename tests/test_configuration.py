@@ -11,6 +11,7 @@ from pytest_fly.gui.configuration_tab.configuration import Configuration, Orderi
 from pytest_fly.interfaces import OrderingAspect, RunMode
 from pytest_fly.paths import get_workspace_dir, init_workspace
 from pytest_fly.preferences import (
+    coverage_refresh_seconds_default,
     cpu_gate_threshold_default,
     get_active_put_path,
     get_ordering_aspects_ordered,
@@ -275,3 +276,39 @@ def test_ordering_widget_move_and_toggle(app):
     # Toggling a checkbox triggers _on_item_changed -> reorder + persist.
     widget._list.item(0).setCheckState(Qt.CheckState.Unchecked)
     widget._list.item(widget._list.count() - 1).setCheckState(Qt.CheckState.Checked)
+
+
+def test_crash_diagnostics_group(app, monkeypatch):
+    """faulthandler + coverage fields persist; the WER widgets exist only on Windows."""
+    cfg = Configuration()
+    cfg.faulthandler_enabled_checkbox.setChecked(False)
+    assert get_pref().faulthandler_enabled is False
+    cfg.faulthandler_enabled_checkbox.setChecked(True)
+    assert get_pref().faulthandler_enabled is True
+
+    cfg.coverage_refresh_seconds_lineedit.setText("0")
+    assert get_pref().coverage_refresh_seconds == 0.0
+    cfg.coverage_timeout_seconds_lineedit.setText("1")  # below the minimum -> clamped
+    assert get_pref().coverage_timeout_seconds == configuration_module.minimum_coverage_timeout_seconds
+
+    if configuration_module.is_windows():
+        assert cfg.wer_status_label is not None
+        assert cfg.wer_status_label.text()  # live registry state, whatever it is
+        cfg.wer_dump_count_lineedit.setText("0")
+        assert get_pref().wer_dump_count == 1
+        cfg.wer_dump_folder_lineedit.setText(r"  C:\dumps ")
+        assert get_pref().wer_dump_folder == r"C:\dumps"
+    else:
+        assert cfg.wer_status_label is None
+
+    cfg._apply_defaults()
+    assert get_pref().faulthandler_enabled is True
+    assert get_pref().coverage_refresh_seconds == coverage_refresh_seconds_default
+    assert get_pref().wer_dump_folder == ""
+
+
+def test_crash_diagnostics_group_hides_wer_off_windows(app, monkeypatch):
+    monkeypatch.setattr(configuration_module, "is_windows", lambda: False)
+    cfg = Configuration()
+    assert cfg.wer_status_label is None
+    assert not hasattr(cfg, "wer_dump_folder_lineedit")

@@ -265,9 +265,14 @@ class Configuration(QWidget):
 
         layout.addWidget(QLabel(""))  # space
 
-        # Resume-mode behavior option
+        # Test Execution group — how the run is scheduled: resume behaviour and parallelism.
+        execution_group = QGroupBox("Test Execution")
+        execution_group.setToolTip("How test modules are scheduled and run.")
+        execution_layout = QVBoxLayout()
+        execution_group.setLayout(execution_layout)
+
         self.resume_skip_put_check_checkbox = _add_pref_checkbox(
-            layout,
+            execution_layout,
             "Resume Without Program Check (default: off)",
             pref.resume_skip_put_check,
             self.update_resume_skip_put_check,
@@ -278,16 +283,8 @@ class Configuration(QWidget):
             ),
         )
 
-        layout.addWidget(QLabel(""))  # space
-
-        self.ordering_aspects_widget = OrderingAspectsWidget(self)
-        layout.addWidget(self.ordering_aspects_widget)
-
-        layout.addWidget(QLabel(""))  # space
-
-        # Numeric preference fields — use the shared helper to avoid repetition.
         self.processes_lineedit = _add_labeled_lineedit(
-            layout,
+            execution_layout,
             f"Processes (recommended: {get_performance_core_count()})",
             str(pref.processes),
             QIntValidator(),
@@ -295,21 +292,28 @@ class Configuration(QWidget):
             tooltip="Number of test modules run in parallel when parallelism is set to Parallel.\nTakes effect immediately, even mid-run. Minimum 1.",
         )
 
-        layout.addWidget(QLabel(""))  # space
+        layout.addWidget(execution_group)
 
-        self.refresh_rate_lineedit = _add_labeled_lineedit(
-            layout,
-            f"Refresh Rate (seconds, {minimum_refresh_rate} minimum, {refresh_rate_default} default)",
-            str(pref.refresh_rate),
-            QDoubleValidator(),
-            self.update_refresh_rate,
-            tooltip="How often the GUI refreshes from the results database. Lower is smoother but uses more CPU.",
-        )
+        # Test ordering is already its own group box.
+        self.ordering_aspects_widget = OrderingAspectsWidget(self)
+        layout.addWidget(self.ordering_aspects_widget)
 
-        layout.addWidget(QLabel(""))  # space
+        # Paths group — the program under test and where results are stored.
+        paths_group = QGroupBox("Paths")
+        paths_group.setToolTip("Where tests are collected from and where pytest-fly keeps its results.")
+        paths_layout = QVBoxLayout()
+        paths_group.setLayout(paths_layout)
+        self._build_paths_group(paths_layout, pref)
+        layout.addWidget(paths_group)
+
+        # Coverage group.
+        coverage_group = QGroupBox("Coverage")
+        coverage_group.setToolTip("Out-of-process coverage aggregation during and after a run.")
+        coverage_layout = QVBoxLayout()
+        coverage_group.setLayout(coverage_layout)
 
         self.coverage_refresh_seconds_lineedit = _add_labeled_lineedit(
-            layout,
+            coverage_layout,
             f"Coverage Refresh (seconds, {_format_number(coverage_refresh_seconds_default)} default, 0 = every completion)",
             _format_number(pref.coverage_refresh_seconds),
             QDoubleValidator(),
@@ -323,7 +327,7 @@ class Configuration(QWidget):
         )
 
         self.coverage_timeout_seconds_lineedit = _add_labeled_lineedit(
-            layout,
+            coverage_layout,
             f"Coverage Timeout (seconds, min {_format_number(minimum_coverage_timeout_seconds)}, {_format_number(coverage_timeout_seconds_default)} default)",
             _format_number(pref.coverage_timeout_seconds),
             QDoubleValidator(),
@@ -335,26 +339,39 @@ class Configuration(QWidget):
             ),
         )
 
-        layout.addWidget(QLabel(""))  # space
+        layout.addWidget(coverage_group)
+
+        # Display group — GUI refresh, colouring thresholds, and per-tab display limits.
+        display_group = QGroupBox("Display")
+        display_group.setToolTip("GUI refresh rate, colouring thresholds, and how much each tab shows.")
+        display_layout = QVBoxLayout()
+        display_group.setLayout(display_layout)
+
+        self.refresh_rate_lineedit = _add_labeled_lineedit(
+            display_layout,
+            f"Refresh Rate (seconds, {minimum_refresh_rate} minimum, {refresh_rate_default} default)",
+            str(pref.refresh_rate),
+            QDoubleValidator(),
+            self.update_refresh_rate,
+            tooltip="How often the GUI refreshes from the results database. Lower is smoother but uses more CPU.",
+        )
 
         utilization_tooltip = "Colors the Table tab's CPU column: red above the high threshold, yellow above the low\nthreshold. Values are clamped into 0.0-1.0."
         high_label = f"High Utilization Threshold (0.0-1.0, {utilization_high_threshold_default} default)"
         self.utilization_high_threshold_lineedit = _add_labeled_lineedit(
-            layout, high_label, str(pref.utilization_high_threshold), QDoubleValidator(), self.update_utilization_high_threshold, tooltip=utilization_tooltip
+            display_layout, high_label, str(pref.utilization_high_threshold), QDoubleValidator(), self.update_utilization_high_threshold, tooltip=utilization_tooltip
         )
 
         low_label = f"Low Utilization Threshold (0.0-1.0, {utilization_low_threshold_default} default)"
         self.utilization_low_threshold_lineedit = _add_labeled_lineedit(
-            layout, low_label, str(pref.utilization_low_threshold), QDoubleValidator(), self.update_utilization_low_threshold, tooltip=utilization_tooltip
+            display_layout, low_label, str(pref.utilization_low_threshold), QDoubleValidator(), self.update_utilization_low_threshold, tooltip=utilization_tooltip
         )
         # Cross-field validation shown in the UI (not just the log): low must not exceed high.
-        self.utilization_warning_label = _add_validation_label(layout)
-
-        layout.addWidget(QLabel(""))  # space
+        self.utilization_warning_label = _add_validation_label(display_layout)
 
         commit_label = f"Commit Charge Warning Threshold (0.0-1.0, {commit_warning_threshold_default} default)"
         self.commit_warning_threshold_lineedit = _add_labeled_lineedit(
-            layout,
+            display_layout,
             commit_label,
             str(pref.commit_warning_threshold),
             QDoubleValidator(),
@@ -362,11 +379,9 @@ class Configuration(QWidget):
             tooltip="The Run tab's commit-charge warning latches when system commit charge crosses this\nfraction of the commit limit. Clamped into 0.0-1.0.",
         )
 
-        layout.addWidget(QLabel(""))  # space
-
         tooltip_label = f"Tooltip Line Limit (min {minimum_tooltip_line_limit}, {tooltip_line_limit_default} default)"
         self.tooltip_line_limit_lineedit = _add_labeled_lineedit(
-            layout,
+            display_layout,
             tooltip_label,
             str(pref.tooltip_line_limit),
             QIntValidator(),
@@ -375,11 +390,9 @@ class Configuration(QWidget):
             tooltip="Maximum lines of pytest output shown in a hover tooltip before truncation.",
         )
 
-        layout.addWidget(QLabel(""))  # space
-
         chart_window_label = f"System Metrics Chart Window (minutes, {minimum_chart_window_minutes} minimum, {chart_window_minutes_default} default)"
         self.chart_window_minutes_lineedit = _add_labeled_lineedit(
-            layout,
+            display_layout,
             chart_window_label,
             str(pref.chart_window_minutes),
             QDoubleValidator(),
@@ -388,11 +401,9 @@ class Configuration(QWidget):
             tooltip="Width of the Run tab's System Performance chart time window.",
         )
 
-        layout.addWidget(QLabel(""))  # space
-
         graph_font_size_label = f"Progress Graph Font Size (points, {minimum_graph_font_size} minimum, {graph_font_size_default} default)"
         self.graph_font_size_lineedit = _add_labeled_lineedit(
-            layout,
+            display_layout,
             graph_font_size_label,
             str(pref.graph_font_size),
             QIntValidator(),
@@ -401,11 +412,9 @@ class Configuration(QWidget):
             tooltip="Point size of the font used in the Progress Graph tab. Applies on the next refresh tick.",
         )
 
-        layout.addWidget(QLabel(""))  # space
-
         log_tab_line_limit_label = f"Log Tab Line Limit (min {minimum_log_tab_line_limit}, {log_tab_line_limit_default} default)"
         self.log_tab_line_limit_lineedit = _add_labeled_lineedit(
-            layout,
+            display_layout,
             log_tab_line_limit_label,
             str(pref.log_tab_line_limit),
             QIntValidator(),
@@ -414,11 +423,9 @@ class Configuration(QWidget):
             tooltip="Maximum log lines retained and displayed in the Log tab (bounds memory over a long\nsession). The oldest lines are dropped first. Applies on the next refresh tick.",
         )
 
-        layout.addWidget(QLabel(""))  # space
-
         history_run_limit_label = f"History Run Limit (min {minimum_history_run_limit}, {history_run_limit_default} default)"
         self.history_run_limit_lineedit = _add_labeled_lineedit(
-            layout,
+            display_layout,
             history_run_limit_label,
             str(pref.history_run_limit),
             QIntValidator(),
@@ -427,52 +434,7 @@ class Configuration(QWidget):
             tooltip="Number of recent test runs summarized in the History tab. Applies on the next refresh tick.",
         )
 
-        layout.addWidget(QLabel(""))  # space
-
-        # Target project path (PUT). Stored as a preference (independent of where pytest-fly keeps
-        # its own data), so it is freely editable here and takes effect on the next test run.
-        self._active_put_path = str(get_active_put_path())
-        layout.addWidget(QLabel("Target Project Path (program under test)"))
-        target_path_row = QHBoxLayout()
-        self.target_project_path_lineedit = QLineEdit()
-        self.target_project_path_lineedit.setText(self._active_put_path)
-        self.target_project_path_lineedit.setToolTip(
-            "Tests are collected recursively from this path. To run only a subset (e.g. just your\n"
-            "'tests' directory), point this at that subdirectory.\n\n"
-            "Note: pytest's testpaths setting is not used — pytest-fly passes this path to pytest\n"
-            "explicitly, which overrides testpaths."
-        )
-        self.target_project_path_lineedit.editingFinished.connect(self._commit_target_project_path)
-        target_path_row.addWidget(self.target_project_path_lineedit)
-        self.target_project_path_browse = QPushButton("Browse…")
-        self.target_project_path_browse.clicked.connect(self._browse_target_project_path)
-        target_path_row.addWidget(self.target_project_path_browse)
-        layout.addLayout(target_path_row)
-        target_path_hint = QLabel("The project whose tests are run. Applies on the next run; empty resolves to the launch directory.")
-        target_path_hint.setStyleSheet("color: gray;")
-        layout.addWidget(target_path_hint)
-
-        layout.addWidget(QLabel(""))  # space
-
-        # Test results DB directory — empty means use the workspace-local default (<workspace>/.pytest-fly/).
-        default_results_dir = str(get_default_data_dir())
-        layout.addWidget(QLabel(f"Test Results DB Directory (empty = default: {default_results_dir})"))
-        results_dir_row = QHBoxLayout()
-        self.test_results_db_dir_lineedit = QLineEdit()
-        self.test_results_db_dir_lineedit.setText(pref.test_results_db_dir)
-        self.test_results_db_dir_lineedit.setPlaceholderText(default_results_dir)
-        self.test_results_db_dir_lineedit.setToolTip("Where the test-results SQLite DB is stored. Leave empty for the workspace-local default.")
-        # Commit on editingFinished (matching the Target Project Path field) rather than on
-        # every keystroke, so a half-typed path is never persisted.
-        self.test_results_db_dir_lineedit.editingFinished.connect(lambda: self.update_test_results_db_dir(self.test_results_db_dir_lineedit.text()))
-        results_dir_row.addWidget(self.test_results_db_dir_lineedit)
-        self.test_results_db_dir_browse = QPushButton("Browse…")
-        self.test_results_db_dir_browse.clicked.connect(self._browse_test_results_db_dir)
-        results_dir_row.addWidget(self.test_results_db_dir_browse)
-        layout.addLayout(results_dir_row)
-        results_dir_hint = QLabel("Applies on restart.")
-        results_dir_hint.setStyleSheet("color: gray;")
-        layout.addWidget(results_dir_hint)
+        layout.addWidget(display_group)
 
         # Liveness / recovery group — the stall watchdog. Lives in the right column (see the
         # two-column content layout above) so the tall set of options uses the available
@@ -752,6 +714,51 @@ class Configuration(QWidget):
 
         right_column.addWidget(expert_group)
         right_column.addStretch()
+
+    def _build_paths_group(self, paths_layout: QVBoxLayout, pref) -> None:
+        """Populate the Paths group: target project path (PUT) and the test-results DB directory."""
+        # Target project path (PUT). Stored as a preference (independent of where pytest-fly keeps
+        # its own data), so it is freely editable here and takes effect on the next test run.
+        self._active_put_path = str(get_active_put_path())
+        paths_layout.addWidget(QLabel("Target Project Path (program under test)"))
+        target_path_row = QHBoxLayout()
+        self.target_project_path_lineedit = QLineEdit()
+        self.target_project_path_lineedit.setText(self._active_put_path)
+        self.target_project_path_lineedit.setToolTip(
+            "Tests are collected recursively from this path. To run only a subset (e.g. just your\n"
+            "'tests' directory), point this at that subdirectory.\n\n"
+            "Note: pytest's testpaths setting is not used — pytest-fly passes this path to pytest\n"
+            "explicitly, which overrides testpaths."
+        )
+        self.target_project_path_lineedit.editingFinished.connect(self._commit_target_project_path)
+        target_path_row.addWidget(self.target_project_path_lineedit)
+        self.target_project_path_browse = QPushButton("Browse…")
+        self.target_project_path_browse.clicked.connect(self._browse_target_project_path)
+        target_path_row.addWidget(self.target_project_path_browse)
+        paths_layout.addLayout(target_path_row)
+        target_path_hint = QLabel("The project whose tests are run. Applies on the next run; empty resolves to the launch directory.")
+        target_path_hint.setStyleSheet("color: gray;")
+        paths_layout.addWidget(target_path_hint)
+
+        # Test results DB directory — empty means use the workspace-local default (<workspace>/.pytest-fly/).
+        default_results_dir = str(get_default_data_dir())
+        paths_layout.addWidget(QLabel(f"Test Results DB Directory (empty = default: {default_results_dir})"))
+        results_dir_row = QHBoxLayout()
+        self.test_results_db_dir_lineedit = QLineEdit()
+        self.test_results_db_dir_lineedit.setText(pref.test_results_db_dir)
+        self.test_results_db_dir_lineedit.setPlaceholderText(default_results_dir)
+        self.test_results_db_dir_lineedit.setToolTip("Where the test-results SQLite DB is stored. Leave empty for the workspace-local default.")
+        # Commit on editingFinished (matching the Target Project Path field) rather than on
+        # every keystroke, so a half-typed path is never persisted.
+        self.test_results_db_dir_lineedit.editingFinished.connect(lambda: self.update_test_results_db_dir(self.test_results_db_dir_lineedit.text()))
+        results_dir_row.addWidget(self.test_results_db_dir_lineedit)
+        self.test_results_db_dir_browse = QPushButton("Browse…")
+        self.test_results_db_dir_browse.clicked.connect(self._browse_test_results_db_dir)
+        results_dir_row.addWidget(self.test_results_db_dir_browse)
+        paths_layout.addLayout(results_dir_row)
+        results_dir_hint = QLabel("Applies on restart.")
+        results_dir_hint.setStyleSheet("color: gray;")
+        paths_layout.addWidget(results_dir_hint)
 
     def _build_crash_diagnostics_group(self, pref) -> QGroupBox:
         """Crash Diagnostics group: faulthandler (all platforms) and WER LocalDumps (Windows only).

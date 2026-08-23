@@ -7,13 +7,12 @@ been pre-loaded into that child — a PUT must get a clean process, with only th
 imports itself.
 """
 
-import os
+import multiprocessing
 import sys
+from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QLabel, QMainWindow, QPushButton, QVBoxLayout, QWidget
-
-from pytest_fly.const import PYTEST_FLY_FAULTHANDLER_STRING
 
 
 class CounterWindow(QMainWindow):
@@ -103,14 +102,25 @@ def test_count_changed_signal(qtbot):
     assert blocker.args == [1]
 
 
+def _running_as_pytest_fly_child() -> bool:
+    """True inside a :class:`PytestProcess` spawn child running this module.
+
+    PytestProcess names its process after the test module it runs, so the child's
+    ``current_process().name`` is this file's path; a top-level ``pytest tests/`` run is
+    ``MainProcess``.  (An environment variable is not a safe signal: the suite's own
+    ``enable_faulthandler`` tests export one into the top-level process.)
+    """
+    process = multiprocessing.current_process()
+    return multiprocessing.parent_process() is not None and Path(process.name).name == Path(__file__).name
+
+
 def test_pytest_fly_gui_not_preloaded_into_put_process():
     """Inside a pytest-fly test child, only the PUT's own Qt is present — not pytest-fly's GUI.
 
-    pytest-fly exports PYTEST_FLY_FAULTHANDLER to every child it spawns, so its presence
-    identifies this process as a child. Under a plain ``pytest tests/`` run the suite's own
-    GUI tests legitimately import ``pytest_fly.gui``, so the check is skipped there.
+    Under a plain ``pytest tests/`` run the suite's own GUI tests legitimately import
+    ``pytest_fly.gui``, so the check applies only when this module is the program under test.
     """
-    if PYTEST_FLY_FAULTHANDLER_STRING not in os.environ:
-        return  # not running as a pytest-fly child
+    if not _running_as_pytest_fly_child():
+        return
     preloaded = sorted(m for m in sys.modules if m.startswith("pytest_fly.gui"))
     assert preloaded == [], f"pytest-fly's GUI package leaked into the program-under-test process: {preloaded}"

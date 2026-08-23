@@ -6,9 +6,13 @@ separate from the GUI window lifecycle.  The main window creates one
 instance and calls :meth:`CoverageTracker.update` on each refresh tick.
 
 Coverage combination is expensive — it re-combines every per-test ``.coverage``
-file and runs two full report passes over the PUT's sources — so it runs on a
-dedicated background thread.  :meth:`update` only *submits* work (coalescing:
-the worker always processes the latest completed-test set) and
+file and runs a full report pass over the PUT's sources — so it runs in a
+short-lived child process (see :mod:`pytest_fly.pytest_runner.coverage_aggregator`)
+driven from a dedicated background thread.  A child that crashes natively, as
+``coverage.report()`` has done inside the GUI process, is a logged warning rather
+than the end of the run.  :meth:`update` only *submits* work (coalescing: the
+worker always processes the latest completed-test set, and no more often than the
+``coverage_refresh_seconds`` preference while the run is active) and
 :meth:`apply_to_tick` publishes the most recently finished results, so the GUI
 tick never blocks on coverage.
 """
@@ -22,7 +26,9 @@ from coverage import Coverage
 from ..file_util import sanitize_test_name
 from ..interfaces import PytestRunnerState
 from ..logger import get_logger
-from ..pytest_runner.coverage import COVERAGE_READ_ERRORS, calculate_coverage
+from ..preferences import get_pref
+from ..pytest_runner.coverage import COVERAGE_READ_ERRORS
+from ..pytest_runner.coverage_aggregator import aggregate_coverage
 from ..tick_data import TickData
 
 log = get_logger()
@@ -32,10 +38,15 @@ class CoverageTracker:
     """Maintains cumulative coverage state and updates it when new tests finish.
 
     :param data_dir: Application data directory containing the ``coverage/`` subdirectory.
+    :param refresh_seconds: minimum seconds between recalculations while the run is active
+        (``0`` = after every completion); ``None`` reads the preference on each tick.
+    :param timeout_seconds: aggregation child-process timeout; ``None`` reads the preference.
     """
 
-    def __init__(self, data_dir: Path):
+    def __init__(self, data_dir: Path, refresh_seconds: float | None = None, timeout_seconds: float | None = None):
         self._data_dir = data_dir
+        self._refresh_seconds = refresh_seconds
+        self._timeout_seconds = timeout_seconds
         self._last_run_guid: str | None = None
         self._worker: Thread | None = None
         self._work_available = Event()
@@ -46,6 +57,7 @@ class CoverageTracker:
         self._submitted_completed: set[str] = set()  # last completed-test set submitted, to skip no-change ticks
         self._current_run_start: float | None = None
         self._calculating = False
+        self._last_calculation_time: float | None = None  # monotonic; drives the refresh-interval hold in update()
         self._generation = 0  # bumped by handle_new_run so an in-flight calculation for a prior run is discarded
         self._coverage_history: list[tuple[float, float]] = []
         self._per_test_coverage: dict[str, float] = {}
@@ -68,6 +80,7 @@ class CoverageTracker:
                 self._generation += 1
                 self._pending_completed = None
                 self._submitted_completed = set()
+                self._last_calculation_time = None
                 self._coverage_history = []
                 self._per_test_coverage = {}
                 self._covered_lines = 0
@@ -76,17 +89,30 @@ class CoverageTracker:
     def update(self, tick: TickData) -> None:
         """Submit a recalculation to the worker when the completed-test set changed.
 
+        While the run is still active, a new set is *held* (kept pending, newest wins) until
+        ``refresh_seconds`` have passed since the last calculation — per-test resolution on a
+        chart that refreshes every few seconds is not worth re-parsing the whole PUT each time.
+        Once no test is running or queued the hold is lifted, so the trailing recalculation after
+        the last completion always happens and the final number is never stale.
+
         :param tick: Pre-computed data for this refresh cycle.
         """
+        states = [rs.get_state() for rs in tick.run_states.values()]
         current_completed = {name for name, rs in tick.run_states.items() if rs.get_state() in (PytestRunnerState.PASS, PytestRunnerState.FAIL)}
+        run_active = any(state in (PytestRunnerState.RUNNING, PytestRunnerState.QUEUED) for state in states)
         if not current_completed:
             return
         with self._lock:
-            if current_completed == self._submitted_completed:
+            if current_completed != self._submitted_completed:
+                self._submitted_completed = set(current_completed)
+                self._pending_completed = set(current_completed)
+                self._current_run_start = tick.current_run_start
+            if self._pending_completed is None:
                 return
-            self._submitted_completed = set(current_completed)
-            self._pending_completed = set(current_completed)
-            self._current_run_start = tick.current_run_start
+            if run_active and self._last_calculation_time is not None:
+                refresh_seconds = self._refresh_seconds if self._refresh_seconds is not None else get_pref().coverage_refresh_seconds
+                if time.monotonic() - self._last_calculation_time < refresh_seconds:
+                    return  # held: the pending set stays queued for a later tick
         self._ensure_worker()
         self._work_available.set()
 
@@ -147,12 +173,16 @@ class CoverageTracker:
         """Recalculate combined and per-test coverage for *completed* and publish the results.
 
         Results are discarded if a new run started (generation changed) while computing.
+        Aggregation runs in a child process; if it crashes, hangs, or returns nothing, the
+        previously published values stand and this pass is skipped.
         """
-        try:
-            coverage_pct, covered_lines, total_lines = calculate_coverage("current", self._data_dir, write_report=False)
-        except COVERAGE_READ_ERRORS as e:
-            log.warning(f"coverage calculation failed: {e}")
+        timeout = self._timeout_seconds if self._timeout_seconds is not None else get_pref().coverage_timeout_seconds
+        result = aggregate_coverage("current", self._data_dir, write_report=False, timeout=timeout)
+        with self._lock:
+            self._last_calculation_time = time.monotonic()  # counts failed attempts too, so a crashing child is not re-spawned every tick
+        if result is None:
             return
+        coverage_pct, covered_lines, total_lines = result
 
         # Recompute per-test coverage for ALL completed tests since the denominator
         # (total_lines) may have changed as new tests discover new source files.

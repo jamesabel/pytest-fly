@@ -2,17 +2,18 @@
 Coverage tab — displays a step-function line chart of combined code coverage over time.
 """
 
+import time
 from pathlib import Path
 
-from coverage.exceptions import CoverageException
-from PySide6.QtCore import QPointF, Qt
+from PySide6.QtCore import QPointF, Qt, QTimer
 from PySide6.QtGui import QBrush, QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import QGroupBox, QHBoxLayout, QMessageBox, QPushButton, QSizePolicy, QVBoxLayout, QWidget
 
 from ...colors import COVERAGE_FILL_COLOR, COVERAGE_LINE_COLOR
 from ...interfaces import PytestRunnerState
 from ...logger import get_logger
-from ...pytest_runner.coverage import calculate_coverage
+from ...preferences import get_pref
+from ...pytest_runner.coverage_aggregator import CoverageAggregator
 from ...tick_data import TickData
 from ..charts import paint_chart_frame
 from ..graph_tab.time_axis import Y_GRID_PCTS, TimeAxisMapping
@@ -25,6 +26,9 @@ log = get_logger()
 # the live tracker's "current" identifier so clicking the button never races with the
 # periodic coverage recalculation writing to the same combined data file.
 _HTML_REPORT_IDENTIFIER = "html_report"
+_REPORT_POLL_INTERVAL_MS = 250
+_VIEW_BUTTON_TEXT = "View HTML Report"
+_GENERATING_BUTTON_TEXT = "Generating report…"
 
 
 class _CoverageChart(QWidget):
@@ -161,7 +165,7 @@ class CoverageTab(QGroupBox):
         if data_dir is not None:
             button_row = QHBoxLayout()
             button_row.addStretch()
-            self.view_report_button = QPushButton("View HTML Report")
+            self.view_report_button = QPushButton(_VIEW_BUTTON_TEXT)
             self.view_report_button.setToolTip("Generate and open the detailed line-by-line HTML coverage report in your browser.")
             self.view_report_button.setEnabled(False)  # enabled once there is coverage data to report
             self.view_report_button.clicked.connect(self._on_view_report)
@@ -171,21 +175,57 @@ class CoverageTab(QGroupBox):
         self.chart = _CoverageChart()
         layout.addWidget(self.chart, stretch=1)
 
+        # In-flight HTML report generation (a child process) and the timer that polls it.
+        self._report_child: CoverageAggregator | None = None
+        self._report_started: float = 0.0
+        self._report_poll_timer = QTimer(self)
+        self._report_poll_timer.setInterval(_REPORT_POLL_INTERVAL_MS)
+        self._report_poll_timer.timeout.connect(self._poll_report_child)
+
     def _on_view_report(self) -> None:
         """Generate a fresh HTML coverage report from the current data and open it.
 
-        Failures are shown to the user (a warning dialog), not just logged — previously a
-        failed generation silently opened a stale report, and a missing report opened nothing.
+        Generation runs in a child process (``coverage.html_report()`` re-parses the whole PUT
+        and has crashed the interpreter natively) and is polled from a timer, so the GUI stays
+        responsive and a crash in the child is a dialog, not the end of the session.  Failures
+        are shown to the user — previously a failed generation silently opened a stale report.
         """
-        if self._data_dir is None:
+        if self._data_dir is None or self._report_child is not None:
             return
-        try:
-            calculate_coverage(_HTML_REPORT_IDENTIFIER, self._data_dir, write_report=True)
-        except (OSError, ValueError, CoverageException) as e:
-            log.warning(f"HTML coverage report generation failed: {e}")
-            QMessageBox.warning(self, "Coverage report", f"Could not generate the HTML coverage report:\n{e}")
+        self._report_child = CoverageAggregator(_HTML_REPORT_IDENTIFIER, self._data_dir, write_report=True)
+        self._report_child.start()
+        self._report_started = time.monotonic()
+        if self.view_report_button is not None:
+            self.view_report_button.setEnabled(False)
+            self.view_report_button.setText(_GENERATING_BUTTON_TEXT)
+        self._report_poll_timer.start()
+
+    def _poll_report_child(self) -> None:
+        """Timer slot: finish up once the report child exits (or times out), then open the report."""
+        child = self._report_child
+        if child is None:
+            self._report_poll_timer.stop()
             return
-        if not ViewCoverage(self._data_dir).view():
+        timed_out = time.monotonic() - self._report_started > get_pref().coverage_timeout_seconds
+        if child.is_alive() and not timed_out:
+            return
+        self._report_poll_timer.stop()
+        self._report_child = None
+        if self.view_report_button is not None:
+            self.view_report_button.setText(_VIEW_BUTTON_TEXT)
+            self.view_report_button.setEnabled(True)
+        if child.is_alive():
+            child.terminate()
+            child.join()
+            log.warning("HTML coverage report generation timed out and was terminated")
+            QMessageBox.warning(self, "Coverage report", "HTML coverage report generation timed out.")
+            return
+        child.join()
+        if child.exitcode != 0 or child.result() is None:
+            log.warning(f"HTML coverage report generation failed (child exit code {child.exitcode})")
+            QMessageBox.warning(self, "Coverage report", f"Could not generate the HTML coverage report (process exit code {child.exitcode}). See the Log tab.")
+            return
+        if self._data_dir is not None and not ViewCoverage(self._data_dir).view():
             QMessageBox.warning(self, "Coverage report", "No HTML coverage report was found to open.")
 
     def update_tick(self, tick: TickData) -> None:
@@ -207,5 +247,5 @@ class CoverageTab(QGroupBox):
         self.chart.update_data(tick.coverage_history, tick.effective_min_time_stamp, tick.max_time_stamp, status_text, tick.covered_lines, tick.total_lines)
 
         # Only offer the report once there is coverage data to render.
-        if self.view_report_button is not None:
+        if self.view_report_button is not None and self._report_child is None:
             self.view_report_button.setEnabled(tick.total_lines > 0)

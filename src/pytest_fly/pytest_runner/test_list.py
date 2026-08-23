@@ -13,6 +13,7 @@ from queue import Empty
 import pytest
 from typeguard import typechecked
 
+from ..faults import enable_faulthandler
 from ..interfaces import ScheduledTest
 from ..logger import configure_child_logger, get_logger
 
@@ -47,6 +48,7 @@ class GetTests(Process):
         this spawned child process.
         """
         configure_child_logger("get_tests.log")
+        enable_faulthandler()  # reads PYTEST_FLY_FAULTHANDLER from the inherited environment
         log.info(f"{self.test_dir=}")
 
         # Collection only needs core pytest.  Third-party plugins installed in the venv

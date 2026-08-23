@@ -32,6 +32,12 @@ chart_window_minutes_default = 5.0  # width of the system-metrics chart time win
 graph_font_size_default = 10  # point size of the font used in the Progress Graph tab
 log_tab_line_limit_default = 10_000  # max lines retained/displayed in the Log tab — bounds memory over a long session
 history_run_limit_default = 10  # number of recent runs summarized in the History tab
+faulthandler_enabled_default = True  # write a Python stack dump for every thread on a fatal signal (cheap; leave on)
+coverage_refresh_seconds_default = 30.0  # minimum seconds between combined-coverage recalculations during a run (0 = after every test completion)
+coverage_timeout_seconds_default = 300.0  # kill the out-of-process coverage aggregation if it runs longer than this
+wer_dump_folder_default = ""  # WER LocalDumps folder; empty = <workspace>/.pytest-fly/crashdumps
+wer_dump_type_default = 1  # WER DumpType: 1 = minidump (stacks + modules, a few MB), 2 = full dump (includes the heap; can be many GB)
+wer_dump_count_default = 3  # WER DumpCount: how many dumps Windows keeps before evicting the oldest
 
 # Time-duration units offered for the stall timeouts. Stored as a (value, unit) pair so the
 # user can express a timeout in whichever unit reads best; converted to seconds for the runner.
@@ -160,6 +166,17 @@ class FlyPreferences(Pref):
     log_tab_line_limit: int = attrib(default=log_tab_line_limit_default)  # max lines retained/displayed in the Log tab
 
     history_run_limit: int = attrib(default=history_run_limit_default)  # number of recent runs summarized in the History tab
+
+    # Crash diagnostics (see faults.py / platform/wer.py).
+    faulthandler_enabled: bool = attrib(default=faulthandler_enabled_default)  # dump all thread stacks on a fatal signal
+    wer_dump_folder: str = attrib(default=wer_dump_folder_default)  # Windows Error Reporting LocalDumps folder (empty = workspace default)
+    wer_dump_type: int = attrib(default=wer_dump_type_default)  # 1 = minidump, 2 = full dump
+    wer_dump_count: int = attrib(default=wer_dump_count_default)  # dumps retained before the oldest is evicted
+    last_crash_dump_sweep: float = attrib(default=0.0)  # wall-clock of the last WER dump-folder sweep; only newer .dmp files are reported
+
+    # Coverage aggregation (see gui/coverage_tracker.py).
+    coverage_refresh_seconds: float = attrib(default=coverage_refresh_seconds_default)  # minimum seconds between recalculations (0 = every completion)
+    coverage_timeout_seconds: float = attrib(default=coverage_timeout_seconds_default)  # aggregation child process timeout
 
     # Wall-clock start of the most recent run; the Progress Graph time-axis origin, restored on
     # restart so RESUME-carried records still shift onto the run timeline (0.0 = none).

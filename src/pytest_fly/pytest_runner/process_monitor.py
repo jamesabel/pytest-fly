@@ -106,7 +106,11 @@ class ProcessMonitor(Process):
         :param pid: the process ID of the process to monitor
         :param update_rate: the rate at which to send back updates
         """
-        super().__init__()
+        # daemon=True: multiprocessing terminates daemon children when their parent exits.
+        # As a non-daemon child, any unguarded exception unwinding PytestProcess.run() made
+        # multiprocessing's exit handler *join* this monitor - whose loop never ends on its
+        # own - so the test process hung forever with no terminal record.
+        super().__init__(daemon=True)
         self._run_guid = run_guid
         self._name = name
         self._pid = pid

@@ -9,6 +9,7 @@ from io import StringIO
 from multiprocessing import Process, Queue
 from pathlib import Path
 from queue import Empty
+from threading import Event
 
 import pytest
 from typeguard import typechecked
@@ -101,15 +102,42 @@ class GetTests(Process):
 
         log.info(f'Discovered {len(pytest_tests)} pytest tests in "{self.test_dir}"')
 
-    def get_tests(self) -> list[ScheduledTest]:
+    def collect(self, abort_event: Event | None = None, poll_seconds: float = 1.0) -> "list[ScheduledTest] | None":
+        """Wait for discovery to finish, draining results as they arrive, and return them.
+
+        Draining *while* the child is alive is what makes completion possible at all: a
+        multiprocessing child cannot exit until its queue's feeder thread has flushed
+        everything to the pipe, and the pipe blocks once its buffer (~64 KB, a few hundred
+        test modules) is full. Joining before draining therefore deadlocked run preparation
+        permanently on any suite past that size.
+
+        :param abort_event: When set, discovery is terminated and ``None`` is returned.
+        :param poll_seconds: Join/drain poll interval while the child runs.
+        :return: All discovered tests (sorted), or ``None`` on abort.
         """
-        Returns the list of scheduled tests after the process has run.
-        """
+        while self.is_alive():
+            self.join(poll_seconds)
+            self._drain()
+            if abort_event is not None and abort_event.is_set():
+                self.terminate()
+                self.join(5.0)
+                return None
+        self.join()
+        return self.get_tests()
+
+    def _drain(self) -> None:
+        """Move everything currently on the result queue into ``scheduled_tests``."""
         try:
             while test := self._scheduled_tests_queue.get(False):
                 self.scheduled_tests.append(test)
         except Empty:
             pass
+
+    def get_tests(self) -> list[ScheduledTest]:
+        """
+        Returns the list of scheduled tests after the process has run.
+        """
+        self._drain()
 
         # Deterministic discovery order — the final execution order is decided
         # later by :func:`pytest_fly.pytest_runner.ordering.apply_ordering_aspects`.

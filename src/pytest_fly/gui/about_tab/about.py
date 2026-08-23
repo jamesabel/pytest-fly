@@ -10,7 +10,7 @@ from PySide6.QtCore import QObject, QThread, Signal
 from PySide6.QtWidgets import QSizePolicy, QVBoxLayout, QWidget
 
 from ...__version__ import application_name
-from ...logger import get_log_directory
+from ...logger import get_log_directory, get_logger
 from ...platform.platform_info import get_performance_core_count, get_platform_info
 from ...preferences import get_active_put_path, get_preferences_db_path
 from ...project_info import get_project_info
@@ -23,6 +23,8 @@ _PUT_FIELD_ORDER = ("name", "version", "author", "source", "git_describe", "git_
 
 # Display order for pytest-fly's own metadata fields.
 _PYTEST_FLY_FIELD_ORDER = ("name", "version", "description", "author", "license", "home_url", "repository_url")
+
+log = get_logger()
 
 
 class AboutDataWorker(QObject):
@@ -121,3 +123,16 @@ class About(QWidget):
         self.about_box.set_text(text)
         self._thread.quit()
         self._thread.wait()
+
+    def shutdown(self, timeout_ms: int = 10_000) -> None:
+        """Stop the background data thread before the widget is destroyed.
+
+        Destroying a QThread that is still running is a Qt *fatal* error — a fail-fast
+        abort (exit 0xC0000409 on Windows) with no Python traceback — and this thread
+        runs git, which can take seconds. Called from the main window's closeEvent;
+        closing the app before the About data arrived previously crashed it at exit.
+        """
+        if self._thread.isRunning():
+            self._thread.quit()
+            if not self._thread.wait(timeout_ms):
+                log.warning(f"About data thread did not finish within {timeout_ms / 1000.0:.0f} s at shutdown")

@@ -57,6 +57,11 @@ class FlyAppMainWindow(QMainWindow):
         # automation (screenshot capture, auto-quit-on-done) where a modal prompt would block.
         self._suppress_close_confirmation = False
 
+        # Re-entrancy latch for closeEvent: its processEvents() calls can deliver a second
+        # close request (double-click on the window's X), which would run the whole teardown
+        # — dialogs, runner stop, monitor join — a second time, nested inside the first.
+        self._closing = False
+
         super().__init__()
 
         # set monospace font
@@ -152,6 +157,12 @@ class FlyAppMainWindow(QMainWindow):
 
         log.info(f"{self.__class__.__name__}.closeEvent() - entering")
 
+        if self._closing:
+            # Nested close (delivered by a processEvents() below) — the outer invocation
+            # owns the teardown; just accept.
+            event.accept()
+            return
+
         # If a run is in progress (or being prepared), confirm with the user before tearing it
         # down. Skipped under automation, where a modal prompt would block the programmatic close.
         control = self.run_tab.control_window
@@ -169,6 +180,12 @@ class FlyAppMainWindow(QMainWindow):
                 log.info(f"{self.__class__.__name__}.closeEvent() - cancelled by user")
                 event.ignore()
                 return
+
+        self._closing = True
+        # Stop the refresh timer first: the processEvents() calls below would otherwise run
+        # full _update_tick passes (and reconcile_process_count on a stopping runner) nested
+        # inside this teardown.
+        self.timer.stop()
 
         pref = get_pref()
 
@@ -191,6 +208,9 @@ class FlyAppMainWindow(QMainWindow):
 
         self._system_monitor.request_stop()
         self._system_monitor.join(5.0)
+
+        # Wind down the About tab's QThread — destroying it mid-run is a Qt fatal abort.
+        self.about.shutdown()
 
         event.accept()
 

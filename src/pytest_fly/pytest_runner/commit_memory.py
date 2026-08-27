@@ -29,6 +29,8 @@ log = get_logger()
 _warned_once = False
 # Same one-shot guard for the pagefile-config read.
 _pagefile_warned_once = False
+# One-shot guard for the private-psutil pid->ppid snapshot falling back to a handle walk.
+_ppid_snapshot_warned_once = False
 
 
 @dataclass(frozen=True)
@@ -158,12 +160,12 @@ def subtree_processes(pid: int) -> list[psutil.Process]:
     """Return *pid*'s process plus all its descendants; empty when the tree can't be read (fail-open).
 
     Constructs a fresh ``psutil.Process`` per tree member on every call (``children()``'s
-    behavior), so this is for one-shot reads (e.g. the tree-kill path).  Repeated sampling
-    must use :func:`subtree_pids` / :class:`ProcessHandleCache` instead — each construction
-    runs a native init (a ``create_time`` identity read), and a native access-violation
-    crash during garbage collection (Windows, Python 3.14) has been observed with exactly
-    those construction frames on the stack, so high-frequency callers keep constructions
-    to first-sight-per-pid.
+    behavior).  Each construction runs a native init (a ``create_time`` identity read), and
+    a native access-violation crash during garbage collection (Windows, Python 3.14) has
+    been observed with exactly those construction frames on the stack — so nothing on a
+    sampling path calls this.  It is the fallback :func:`subtree_members` uses when the
+    construction-free snapshot (private psutil API) is unavailable; everything else reads
+    membership from :func:`subtree_members` and handles from :class:`ProcessHandleCache`.
     """
     try:
         proc = psutil.Process(pid)
@@ -182,11 +184,22 @@ def _ppid_snapshot() -> dict[int, int] | None:
     """
     ppid_map = getattr(psutil, "_ppid_map", None)
     if ppid_map is None:
+        _warn_snapshot_fallback_once("psutil._ppid_map is missing")
         return None
     try:
         return ppid_map()
-    except (psutil.Error, OSError):
+    except (psutil.Error, OSError) as e:
+        _warn_snapshot_fallback_once(str(e))
         return None
+
+
+def _warn_snapshot_fallback_once(reason: str) -> None:
+    """Log (once per process) that tree reads have degraded to the handle-constructing walk."""
+    global _ppid_snapshot_warned_once
+
+    if not _ppid_snapshot_warned_once:
+        log.warning(f"pid->ppid snapshot unavailable ({reason}); process-tree reads fall back to constructing psutil handles")
+        _ppid_snapshot_warned_once = True
 
 
 def _create_time(pid: int) -> float | None:
@@ -305,7 +318,7 @@ class ProcessHandleCache:
                 del self._procs[cached_pid]
 
 
-def subtree_commit(pid: int, handle_cache: ProcessHandleCache | None = None) -> int:
+def subtree_commit(pid: int, handle_cache: ProcessHandleCache | None = None, members: dict[int, float] | None = None) -> int:
     """Return the commit charge of *pid* plus all its descendants, in **bytes**.
 
     A test module may spawn its own subprocess tree, so the module's true memory cost is
@@ -317,12 +330,14 @@ def subtree_commit(pid: int, handle_cache: ProcessHandleCache | None = None) -> 
     Callers sampling repeatedly (e.g. once per monitor tick) must pass a persistent
     *handle_cache* dedicated to this root: handles are then constructed only for
     newly-seen pids instead of the whole subtree every call (fewer native ``Process``
-    inits — see :class:`ProcessHandleCache`).
+    inits — see :class:`ProcessHandleCache`).  A caller that has already walked the tree
+    this tick passes its :func:`subtree_members` result as *members* to skip a second walk.
     """
     if handle_cache is None:
         handle_cache = ProcessHandleCache()  # one-shot read: a throwaway cache is exactly a construct-per-member walk
+    if members is None:
+        members = subtree_members(pid)
     total = 0
-    members = subtree_members(pid)
     for member_pid, member_ctime in members.items():
         member = handle_cache.get(member_pid, member_ctime)
         if member is None:
@@ -330,7 +345,9 @@ def subtree_commit(pid: int, handle_cache: ProcessHandleCache | None = None) -> 
         try:
             mem = member.memory_info()
             total += getattr(mem, "pagefile", None) or mem.vms
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
+        except psutil.AccessDenied:
+            continue  # live but unreadable (e.g. an elevated helper): keep the handle, it is not an identity failure
+        except psutil.NoSuchProcess:
             handle_cache.drop(member_pid)
     handle_cache.prune_to(set(members))
     return total

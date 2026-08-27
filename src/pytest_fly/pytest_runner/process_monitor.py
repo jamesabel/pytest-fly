@@ -69,16 +69,22 @@ class SubtreeCpuSampler:
     (a new worker or helper that inherited a dead one's pid) is re-primed as a new process
     instead of being read through the dead one's handle — ``cpu_percent`` itself would not
     notice and would report a meaningless cross-process delta.  Handles whose pid left the
-    subtree are dropped.
+    subtree are dropped; a long-lived sampler that stops sampling a root (the stall
+    watchdog, as modules finish) evicts that root's handles via :meth:`retain`.
     """
 
     def __init__(self) -> None:
         self._handles = ProcessHandleCache()
         self._members: dict[int, set[int]] = {}  # last-seen subtree membership per sampled root
 
-    def sample(self, pid: int) -> float | None:
-        """Return the subtree's summed CPU percent, or ``None`` when priming/unreadable."""
-        members = subtree_members(pid)
+    def sample(self, pid: int, members: dict[int, float] | None = None) -> float | None:
+        """Return the subtree's summed CPU percent, or ``None`` when priming/unreadable.
+
+        *members* is an optional :func:`~.commit_memory.subtree_members` result the caller
+        already computed this tick (so one tree walk serves several readers).
+        """
+        if members is None:
+            members = subtree_members(pid)
         if not members:
             # Root gone/unreadable (or its pid non-positive).  Never a reading: a partial
             # total here would be taken for a genuine idle sample.
@@ -97,7 +103,14 @@ class SubtreeCpuSampler:
                 continue
             try:
                 reading = handle.cpu_percent(interval=None)
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
+            except psutil.AccessDenied:
+                # Live but unreadable (e.g. an elevated helper): keep the handle — this is not
+                # an identity failure, and re-constructing it every tick is the churn this
+                # cache exists to avoid.  No reading, though.
+                if member_pid == pid:
+                    total = None
+                continue
+            except psutil.NoSuchProcess:
                 self._handles.drop(member_pid)
                 if member_pid == pid:
                     total = None
@@ -109,6 +122,18 @@ class SubtreeCpuSampler:
                 total += reading
         self._drop_departed(pid, set(members))
         return total
+
+    def retain(self, root_pids: set[int]) -> None:
+        """Evict every sampled root not in *root_pids*, with its descendants' handles.
+
+        Eviction otherwise happens only inside :meth:`sample`, so a caller that simply stops
+        sampling a root (the watchdog, once a module finishes) would leak that root's bundle
+        for the sampler's lifetime — thousands of handles over a long run.
+        """
+        for root_pid in list(self._members):
+            if root_pid not in root_pids:
+                self._drop_departed(root_pid, set())
+                self._handles.drop(root_pid)
 
     def _drop_departed(self, pid: int, member_pids: set[int]) -> None:
         """Drop cached handles for pids that left *pid*'s subtree since the previous sample.
@@ -176,10 +201,11 @@ class ProcessMonitor(Process):
                     memory_percent = psutil_process.memory_percent()
                 except NoSuchProcess:
                     memory_percent = None
-                cpu_percent = cpu_sampler.sample(self._pid)
+                members = subtree_members(self._pid)  # one tree walk per tick, shared by the CPU and commit reads
+                cpu_percent = cpu_sampler.sample(self._pid, members)
                 if cpu_percent is not None and memory_percent is not None:
                     # Commit charge of the whole process subtree (the test may spawn children).
-                    commit_bytes = subtree_commit(self._pid, commit_handles)
+                    commit_bytes = subtree_commit(self._pid, commit_handles, members)
                     pytest_process_info = PytestProcessMonitorInfo(
                         run_guid=self._run_guid, name=self._name, pid=self._pid, cpu_percent=cpu_percent, memory_percent=memory_percent, time_stamp=time.time(), commit_bytes=commit_bytes
                     )

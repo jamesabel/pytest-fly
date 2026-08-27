@@ -19,6 +19,7 @@ import subprocess
 import sys
 import time
 from collections import Counter
+from types import SimpleNamespace
 
 import psutil
 import pytest
@@ -26,6 +27,8 @@ import pytest
 from pytest_fly.pytest_runner import commit_memory, process_monitor
 from pytest_fly.pytest_runner.commit_memory import ProcessHandleCache, subtree_commit, subtree_members, subtree_pids, subtree_process_count
 from pytest_fly.pytest_runner.process_monitor import SubtreeCpuSampler
+from pytest_fly.pytest_runner.pytest_process import terminate_process_tree
+from pytest_fly.pytest_runner.pytest_runner import _TestRunner
 
 # Root spawns one grandchild-of-the-test and waits on it, giving a stable 2-process tree
 # (root + descendant) that spawns nothing new while a test samples it repeatedly.  The root
@@ -39,16 +42,8 @@ _SPAWN_TIMEOUT = 15.0
 
 
 def _kill_tree(root: subprocess.Popen) -> None:
-    """Tear down the spawned tree: descendants first, then the root."""
-    try:
-        for child in psutil.Process(root.pid).children(recursive=True):
-            try:
-                child.kill()
-            except psutil.NoSuchProcess:
-                pass
-    except psutil.NoSuchProcess:
-        pass
-    root.kill()
+    """Tear down the spawned tree (descendants first, then the root) with the production tree-kill."""
+    terminate_process_tree(root.pid)
     root.wait(timeout=10)
 
 
@@ -230,3 +225,105 @@ def test_subtree_members_excludes_recycled_pid_orphans(monkeypatch):
     assert list(members) == [pid], f"expected only the root, got {members}"
     assert members[pid] == psutil.Process(pid).create_time()
     assert subtree_process_count(pid) == 1
+
+
+# AI-GENERATED TEST (Claude Code) - delete this line to make this test human-owned.
+def test_sampler_retain_evicts_unsampled_roots(process_tree):
+    """A root the caller stops sampling is evicted (with its descendants' handles) by ``retain``.
+
+    Eviction otherwise only happens inside ``sample``; the stall watchdog stops sampling a
+    module's root the moment it finishes, so without ``retain`` every finished module would
+    leak its handle bundle for the run's lifetime.
+    """
+    root_pid = process_tree
+    own_pid = os.getpid()
+    sampler = SubtreeCpuSampler()
+    sampler.sample(root_pid)
+    sampler.sample(own_pid)
+    cached = set(sampler._handles._procs)
+    assert set(subtree_pids(root_pid)) <= cached and own_pid in cached
+    sampler.retain({own_pid})  # the spawned tree's root is no longer being sampled
+    assert own_pid in sampler._handles._procs, "a retained root keeps its handle"
+    assert not (set(subtree_pids(root_pid)) & set(sampler._handles._procs)), "the evicted root's whole bundle is gone"
+    assert root_pid not in sampler._members
+    sampler.retain(set())
+    assert not sampler._handles._procs and not sampler._members
+
+
+# AI-GENERATED TEST (Claude Code) - delete this line to make this test human-owned.
+def test_sampler_keeps_handle_on_access_denied(monkeypatch):
+    """``AccessDenied`` on a read is not an identity failure: the handle stays cached (no re-construction), the reading is just unknown."""
+    pid = os.getpid()
+    ctime = subtree_members(pid)[pid]
+    sampler = SubtreeCpuSampler()
+    assert sampler.sample(pid) is None
+    time.sleep(0.1)
+    assert sampler.sample(pid) is not None
+
+    def denied(self, interval=None):
+        raise psutil.AccessDenied(self.pid)
+
+    monkeypatch.setattr(psutil.Process, "cpu_percent", denied)
+    assert sampler.sample(pid) is None, "an unreadable root yields no reading"
+    assert sampler._handles.holds(pid, ctime), "the handle must survive AccessDenied"
+
+
+# AI-GENERATED TEST (Claude Code) - delete this line to make this test human-owned.
+def test_subtree_commit_keeps_handle_on_access_denied(monkeypatch):
+    """Same rule for the commit read: an unreadable member contributes nothing but keeps its handle."""
+    pid = os.getpid()
+    ctime = subtree_members(pid)[pid]
+    handle_cache = ProcessHandleCache()
+    assert subtree_commit(pid, handle_cache) > 0
+
+    def denied(self):
+        raise psutil.AccessDenied(self.pid)
+
+    monkeypatch.setattr(psutil.Process, "memory_info", denied)
+    assert subtree_commit(pid, handle_cache) == 0
+    assert handle_cache.holds(pid, ctime)
+
+
+# AI-GENERATED TEST (Claude Code) - delete this line to make this test human-owned.
+def test_precomputed_members_shared_by_cpu_and_commit_reads(process_tree, counting_process_class):
+    """One ``subtree_members`` walk per tick can feed both the CPU sampler and the commit read (the ProcessMonitor path)."""
+    root_pid = process_tree
+    sampler = SubtreeCpuSampler()
+    handle_cache = ProcessHandleCache()
+    members = subtree_members(root_pid)
+    assert len(members) == _TREE_SIZE
+    assert sampler.sample(root_pid, members) is None
+    assert subtree_commit(root_pid, handle_cache, members) > 0
+    time.sleep(0.2)
+    members = subtree_members(root_pid)
+    assert sampler.sample(root_pid, members) is not None
+    assert subtree_commit(root_pid, handle_cache, members) > 0
+    per_pid = Counter(counting_process_class)
+    assert set(per_pid) == set(members) and max(per_pid.values()) == 2, "each pid: one handle for the sampler, one for the commit cache, none re-constructed"
+
+
+# AI-GENERATED TEST (Claude Code) - delete this line to make this test human-owned.
+def test_descendant_snapshot_refresh_constructs_no_handles(process_tree, counting_process_class):
+    """The GUI-process per-poll descendant snapshot is built from the membership walk: zero psutil.Process constructions."""
+    root_pid = process_tree
+    snapshot: set[tuple[int, float]] = set()
+    runner_stub = SimpleNamespace(process=SimpleNamespace(pid=root_pid))
+    _TestRunner._refresh_descendant_snapshot(runner_stub, snapshot)
+    expected = {(member_pid, member_ctime) for member_pid, member_ctime in subtree_members(root_pid).items() if member_pid != root_pid}
+    assert expected and snapshot == expected, "every descendant (never the root itself) as (pid, create_time)"
+    assert counting_process_class == [], f"snapshot refresh constructed handles for pids {counting_process_class}"
+
+
+# AI-GENERATED TEST (Claude Code) - delete this line to make this test human-owned.
+def test_ppid_snapshot_fallback_warns_once(monkeypatch):
+    """Losing psutil's private pid->ppid map degrades to the handle-constructing walk with a single logged warning."""
+    warnings: list[str] = []
+    monkeypatch.setattr(commit_memory.log, "warning", lambda message, *args, **kwargs: warnings.append(message))
+    monkeypatch.setattr(commit_memory, "_ppid_snapshot_warned_once", False)
+    monkeypatch.delattr(psutil, "_ppid_map")
+    # psutil's own children() reads the same module global, so stand in for the fallback walk.
+    monkeypatch.setattr(commit_memory, "subtree_processes", lambda root_pid: [psutil.Process(root_pid)])
+    pid = os.getpid()
+    assert subtree_pids(pid)[0] == pid, "the fallback walk still answers"
+    assert subtree_pids(pid)[0] == pid
+    assert len(warnings) == 1 and "fall back" in warnings[0]

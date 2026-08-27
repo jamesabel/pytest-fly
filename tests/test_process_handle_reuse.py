@@ -27,9 +27,12 @@ from pytest_fly.pytest_runner import commit_memory, process_monitor
 from pytest_fly.pytest_runner.commit_memory import ProcessHandleCache, subtree_commit, subtree_members, subtree_pids, subtree_process_count
 from pytest_fly.pytest_runner.process_monitor import SubtreeCpuSampler
 
-# Root spawns one grandchild-of-the-test and sleeps, giving a stable 2-process tree
-# (root + descendant) that spawns nothing new while a test samples it repeatedly.
-_TREE_SRC = "import subprocess, sys, time; subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)']); time.sleep(120)"
+# Root spawns one grandchild-of-the-test and waits on it, giving a stable 2-process tree
+# (root + descendant) that spawns nothing new while a test samples it repeatedly.  The root
+# *waits* (reaps) rather than sleeping alongside: on POSIX an unreaped killed child lingers as
+# a zombie that is still the root's child in the pid->ppid map (psutil's children() keeps
+# zombies too), which would keep a "departed" descendant in the tree indefinitely.
+_TREE_SRC = "import subprocess, sys, time; subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)']).wait(); time.sleep(120)"
 
 _TREE_SIZE = 2  # the spawned root plus its one child
 _SPAWN_TIMEOUT = 15.0
@@ -210,7 +213,16 @@ def test_subtree_members_excludes_recycled_pid_orphans(monkeypatch):
     """The walk keeps psutil's ``children()`` guards: a "child" older than the root is a recycled-pid
     orphan (excluded, along with everything under it), and a pid gone since the snapshot is skipped."""
     pid = os.getpid()
-    orphan_pid = os.getppid()  # a real, live process that is older than this one
+    own_ctime = subtree_members(pid)[pid]
+    # A real, live process *strictly* older than this one.  Not simply the parent: on Linux
+    # /proc creation times have clock-tick resolution, so a parent that spawned this process
+    # immediately can share its timestamp — and equal is in-time (psutil's rule too).
+    older_pids = [
+        candidate for candidate in sorted(psutil.pids()) if candidate != pid and (candidate_ctime := commit_memory._create_time(candidate)) is not None and candidate_ctime < own_ctime
+    ]
+    if not older_pids:
+        pytest.skip("no readable process strictly older than this one")
+    orphan_pid = older_pids[0]
     gone_pid = max(psutil.pids()) + 100_000  # no such process
     fake_snapshot = {pid: 1, orphan_pid: pid, gone_pid: pid, pid + 1_000_000: orphan_pid}
     monkeypatch.setattr(commit_memory, "_ppid_snapshot", lambda: fake_snapshot)

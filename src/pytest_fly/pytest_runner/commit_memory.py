@@ -15,6 +15,7 @@ bad memory reading never breaks the GUI or a test run.
 """
 
 import sys
+from collections import defaultdict
 from dataclasses import dataclass
 
 import psutil
@@ -154,7 +155,16 @@ PSUTIL_READ_ERRORS = (psutil.NoSuchProcess, psutil.AccessDenied, ValueError)
 
 
 def subtree_processes(pid: int) -> list[psutil.Process]:
-    """Return *pid*'s process plus all its descendants; empty when the tree can't be read (fail-open)."""
+    """Return *pid*'s process plus all its descendants; empty when the tree can't be read (fail-open).
+
+    Constructs a fresh ``psutil.Process`` per tree member on every call (``children()``'s
+    behavior), so this is for one-shot reads (e.g. the tree-kill path).  Repeated sampling
+    must use :func:`subtree_pids` / :class:`ProcessHandleCache` instead — each construction
+    runs a native init (a ``create_time`` identity read), and a native access-violation
+    crash during garbage collection (Windows, Python 3.14) has been observed with exactly
+    those construction frames on the stack, so high-frequency callers keep constructions
+    to first-sight-per-pid.
+    """
     try:
         proc = psutil.Process(pid)
         return [proc, *proc.children(recursive=True)]
@@ -162,7 +172,92 @@ def subtree_processes(pid: int) -> list[psutil.Process]:
         return []
 
 
-def subtree_commit(pid: int) -> int:
+def _ppid_snapshot() -> dict[int, int] | None:
+    """Return a one-shot ``{pid: ppid}`` map of every running process, or ``None`` when unavailable.
+
+    Reads psutil's internal map (``psutil._ppid_map`` — the same snapshot ``Process.children()``
+    is built on) which constructs no ``psutil.Process`` handles at all.  Private psutil API, so
+    fail-open: when it's missing or errors, return ``None`` and let callers fall back to the
+    handle-constructing ``children()`` walk.
+    """
+    ppid_map = getattr(psutil, "_ppid_map", None)
+    if ppid_map is None:
+        return None
+    try:
+        return ppid_map()
+    except (psutil.Error, OSError):
+        return None
+
+
+def subtree_pids(pid: int) -> list[int]:
+    """Return *pid* plus all descendant pids without constructing any ``psutil.Process`` handles.
+
+    Same tree :func:`subtree_processes` walks, but membership only, computed from one
+    ``{pid: ppid}`` snapshot.  Empty when the process doesn't exist (fail-open, matching
+    ``subtree_processes``).  The root pid is always first in the returned list.
+    """
+    snapshot = _ppid_snapshot()
+    if snapshot is None:
+        return [p.pid for p in subtree_processes(pid)]
+    if pid not in snapshot:
+        return []
+    children_of: defaultdict[int, list[int]] = defaultdict(list)
+    for child_pid, parent_pid in snapshot.items():
+        children_of[parent_pid].append(child_pid)
+    # DFS over the snapshot; ``seen`` guards against cycles from pid reuse racing the
+    # snapshot (the same guard psutil's children(recursive=True) uses).
+    members = [pid]
+    seen = {pid}
+    stack = [pid]
+    while stack:
+        current_pid = stack.pop()
+        for child_pid in children_of.get(current_pid, ()):
+            if child_pid not in seen:
+                seen.add(child_pid)
+                members.append(child_pid)
+                stack.append(child_pid)
+    return members
+
+
+class ProcessHandleCache:
+    """Persistent ``pid → psutil.Process`` handles for repeated reads of the same subtree.
+
+    Constructing a ``psutil.Process`` runs a native init (a ``create_time`` identity read);
+    a caller that re-reads the same tree every sample would otherwise re-run that native
+    init for every member on every sample (see :func:`subtree_processes`).  Keep one cache
+    per sampled root and handles are constructed only at first sight of a pid.
+
+    Handles self-heal on pid reuse: psutil's identity check makes any method call on a
+    stale handle raise ``NoSuchProcess``, at which point callers :meth:`drop` it and the
+    next :meth:`get` constructs a fresh one.
+    """
+
+    def __init__(self) -> None:
+        self._procs: dict[int, psutil.Process] = {}
+
+    def get(self, pid: int) -> psutil.Process | None:
+        """Return the cached handle for *pid*, constructing it at first sight; ``None`` when unreadable."""
+        handle = self._procs.get(pid)
+        if handle is None:
+            try:
+                handle = psutil.Process(pid)
+            except PSUTIL_READ_ERRORS:
+                return None
+            self._procs[pid] = handle
+        return handle
+
+    def drop(self, pid: int) -> None:
+        """Forget *pid*'s handle (its process exited or its pid was reused)."""
+        self._procs.pop(pid, None)
+
+    def prune_to(self, live_pids: set[int]) -> None:
+        """Drop every cached handle whose pid is not in *live_pids*, keeping the cache bounded."""
+        for cached_pid in list(self._procs):
+            if cached_pid not in live_pids:
+                del self._procs[cached_pid]
+
+
+def subtree_commit(pid: int, handle_cache: ProcessHandleCache | None = None) -> int:
     """Return the commit charge of *pid* plus all its descendants, in **bytes**.
 
     A test module may spawn its own subprocess tree, so the module's true memory cost is
@@ -170,14 +265,32 @@ def subtree_commit(pid: int) -> int:
     process's ``pagefile`` (the "Commit Size" shown in Task Manager); on other platforms
     it falls back to ``vms`` as an approximation.  Fails open — returns ``0`` if the tree
     can't be read (the process already exited, access denied, etc.).
+
+    Callers sampling repeatedly (e.g. once per monitor tick) must pass a persistent
+    *handle_cache* dedicated to this root: handles are then constructed only for
+    newly-seen pids instead of the whole subtree every call (fewer native ``Process``
+    inits — see :class:`ProcessHandleCache`).
     """
     total = 0
-    for p in subtree_processes(pid):
+    member_pids = subtree_pids(pid)
+    for member_pid in member_pids:
+        if handle_cache is None:
+            try:
+                member = psutil.Process(member_pid)
+            except PSUTIL_READ_ERRORS:
+                continue
+        else:
+            member = handle_cache.get(member_pid)
+            if member is None:
+                continue
         try:
-            mem = p.memory_info()
+            mem = member.memory_info()
             total += getattr(mem, "pagefile", None) or mem.vms
         except (psutil.NoSuchProcess, psutil.AccessDenied):
-            pass
+            if handle_cache is not None:
+                handle_cache.drop(member_pid)
+    if handle_cache is not None:
+        handle_cache.prune_to(set(member_pids))
     return total
 
 
@@ -186,9 +299,10 @@ def subtree_process_count(pid: int) -> int:
 
     Counts grandchildren the controller never spawned directly — the spawn-explosion signal
     the commit-charge gate misses.  Fails open — returns ``0`` (i.e. "below any ceiling", so
-    admit) if the tree can't be read.
+    admit) if the tree can't be read.  Membership-only (:func:`subtree_pids`), so counting
+    constructs no ``psutil.Process`` handles.
     """
-    return len(subtree_processes(pid))
+    return len(subtree_pids(pid))
 
 
 def commit_warning_active(commit_percent: float, commit_total_gb: float, threshold_fraction: float) -> bool:

@@ -14,7 +14,7 @@ from typeguard import typechecked
 
 from ..faults import enable_faulthandler
 from ..logger import configure_child_logger
-from .commit_memory import subtree_commit
+from .commit_memory import ProcessHandleCache, subtree_commit, subtree_pids
 
 
 @dataclass(frozen=True)
@@ -57,10 +57,19 @@ class SubtreeCpuSampler:
     meaningless) or unreadable — callers must treat ``None`` as "unknown", never "idle".
     Shared by :class:`ProcessMonitor` (raw totals) and the stall watchdog (which
     normalizes via :func:`normalize_cpu_percent`).
+
+    Subtree membership comes from :func:`~.commit_memory.subtree_pids` (a pid→ppid
+    snapshot), never ``children(recursive=True)`` — ``children()`` constructs a fresh
+    ``psutil.Process`` per descendant per call, and each construction runs a native init
+    (a ``create_time`` identity read) that a native GC crash has been observed inside
+    (Windows, Python 3.14).  Here a handle is constructed once at first sight of a pid and
+    reused for every later sample; handles whose pid left the subtree are dropped.
     """
 
     def __init__(self) -> None:
         self._procs: dict[int, psutil.Process] = {}
+        self._ctimes: dict[int, float] = {}  # create_time captured at construction, for the pid-reuse guard
+        self._members: dict[int, set[int]] = {}  # last-seen subtree membership per sampled root
 
     def sample(self, pid: int) -> float | None:
         """Return the subtree's summed CPU percent, or ``None`` when priming/unreadable."""
@@ -70,24 +79,56 @@ class SubtreeCpuSampler:
             if root is None:
                 root = psutil.Process(pid)
                 self._procs[pid] = root
+                self._ctimes[pid] = root.create_time()
                 root.cpu_percent(interval=None)  # prime; the first reading is meaningless
             total = 0.0 if first_sight else root.cpu_percent(interval=None)
-            for child in root.children(recursive=True):
-                cached = self._procs.get(child.pid)
+            root_ctime = self._ctimes[pid]
+            member_pids = set(subtree_pids(pid))
+            for member_pid in member_pids:
+                if member_pid == pid:
+                    continue
+                cached = self._procs.get(member_pid)
                 try:
                     if cached is None:
-                        # New descendant: cache + prime now so the next sample reads real usage.
-                        self._procs[child.pid] = child
-                        child.cpu_percent(interval=None)
+                        # New descendant: construct once, cache + prime so the next sample
+                        # reads real usage.  A descendant "older" than the root means its
+                        # pid was reused (children()'s in-time guard) — skip, uncached, so
+                        # it is re-checked rather than adopted if it shows up again.
+                        descendant = psutil.Process(member_pid)
+                        if descendant.create_time() < root_ctime:
+                            continue
+                        self._procs[member_pid] = descendant
+                        self._ctimes[member_pid] = descendant.create_time()
+                        descendant.cpu_percent(interval=None)
                     else:
                         total += cached.cpu_percent(interval=None)
                 except (psutil.NoSuchProcess, psutil.AccessDenied):
-                    self._procs.pop(child.pid, None)
+                    self._drop(member_pid)
+            self._drop_departed(pid, member_pids)
             return None if first_sight else total
         except (psutil.NoSuchProcess, psutil.AccessDenied, ValueError):
             # ValueError: psutil rejects non-positive PIDs.
-            self._procs.pop(pid, None)
+            self._drop_departed(pid, set())
+            self._drop(pid)
             return None
+
+    def _drop(self, pid: int) -> None:
+        """Forget one cached handle (its process exited or its pid was reused)."""
+        self._procs.pop(pid, None)
+        self._ctimes.pop(pid, None)
+
+    def _drop_departed(self, pid: int, member_pids: set[int]) -> None:
+        """Drop cached handles for pids that left *pid*'s subtree since the previous sample.
+
+        Keeps the cache bounded under process churn — without this, a handle for an exited
+        descendant would linger until pid reuse happened to trip psutil's identity check.
+        """
+        for departed_pid in self._members.get(pid, set()) - member_pids - {pid}:
+            self._drop(departed_pid)
+        if member_pids:
+            self._members[pid] = member_pids
+        else:
+            self._members.pop(pid, None)
 
 
 class ProcessMonitor(Process):
@@ -130,6 +171,10 @@ class ProcessMonitor(Process):
         # returns None (priming), so the first loop iteration enqueues nothing.
         cpu_sampler = SubtreeCpuSampler()
 
+        # Persistent handles for the per-sample commit read too — constructed once per pid,
+        # not once per member per sample (see ProcessHandleCache).
+        commit_handles = ProcessHandleCache()
+
         def put_process_monitor_data():
             """Take one CPU/memory sample and enqueue it."""
             if psutil_process.is_running():
@@ -141,7 +186,7 @@ class ProcessMonitor(Process):
                 cpu_percent = cpu_sampler.sample(self._pid)
                 if cpu_percent is not None and memory_percent is not None:
                     # Commit charge of the whole process subtree (the test may spawn children).
-                    commit_bytes = subtree_commit(self._pid)
+                    commit_bytes = subtree_commit(self._pid, commit_handles)
                     pytest_process_info = PytestProcessMonitorInfo(
                         run_guid=self._run_guid, name=self._name, pid=self._pid, cpu_percent=cpu_percent, memory_percent=memory_percent, time_stamp=time.time(), commit_bytes=commit_bytes
                     )

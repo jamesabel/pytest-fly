@@ -14,7 +14,7 @@ from typeguard import typechecked
 
 from ..faults import enable_faulthandler
 from ..logger import configure_child_logger
-from .commit_memory import ProcessHandleCache, subtree_commit, subtree_pids
+from .commit_memory import ProcessHandleCache, subtree_commit, subtree_members
 
 
 @dataclass(frozen=True)
@@ -58,73 +58,66 @@ class SubtreeCpuSampler:
     Shared by :class:`ProcessMonitor` (raw totals) and the stall watchdog (which
     normalizes via :func:`normalize_cpu_percent`).
 
-    Subtree membership comes from :func:`~.commit_memory.subtree_pids` (a pid→ppid
-    snapshot), never ``children(recursive=True)`` — ``children()`` constructs a fresh
-    ``psutil.Process`` per descendant per call, and each construction runs a native init
-    (a ``create_time`` identity read) that a native GC crash has been observed inside
-    (Windows, Python 3.14).  Here a handle is constructed once at first sight of a pid and
-    reused for every later sample; handles whose pid left the subtree are dropped.
+    Subtree membership comes from :func:`~.commit_memory.subtree_members` (a pid→ppid
+    snapshot plus one native ``create_time`` read per member), never
+    ``children(recursive=True)`` — ``children()`` constructs a fresh ``psutil.Process`` per
+    descendant per call, and each construction runs a native init (a ``create_time``
+    identity read) that a native GC crash has been observed inside (Windows, Python 3.14).
+    Here handles live in a :class:`~.commit_memory.ProcessHandleCache`: constructed once at
+    first sight of a process identity and reused for every later sample.  The membership
+    walk's creation times are what the cache checks each handle against, so a recycled pid
+    (a new worker or helper that inherited a dead one's pid) is re-primed as a new process
+    instead of being read through the dead one's handle — ``cpu_percent`` itself would not
+    notice and would report a meaningless cross-process delta.  Handles whose pid left the
+    subtree are dropped.
     """
 
     def __init__(self) -> None:
-        self._procs: dict[int, psutil.Process] = {}
-        self._ctimes: dict[int, float] = {}  # create_time captured at construction, for the pid-reuse guard
+        self._handles = ProcessHandleCache()
         self._members: dict[int, set[int]] = {}  # last-seen subtree membership per sampled root
 
     def sample(self, pid: int) -> float | None:
         """Return the subtree's summed CPU percent, or ``None`` when priming/unreadable."""
-        try:
-            root = self._procs.get(pid)
-            first_sight = root is None
-            if root is None:
-                root = psutil.Process(pid)
-                self._procs[pid] = root
-                self._ctimes[pid] = root.create_time()
-                root.cpu_percent(interval=None)  # prime; the first reading is meaningless
-            total = 0.0 if first_sight else root.cpu_percent(interval=None)
-            root_ctime = self._ctimes[pid]
-            member_pids = set(subtree_pids(pid))
-            for member_pid in member_pids:
-                if member_pid == pid:
-                    continue
-                cached = self._procs.get(member_pid)
-                try:
-                    if cached is None:
-                        # New descendant: construct once, cache + prime so the next sample
-                        # reads real usage.  A descendant "older" than the root means its
-                        # pid was reused (children()'s in-time guard) — skip, uncached, so
-                        # it is re-checked rather than adopted if it shows up again.
-                        descendant = psutil.Process(member_pid)
-                        if descendant.create_time() < root_ctime:
-                            continue
-                        self._procs[member_pid] = descendant
-                        self._ctimes[member_pid] = descendant.create_time()
-                        descendant.cpu_percent(interval=None)
-                    else:
-                        total += cached.cpu_percent(interval=None)
-                except (psutil.NoSuchProcess, psutil.AccessDenied):
-                    self._drop(member_pid)
-            self._drop_departed(pid, member_pids)
-            return None if first_sight else total
-        except (psutil.NoSuchProcess, psutil.AccessDenied, ValueError):
-            # ValueError: psutil rejects non-positive PIDs.
+        members = subtree_members(pid)
+        if not members:
+            # Root gone/unreadable (or its pid non-positive).  Never a reading: a partial
+            # total here would be taken for a genuine idle sample.
             self._drop_departed(pid, set())
-            self._drop(pid)
+            self._handles.drop(pid)
             return None
-
-    def _drop(self, pid: int) -> None:
-        """Forget one cached handle (its process exited or its pid was reused)."""
-        self._procs.pop(pid, None)
-        self._ctimes.pop(pid, None)
+        total: float | None = 0.0
+        for member_pid, member_ctime in members.items():
+            # ``holds`` is False for a new process *and* for a recycled pid (identity changed):
+            # both get a fresh handle whose first reading only primes the delta.
+            first_sight = not self._handles.holds(member_pid, member_ctime)
+            handle = self._handles.get(member_pid, member_ctime)
+            if handle is None:
+                if member_pid == pid:
+                    total = None  # the root itself is unreadable: no sample this tick
+                continue
+            try:
+                reading = handle.cpu_percent(interval=None)
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                self._handles.drop(member_pid)
+                if member_pid == pid:
+                    total = None
+                continue
+            if first_sight:
+                if member_pid == pid:
+                    total = None  # the root's first reading is meaningless: no sample this tick
+            elif total is not None:
+                total += reading
+        self._drop_departed(pid, set(members))
+        return total
 
     def _drop_departed(self, pid: int, member_pids: set[int]) -> None:
         """Drop cached handles for pids that left *pid*'s subtree since the previous sample.
 
         Keeps the cache bounded under process churn — without this, a handle for an exited
-        descendant would linger until pid reuse happened to trip psutil's identity check.
+        descendant would linger until its pid was recycled and the identity check evicted it.
         """
         for departed_pid in self._members.get(pid, set()) - member_pids - {pid}:
-            self._drop(departed_pid)
+            self._handles.drop(departed_pid)
         if member_pids:
             self._members[pid] = member_pids
         else:

@@ -189,34 +189,70 @@ def _ppid_snapshot() -> dict[int, int] | None:
         return None
 
 
-def subtree_pids(pid: int) -> list[int]:
-    """Return *pid* plus all descendant pids without constructing any ``psutil.Process`` handles.
+def _create_time(pid: int) -> float | None:
+    """Return *pid*'s process creation time, or ``None`` when the process is gone/unreadable.
 
-    Same tree :func:`subtree_processes` walks, but membership only, computed from one
-    ``{pid: ppid}`` snapshot.  Empty when the process doesn't exist (fail-open, matching
-    ``subtree_processes``).  The root pid is always first in the returned list.
+    ``(pid, create_time)`` is a process's identity (psutil's own ``__eq__`` rule): a pid that
+    was recycled has a different creation time.  Read through psutil's platform layer, which
+    is one native call (the very read ``psutil.Process.__init__`` performs) with no
+    ``psutil.Process`` construction and none of its object churn; falls back to a full
+    construction if the private platform module is ever missing.
+    """
+    platform_module = getattr(psutil, "_psplatform", None)
+    try:
+        if platform_module is None:
+            return psutil.Process(pid).create_time()
+        return platform_module.Process(pid).create_time()
+    except PSUTIL_READ_ERRORS:
+        return None
+
+
+def subtree_members(pid: int) -> dict[int, float]:
+    """Return ``{pid: create_time}`` for *pid* plus all its descendants, root first.
+
+    Same tree :func:`subtree_processes` walks and the same two guards as psutil's
+    ``children(recursive=True)`` — a member that vanished since the snapshot is skipped,
+    and a member *older than the root* is a recycled pid (an orphan whose dead parent's pid
+    the root inherited), so it and its subtree are excluded — but computed from one
+    ``{pid: ppid}`` snapshot plus one native ``create_time`` read per member, with no
+    ``psutil.Process`` constructed.  Empty when the root doesn't exist (fail-open).
+
+    The creation times double as the identity each cached handle is checked against on
+    every read (:meth:`ProcessHandleCache.get`), so pid reuse costs no extra native reads.
     """
     snapshot = _ppid_snapshot()
     if snapshot is None:
-        return [p.pid for p in subtree_processes(pid)]
+        return {p.pid: p.create_time() for p in subtree_processes(pid)}  # create_time is memoized on construction
     if pid not in snapshot:
-        return []
+        return {}
+    root_ctime = _create_time(pid)
+    if root_ctime is None:
+        return {}
     children_of: defaultdict[int, list[int]] = defaultdict(list)
     for child_pid, parent_pid in snapshot.items():
         children_of[parent_pid].append(child_pid)
     # DFS over the snapshot; ``seen`` guards against cycles from pid reuse racing the
     # snapshot (the same guard psutil's children(recursive=True) uses).
-    members = [pid]
+    members = {pid: root_ctime}
     seen = {pid}
     stack = [pid]
     while stack:
         current_pid = stack.pop()
         for child_pid in children_of.get(current_pid, ()):
-            if child_pid not in seen:
-                seen.add(child_pid)
-                members.append(child_pid)
-                stack.append(child_pid)
+            if child_pid in seen:
+                continue
+            seen.add(child_pid)
+            child_ctime = _create_time(child_pid)
+            if child_ctime is None or child_ctime < root_ctime:
+                continue  # gone since the snapshot, or a recycled pid (older than the root): not a descendant
+            members[child_pid] = child_ctime
+            stack.append(child_pid)
     return members
+
+
+def subtree_pids(pid: int) -> list[int]:
+    """Return *pid* plus all descendant pids (root first) — :func:`subtree_members` without the creation times."""
+    return list(subtree_members(pid))
 
 
 class ProcessHandleCache:
@@ -225,25 +261,37 @@ class ProcessHandleCache:
     Constructing a ``psutil.Process`` runs a native init (a ``create_time`` identity read);
     a caller that re-reads the same tree every sample would otherwise re-run that native
     init for every member on every sample (see :func:`subtree_processes`).  Keep one cache
-    per sampled root and handles are constructed only at first sight of a pid.
+    per sampled root and handles are constructed only at first sight of a process.
 
-    Handles self-heal on pid reuse: psutil's identity check makes any method call on a
-    stale handle raise ``NoSuchProcess``, at which point callers :meth:`drop` it and the
-    next :meth:`get` constructs a fresh one.
+    A cached handle is only ever handed out against the process identity the caller just
+    observed (``create_time`` from :func:`subtree_members`): psutil's per-read methods
+    (``cpu_percent``, ``memory_info``) do **not** detect pid reuse themselves, so without
+    this check a recycled pid would be read through the dead process's handle — a bogus
+    cross-process CPU delta or a misattributed commit figure.  A mismatch drops the stale
+    handle and constructs a fresh one for the new process.
     """
 
     def __init__(self) -> None:
-        self._procs: dict[int, psutil.Process] = {}
+        self._procs: dict[int, tuple[psutil.Process, float]] = {}  # pid -> (handle, create_time it was constructed for)
 
-    def get(self, pid: int) -> psutil.Process | None:
-        """Return the cached handle for *pid*, constructing it at first sight; ``None`` when unreadable."""
-        handle = self._procs.get(pid)
-        if handle is None:
-            try:
-                handle = psutil.Process(pid)
-            except PSUTIL_READ_ERRORS:
-                return None
-            self._procs[pid] = handle
+    def holds(self, pid: int, create_time: float) -> bool:
+        """Return whether a handle for exactly this process (*pid* born at *create_time*) is cached."""
+        cached = self._procs.get(pid)
+        return cached is not None and cached[1] == create_time
+
+    def get(self, pid: int, create_time: float) -> psutil.Process | None:
+        """Return the handle for *pid* born at *create_time*, constructing it at first sight of that identity.
+
+        ``None`` when the process can't be read (gone, or access denied on construction).
+        """
+        if self.holds(pid, create_time):
+            return self._procs[pid][0]
+        try:
+            handle = psutil.Process(pid)
+        except PSUTIL_READ_ERRORS:
+            self.drop(pid)
+            return None
+        self._procs[pid] = (handle, create_time)
         return handle
 
     def drop(self, pid: int) -> None:
@@ -271,26 +319,20 @@ def subtree_commit(pid: int, handle_cache: ProcessHandleCache | None = None) -> 
     newly-seen pids instead of the whole subtree every call (fewer native ``Process``
     inits — see :class:`ProcessHandleCache`).
     """
+    if handle_cache is None:
+        handle_cache = ProcessHandleCache()  # one-shot read: a throwaway cache is exactly a construct-per-member walk
     total = 0
-    member_pids = subtree_pids(pid)
-    for member_pid in member_pids:
-        if handle_cache is None:
-            try:
-                member = psutil.Process(member_pid)
-            except PSUTIL_READ_ERRORS:
-                continue
-        else:
-            member = handle_cache.get(member_pid)
-            if member is None:
-                continue
+    members = subtree_members(pid)
+    for member_pid, member_ctime in members.items():
+        member = handle_cache.get(member_pid, member_ctime)
+        if member is None:
+            continue
         try:
             mem = member.memory_info()
             total += getattr(mem, "pagefile", None) or mem.vms
         except (psutil.NoSuchProcess, psutil.AccessDenied):
-            if handle_cache is not None:
-                handle_cache.drop(member_pid)
-    if handle_cache is not None:
-        handle_cache.prune_to(set(member_pids))
+            handle_cache.drop(member_pid)
+    handle_cache.prune_to(set(members))
     return total
 
 

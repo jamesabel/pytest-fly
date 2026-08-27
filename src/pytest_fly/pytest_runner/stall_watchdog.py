@@ -129,6 +129,7 @@ class StallWatchdog(MonitorThread):
         idle_pids: list[int] = []
         any_active = False
         real_readings = 0
+        self._subtree_cpu.retain(set(running_pids))  # finished modules' root bundles are never sampled again: evict them
         for pid in running_pids:
             cpu = self._cpu_sampler(pid)
             if cpu is None:

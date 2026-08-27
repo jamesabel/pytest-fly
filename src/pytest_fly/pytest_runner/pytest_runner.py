@@ -27,7 +27,7 @@ from ..db import PytestProcessInfoDB, PytestProcessInfoReader
 from ..interfaces import PyTestFlyExitCode, ScheduledTest, status_record
 from ..logger import EVENT_EXTRA, get_logger
 from .admission import AdmissionGate, AdmissionGateConfig
-from .commit_memory import PSUTIL_READ_ERRORS, subtree_processes
+from .commit_memory import subtree_members
 from .const import FAIL_OPEN_ERRORS, TIMEOUT
 from .pytest_process import PytestProcess, reap_pids, terminate_process_tree
 from .resource_guard import ResourceGuard, ResourceGuardConfig, ResourceGuardInfo
@@ -680,16 +680,18 @@ class _TestRunner(Thread):
 
         Accumulates rather than replaces: a child that dies before the next poll would
         otherwise be missed, and the ``create_time`` match in :func:`reap_pids` discards
-        dead or recycled entries at reap time. Fail-open — any psutil error is ignored.
+        dead or recycled entries at reap time. Fail-open — an unreadable tree is empty.
+
+        Runs every poll in the GUI process, so it must not construct ``psutil.Process``
+        handles (see :func:`~.commit_memory.subtree_processes`): :func:`subtree_members`
+        yields exactly the ``(pid, create_time)`` pairs needed from one snapshot.
         """
         proc = self.process
         if proc is None or proc.pid is None:
             return
-        for child in subtree_processes(proc.pid)[1:]:  # [0] is the test process itself
-            try:
-                snapshot.add((child.pid, child.create_time()))
-            except PSUTIL_READ_ERRORS:
-                continue
+        for child_pid, child_ctime in subtree_members(proc.pid).items():
+            if child_pid != proc.pid:  # the test process itself is not a descendant
+                snapshot.add((child_pid, child_ctime))
 
     # ------------------------------------------------------------------
     # Main loop

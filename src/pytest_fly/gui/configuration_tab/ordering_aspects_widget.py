@@ -35,8 +35,8 @@ class OrderingAspectsWidget(QGroupBox):
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__("Test Ordering (highest priority=top)", parent)
-        # Hug our content — do not stretch into parent layout whitespace.
-        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        # Fill the column width like the sibling group boxes; hug our content vertically.
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         self.setToolTip(
             "Controls the order tests run in.\n\n"
             "Check a row to enable that aspect; uncheck to disable. Enabled rows appear above disabled ones.\n"
@@ -55,22 +55,24 @@ class OrderingAspectsWidget(QGroupBox):
         outer = QVBoxLayout()
         outer.setContentsMargins(8, 6, 8, 6)
         outer.setSpacing(4)
-        outer.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        outer.setAlignment(Qt.AlignmentFlag.AlignTop)
         self.setLayout(outer)
 
         body = QHBoxLayout()
         body.setSpacing(4)
-        body.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        body.setAlignment(Qt.AlignmentFlag.AlignTop)
         outer.addLayout(body)
 
         self._list = QListWidget()
         self._list.setSelectionMode(QListWidget.SelectionMode.SingleSelection)
-        self._list.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        # Take whatever width the group box offers (never narrower than the
+        # content-fitted minimum set below); height stays pinned to the row count.
+        self._list.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         # Remove the scroll bars — with only four fixed rows the widget is sized
         # to show them all, so scrolling would be misleading whitespace.
         self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._list.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        body.addWidget(self._list)
+        body.addWidget(self._list, 1)
 
         buttons = QVBoxLayout()
         buttons.setAlignment(Qt.AlignmentFlag.AlignTop)
@@ -90,7 +92,10 @@ class OrderingAspectsWidget(QGroupBox):
         self._list.itemChanged.connect(self._on_item_changed)
 
     def _resize_list_to_content(self) -> None:
-        """Fix the list widget's size to exactly fit its rows and longest label.
+        """Pin the list's height to its rows and its minimum width to the longest label.
+
+        The width is a floor, not a fixed size — the list grows with the group box
+        so the widget lines up with the other group boxes in its column.
 
         Sized from the actual rendered text bounding box (not just glyph
         advance) plus the space the style needs for the check indicator and
@@ -121,7 +126,8 @@ class OrderingAspectsWidget(QGroupBox):
         slack = 4 * fm.horizontalAdvance("X")
         width = text_width + indicator + scroll_extent + slack + frame
         row_height = self._list.sizeHintForRow(0) or fm.height() + 4
-        self._list.setFixedSize(width, row_height * count + frame)
+        self._list.setMinimumWidth(width)
+        self._list.setFixedHeight(row_height * count + frame)
 
     def reset_to_defaults(self) -> None:
         """Restore the built-in default aspect seed (persisted) and re-render the list.

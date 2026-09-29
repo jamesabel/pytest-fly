@@ -12,7 +12,7 @@ Chart style follows ``coverage_tab._CoverageChart`` — custom ``QPainter`` with
 ``TimeAxisMapping`` + ``compute_grid_ticks`` from the graph-tab time-axis module.
 """
 
-import os
+import ntpath
 import time
 from collections import deque
 from collections.abc import Iterable
@@ -308,7 +308,7 @@ class SystemMetricsWindow(QGroupBox):
             entries = []
             for pf in active:
                 entry = f"{pf.path} {pf.in_use_bytes / _BYTES_PER_GB:.1f}/{pf.total_bytes / _BYTES_PER_GB:.1f} GB ({pf.percent:.0f}%)"
-                if os.path.splitdrive(pf.path)[0].upper() in system_managed_drives:
+                if ntpath.splitdrive(pf.path)[0].upper() in system_managed_drives:  # ntpath: kernel paths are Windows paths on every platform
                     entry += " system-managed"
                 entries.append(entry)
             total_gb = sum(pf.total_bytes for pf in active) / _BYTES_PER_GB

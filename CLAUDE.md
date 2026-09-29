@@ -62,7 +62,7 @@ pip install -r requirements-dev.txt
 - `test_list.py` — `GetTests` process: discovers tests via `pytest --collect-only`. Callers wait via `collect(abort_event)`, which drains the result queue while the child runs — a join-before-drain deadlocks permanently past ~500 modules (full queue pipe blocks the child's exit).
 - `process_monitor.py` — `ProcessMonitor` subprocess: samples CPU/memory of the test process tree; `SubtreeCpuSampler` (shared persistent-handle CPU sampling).
 - `system_monitor.py` — `SystemMonitor` subprocess: system-wide CPU/memory/commit/disk/network sampling for the Run tab charts.
-- `commit_memory.py` — Windows commit-charge readers and psutil subtree helpers.
+- `commit_memory.py` — Windows commit-charge readers (`commit_charge_and_limit`, the registry's configured `pagefile_breakdown`, the kernel's live `active_pagefiles` via `NtQuerySystemInformation`) and psutil subtree helpers.
 - `coverage.py` — merges per-process coverage data (one `cov.report()` pass yields both the percentage and the TOTAL line).
 - `coverage_aggregator.py` — `CoverageAggregator` spawn child + `aggregate_coverage()` → `CoverageResult`: runs `calculate_coverage()` and the per-test executed-line counts out of the GUI process (constructing `coverage.Coverage` in-process has crashed the interpreter natively — the GUI never does it); a dead/hung child is a logged warning, not a crash.
 - `ordering.py` — applies the user's test-ordering aspects; `live_output.py` — per-test live-output file paths.

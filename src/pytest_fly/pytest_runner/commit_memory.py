@@ -12,8 +12,17 @@ The OS-specific read is isolated behind :func:`commit_charge_and_limit` so other
 platforms can be added later without touching callers.  Every read is fail-open: any
 error (or running on an unsupported platform) returns ``None`` instead of raising, so a
 bad memory reading never breaks the GUI or a test run.
+
+Two more readers describe the pagefile half of the commit limit with the same contract
+(``[]`` off Windows and on any error, the failure logged once):
+:func:`pagefile_breakdown` is the *configured* list from the registry (boot-time
+configuration, sizes blank for system-managed files) and :func:`active_pagefiles` is
+what the kernel is *using right now* (every active file, including one activated after
+boot, with its live size and use).
 """
 
+import ctypes
+import mmap
 import sys
 from collections import defaultdict
 from dataclasses import dataclass
@@ -29,6 +38,8 @@ log = get_logger()
 _warned_once = False
 # Same one-shot guard for the pagefile-config read.
 _pagefile_warned_once = False
+# Same one-shot guard for the kernel's active-pagefile read.
+_active_pagefiles_warned_once = False
 # One-shot guard for the private-psutil pid->ppid snapshot falling back to a handle walk.
 _ppid_snapshot_warned_once = False
 
@@ -48,6 +59,83 @@ class PageFileInfo:
     initial_mb: int  # configured initial size in MB (0 when system-managed)
     maximum_mb: int  # configured maximum size in MB (0 when system-managed)
     system_managed: bool  # True when Windows manages the size automatically
+
+
+@dataclass(frozen=True)
+class PageFileUsage:
+    """One page file the kernel has active right now (see :func:`active_pagefiles`).
+
+    Sizes are **bytes** (matching :func:`commit_charge_and_limit`); the GUI formats.
+    """
+
+    path: str  # Win32 path, e.g. r"C:\pagefile.sys" (the NT prefix "\??\" removed)
+    total_bytes: int  # current size of the file
+    in_use_bytes: int  # bytes of the file the kernel is using
+    peak_bytes: int  # peak use since the file was activated
+
+    @property
+    def percent(self) -> float:
+        """Use as a percentage of the size (0.0 when the size is 0)."""
+        return 100.0 * self.in_use_bytes / self.total_bytes if self.total_bytes else 0.0
+
+
+# ``NtQuerySystemInformation`` information class for the active page files — the source
+# Task Manager and WMI's ``Win32_PageFileUsage`` read.  A module-level name so a test can
+# point it at an invalid class to exercise the fail-open path.
+_SYSTEM_PAGEFILE_INFORMATION = 18
+_STATUS_INFO_LENGTH_MISMATCH = 0xC0000004
+_NT_PATH_PREFIX = "\\??\\"
+_PAGEFILE_QUERY_BUFFER_START = 4096  # bytes; one entry is well under 1 KB
+_PAGEFILE_QUERY_BUFFER_MAX = 1 << 20  # bytes; give up (fail open) past this
+
+
+class _UnicodeString(ctypes.Structure):
+    # Fixed-width types (not ``wintypes``): a Windows ULONG is 4 bytes while ``c_ulong``
+    # is 8 on Linux, and fixed widths keep the parser unit-testable on every platform.
+    _fields_ = (
+        ("Length", ctypes.c_uint16),  # bytes, not characters
+        ("MaximumLength", ctypes.c_uint16),
+        ("Buffer", ctypes.c_void_p),
+    )
+
+
+class _PageFileInformation(ctypes.Structure):
+    """``SYSTEM_PAGEFILE_INFORMATION``: sizes in pages; entries chained by ``NextEntryOffset``."""
+
+    _fields_ = (
+        ("NextEntryOffset", ctypes.c_uint32),  # 0 on the last entry
+        ("TotalSize", ctypes.c_uint32),  # pages
+        ("TotalInUse", ctypes.c_uint32),  # pages
+        ("PeakUsage", ctypes.c_uint32),  # pages
+        ("PageFileName", _UnicodeString),  # e.g. L"\??\C:\pagefile.sys"
+    )
+
+
+def parse_pagefile_information(buffer, page_size: int) -> list[PageFileUsage]:
+    r"""Return the page files in a ``SystemPageFileInformation`` *buffer* (a writable ctypes char array).
+
+    Kept separate from the kernel call so tests can build a buffer and never touch the kernel.
+    Sizes come in pages and are converted with *page_size*; the NT ``\??\`` prefix is dropped
+    so paths read as the Win32 ``C:\pagefile.sys``.
+    """
+    files: list[PageFileUsage] = []
+    offset = 0
+    while True:
+        entry = _PageFileInformation.from_buffer(buffer, offset)
+        name = entry.PageFileName
+        raw = ctypes.string_at(name.Buffer, name.Length) if name.Buffer else b""
+        path = raw.decode("utf-16-le").removeprefix(_NT_PATH_PREFIX)
+        files.append(
+            PageFileUsage(
+                path=path,
+                total_bytes=entry.TotalSize * page_size,
+                in_use_bytes=entry.TotalInUse * page_size,
+                peak_bytes=entry.PeakUsage * page_size,
+            )
+        )
+        if entry.NextEntryOffset == 0:
+            return files
+        offset += entry.NextEntryOffset
 
 
 def commit_charge_and_limit() -> tuple[int, int] | None:
@@ -148,6 +236,49 @@ def pagefile_breakdown() -> list[PageFileInfo]:
         if not _pagefile_warned_once:
             log.warning(f"could not read pagefile configuration ({e}); pagefile breakdown disabled")
             _pagefile_warned_once = True
+        return []
+
+
+def active_pagefiles() -> list[PageFileUsage]:
+    """Return every page file the kernel has active right now, or ``[]`` if unavailable.
+
+    Unlike :func:`pagefile_breakdown` (the registry's boot-time configuration) this includes a
+    file activated after boot (``NtCreatePagingFile``) and carries each file's live size and use,
+    including for system-managed files whose configured size is recorded as zero.  Read with
+    ``NtQuerySystemInformation(SystemPageFileInformation)`` — what Task Manager and WMI read —
+    in about 50 µs, with no privilege, dependency or subprocess, so callers may sample it.
+
+    Same contract as :func:`commit_charge_and_limit` / :func:`pagefile_breakdown`: ``[]`` on
+    non-Windows platforms and on any error, the failure logged once (callers sample about once a
+    second), so a bad read never breaks the GUI or a run.
+    """
+    global _active_pagefiles_warned_once
+
+    # Single return point per platform (Linux would parse ``/proc/swaps`` here).
+    if sys.platform != "win32":
+        return []
+
+    try:
+        size = _PAGEFILE_QUERY_BUFFER_START
+        while True:
+            buffer = ctypes.create_string_buffer(size)
+            return_length = ctypes.c_uint32(0)
+            # NTSTATUS is a signed 32-bit value; mask so the comparisons below see it unsigned.
+            status = ctypes.windll.ntdll.NtQuerySystemInformation(_SYSTEM_PAGEFILE_INFORMATION, buffer, size, ctypes.byref(return_length)) & 0xFFFFFFFF
+            if status != _STATUS_INFO_LENGTH_MISMATCH:
+                break
+            size *= 2
+            if size > _PAGEFILE_QUERY_BUFFER_MAX:
+                raise OSError(f"SystemPageFileInformation needs more than {_PAGEFILE_QUERY_BUFFER_MAX} bytes")
+        if status != 0:
+            raise OSError(f"NtQuerySystemInformation(SystemPageFileInformation) failed: {status:#x}")
+        if return_length.value == 0:
+            return []  # no page file at all (not an error, so nothing is logged)
+        return parse_pagefile_information(buffer, mmap.PAGESIZE)
+    except (OSError, AttributeError, ValueError) as e:  # ctypes/ntdll load or call failure, or a malformed name
+        if not _active_pagefiles_warned_once:
+            log.warning(f"could not read the active page files ({e}); active pagefile listing disabled")
+            _active_pagefiles_warned_once = True
         return []
 
 

@@ -7,6 +7,7 @@ from PySide6.QtCore import QRect, QSize
 
 from pytest_fly.gui.coverage_tab import CoverageTab
 from pytest_fly.gui.gui_main import FlyAppMainWindow, build_tick_data
+from pytest_fly.gui.run_tab import system_metrics_window
 from pytest_fly.gui.run_tab.control_window import ControlWindow
 from pytest_fly.gui.run_tab.system_metrics_window import SystemMetricsWindow
 from pytest_fly.interfaces import (
@@ -16,6 +17,7 @@ from pytest_fly.interfaces import (
     ScheduledTest,
 )
 from pytest_fly.preferences import get_pref
+from pytest_fly.pytest_runner.commit_memory import PageFileInfo, PageFileUsage
 from pytest_fly.pytest_runner.system_monitor import SystemMonitorSample
 
 from .paths import get_temp_dir
@@ -398,3 +400,49 @@ def test_window_geometry_round_trips_without_drift(app):
 
     assert geometry_after_first_reopen != ""
     assert geometry_after_first_reopen == geometry_after_second_reopen  # stable: no drift
+
+
+# AI-GENERATED TEST (Claude Code) - delete this line to make this test human-owned.
+def test_commit_status_lists_active_pagefiles(qtbot, monkeypatch):
+    """The status line names every active page file with its live size and use, flags the one the registry
+    says is system-managed (a ``?:`` entry matches the system drive), and totals the parts."""
+    gb = 1024**3
+    c_file = PageFileUsage(path="C:\\pagefile.sys", total_bytes=int(26.6 * gb), in_use_bytes=int(0.6 * gb), peak_bytes=int(25.0 * gb))
+    v_file = PageFileUsage(path="V:\\pagefile.sys", total_bytes=128 * gb, in_use_bytes=int(0.1 * gb), peak_bytes=int(0.2 * gb))
+    monkeypatch.setattr(system_metrics_window, "active_pagefiles", lambda: [c_file, v_file])
+    monkeypatch.setattr(system_metrics_window, "pagefile_breakdown", lambda: [PageFileInfo(path="?:\\pagefile.sys", drive="C:", initial_mb=0, maximum_mb=0, system_managed=True)])
+
+    window = SystemMetricsWindow(None)
+    qtbot.addWidget(window)
+
+    text = window._commit_status_label.text()
+    assert "Pagefile: C:\\pagefile.sys 0.6/26.6 GB (2%) system-managed" in text
+    assert "V:\\pagefile.sys 0.1/128.0 GB (0%) (total 154.6 GB)" in text
+    assert "V:\\pagefile.sys 0.1/128.0 GB (0%) system-managed" not in text  # only the registry-flagged file is marked
+
+
+# AI-GENERATED TEST (Claude Code) - delete this line to make this test human-owned.
+def test_commit_status_pagefile_fallback_when_kernel_read_unavailable(qtbot, monkeypatch):
+    """With the kernel read returning [] (non-Windows, or it failed) the line is the registry-based text:
+    configured discs + sizes, the total derived as commit limit minus physical RAM from the latest sample."""
+    monkeypatch.setattr(system_metrics_window, "active_pagefiles", list)
+    configured = [
+        PageFileInfo(path="?:\\pagefile.sys", drive="C:", initial_mb=0, maximum_mb=0, system_managed=True),
+        PageFileInfo(path="V:\\pagefile.sys", drive="V:", initial_mb=131072, maximum_mb=131072, system_managed=False),
+    ]
+    monkeypatch.setattr(system_metrics_window, "pagefile_breakdown", lambda: configured)
+
+    window = SystemMetricsWindow(None)
+    qtbot.addWidget(window)
+    assert window._pagefile_summary() == "Pagefile: C: auto, V: 128.0 GB"
+
+    # A sample supplies the commit limit (48 GB) and physical RAM (16 GB, from _make_samples) -> 32 GB of pagefile.
+    sample = dataclasses.replace(_make_samples(1)[0], commit_used_gb=10.0, commit_total_gb=48.0, commit_percent=100.0 * 10.0 / 48.0)
+    window.ingest_samples([sample])
+    window.update_tick()
+    assert window._pagefile_summary() == "Pagefile: C: auto, V: 128.0 GB (total 32.0 GB)"
+
+    # No configured pagefiles either -> "n/a" (the registry list is re-read on reset).
+    monkeypatch.setattr(system_metrics_window, "pagefile_breakdown", list)
+    window._reset_commit_stats()
+    assert window._pagefile_summary() == "Pagefile: n/a (total 32.0 GB)"

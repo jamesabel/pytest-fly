@@ -12,6 +12,7 @@ Chart style follows ``coverage_tab._CoverageChart`` — custom ``QPainter`` with
 ``TimeAxisMapping`` + ``compute_grid_ticks`` from the graph-tab time-axis module.
 """
 
+import ntpath
 import time
 from collections import deque
 from collections.abc import Iterable
@@ -33,7 +34,8 @@ from ...colors import (
 )
 from ...interfaces import PytestRunnerState
 from ...preferences import get_pref
-from ...pytest_runner.commit_memory import PageFileInfo, commit_warning_active, pagefile_breakdown
+from ...pytest_runner.commit_memory import PageFileInfo, active_pagefiles, commit_warning_active, pagefile_breakdown
+from ...pytest_runner.const import BYTES_PER_GB as _BYTES_PER_GB
 from ...pytest_runner.system_monitor import SystemMonitorSample
 from ...tick_data import TickData
 from ..charts import MetricChart, Series
@@ -145,8 +147,8 @@ class SystemMetricsWindow(QGroupBox):
         layout.addWidget(self._activity_chart, 2, 1)
 
         # Commit status line — always visible beneath the chart grid (spans the full width so it never
-        # steals a chart cell). It shows the all-time peak commit charge and the pagefile breakdown
-        # (the discs + sizes that, with physical RAM, make up the commit limit). When the commit charge
+        # steals a chart cell). It shows the all-time peak commit charge and the active page files
+        # (the files + live sizes and use that, with physical RAM, make up the commit limit). When the commit charge
         # crosses the configured threshold the warning latches: it is prepended in orange and the Commit
         # chart turns orange, and both hold (even after a transient spike subsides) until the user resets.
         self._samples: deque[SystemMonitorSample] = deque()
@@ -158,7 +160,9 @@ class SystemMetricsWindow(QGroupBox):
         self._commit_peak_percent = 0.0
         self._commit_peak_used_gb = 0.0
         self._commit_peak_total_gb = 0.0
-        # Configured pagefiles — read once (a cheap registry read) and refreshed on reset.
+        # Configured pagefiles (the registry's boot-time list) — read once (a cheap registry read) and
+        # refreshed on reset. Only used to flag which active file is system-managed; the active files
+        # themselves (with live use) are read from the kernel on every refresh in _pagefile_summary.
         self._pagefiles: list[PageFileInfo] = pagefile_breakdown()
 
         self._commit_status_label = QLabel("")
@@ -289,8 +293,27 @@ class SystemMetricsWindow(QGroupBox):
         return status
 
     def _pagefile_summary(self) -> str:
-        """Summarize the pagefiles that make up the commit limit: which discs and their sizes, plus the
-        live total pagefile (commit limit minus physical RAM, both from the latest sample)."""
+        """Summarize the page files that make up the commit limit.
+
+        Preferred source is the kernel's live list (:func:`active_pagefiles`, re-read on every refresh
+        since it is a microseconds read and use changes constantly): every active file by path with its
+        live size and use, "system-managed" appended when the registry configuration says so, and a
+        total that is the sum of the parts.  When that read is unavailable (non-Windows, or it failed)
+        fall back to the registry's configured list (discs + configured sizes) with the total derived as
+        commit limit minus physical RAM from the latest sample.
+        """
+        active = active_pagefiles()
+        if active:
+            system_managed_drives = {pf.drive for pf in self._pagefiles if pf.system_managed}
+            entries = []
+            for pf in active:
+                entry = f"{pf.path} {pf.in_use_bytes / _BYTES_PER_GB:.1f}/{pf.total_bytes / _BYTES_PER_GB:.1f} GB ({pf.percent:.0f}%)"
+                if ntpath.splitdrive(pf.path)[0].upper() in system_managed_drives:  # ntpath: kernel paths are Windows paths on every platform
+                    entry += " system-managed"
+                entries.append(entry)
+            total_gb = sum(pf.total_bytes for pf in active) / _BYTES_PER_GB
+            return "Pagefile: " + " · ".join(entries) + f" (total {total_gb:.1f} GB)"
+
         latest = self._samples[-1] if self._samples else None
         total_suffix = ""
         if latest is not None and latest.commit_total_gb > 0 and latest.memory_total_gb > 0:

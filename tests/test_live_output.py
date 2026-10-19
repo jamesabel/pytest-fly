@@ -58,12 +58,13 @@ def test_read_live_output_uses_cache_for_unchanged_file():
     with TemporaryDirectory() as tmp:
         data_dir = Path(tmp)
         path = _write_log(data_dir, "tests/test_a.py", b"first\n")
-        assert read_live_output(data_dir, "tests/test_a.py") == "first\n"
+        assert read_live_output(data_dir, "tests/test_a.py", max_bytes=1000) == "first\n"
         # Mutate the cache entry directly: if the file is re-read, this fake value
         # is overwritten; if the cache is used, it is returned unchanged.
-        size, mtime, _ = live_output._read_cache[path]
-        live_output._read_cache[path] = (size, mtime, "CACHED")
-        assert read_live_output(data_dir, "tests/test_a.py") == "CACHED"
+        # The cache is keyed by (path, max_bytes).
+        size, mtime, _ = live_output._read_cache[(path, 1000)]
+        live_output._read_cache[(path, 1000)] = (size, mtime, "CACHED")
+        assert read_live_output(data_dir, "tests/test_a.py", max_bytes=1000) == "CACHED"
 
 
 def test_read_live_output_truncates_large_file():

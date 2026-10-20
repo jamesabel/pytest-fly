@@ -15,11 +15,13 @@ from ..file_util import sanitize_test_name
 _LIVE_OUTPUT_SUBDIR = "live_output"
 _TRUNCATION_MARKER = "...[truncated]...\n"
 
-# Cache decoded live-output text keyed by path, invalidated by (size, mtime_ns).
+# Cache decoded live-output text keyed by (path, max_bytes), invalidated by (size, mtime_ns).
 # GUI ticks call read_live_output once per running test per tick just to keep
 # table tooltips current; this avoids the re-read + UTF-8 decode when the file
-# on disk has not changed.
-_read_cache: dict[Path, tuple[int, int, str]] = {}
+# on disk has not changed.  The byte limit is part of the key because the cached
+# text is the *tail* of the file: the same file read with a different max_bytes
+# yields different text, and callers do use different limits.
+_read_cache: dict[tuple[Path, int], tuple[int, int, str]] = {}
 
 
 def live_output_dir(data_dir: Path) -> Path:
@@ -42,14 +44,15 @@ def read_live_output(data_dir: Path, test_name: str, max_bytes: int = 65536) -> 
     Decodes with ``errors="replace"`` so non-UTF-8 bytes don't crash the GUI.
     """
     path = live_output_path(data_dir, test_name)
+    cache_key = (path, max_bytes)
     try:
         stat_result = path.stat()
     except FileNotFoundError:
-        _read_cache.pop(path, None)
+        _read_cache.pop(cache_key, None)
         return None
     file_size = stat_result.st_size
     mtime_ns = stat_result.st_mtime_ns
-    cached = _read_cache.get(path)
+    cached = _read_cache.get(cache_key)
     if cached is not None and cached[0] == file_size and cached[1] == mtime_ns:
         return cached[2]
     with open(path, "rb") as fh:
@@ -63,7 +66,7 @@ def read_live_output(data_dir: Path, test_name: str, max_bytes: int = 65536) -> 
         if newline_index != -1:
             text = text[newline_index + 1 :]
         text = _TRUNCATION_MARKER + text
-    _read_cache[path] = (file_size, mtime_ns, text)
+    _read_cache[cache_key] = (file_size, mtime_ns, text)
     return text
 
 

@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 
 import pytest
+from PySide6.QtCore import QCoreApplication, QEvent
 from PySide6.QtWidgets import QApplication
 
 from pytest_fly.paths import init_workspace
@@ -60,3 +61,27 @@ def make_many_tests():
             test_file = Path(many_test_dir, f"test_many_{test_number:03d}.py")
             lines = [f"def test_many_{test_number}():", "    print(sum([x for x in range((int(1E7)))]))", "    assert True\n"]
             test_file.write_text("\n".join(lines))
+
+
+# AI-GENERATED TEST (Claude Code) - delete this line to make this test human-owned.
+@pytest.fixture(scope="session", autouse=True)
+def _close_leftover_widgets():
+    """Close and delete every top-level widget still alive at session end, while the QApplication exists.
+
+    Tests build Configuration tabs, FlyAppMainWindows and other windows and simply drop them, so
+    ~100 top-level widgets are still alive when the session ends. Up to PySide6 6.11 they were
+    destroyed silently during interpreter shutdown; from PySide6 6.12.0 that shutdown-time
+    destruction (``PySide::destroyQCoreApplication``) aborts the process after the whole suite
+    has passed ("QObject: shared QObject was deleted directly"), which CI reports as a failed
+    run with every test green. Tearing the widgets down here, with the event loop still able to
+    deliver the deferred deletes, is the Qt-sanctioned order: widgets first, application last.
+    """
+    yield
+    app = QApplication.instance()
+    if app is None:
+        return
+    for widget in app.topLevelWidgets():
+        widget.close()
+        widget.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    app.processEvents()
